@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF Retest Source</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      color: #15364d;
+      background: #ffffff;
+    }
+
+    .page {
+      page-break-after: always;
+      min-height: 240mm;
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+    }
+
+    p {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    .diagram {
+      width: 320px;
+      height: 180px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #d9eef9, #fdf3db);
+      display: grid;
+      place-items: center;
+      border: 3px solid #8bb7d1;
+    }
+
+    .diagram svg {
+      width: 260px;
+      height: 120px;
+    }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <h1>Page One</h1>
+    <p>
+      This is a retest PDF, and it includes commas, periods, and short pauses.
+      The app should read this smoothly, keep the text reveal in sync, and move
+      through the selected pages correctly.
+    </p>
+    <div class="diagram">
+      <svg viewBox="0 0 260 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Math diagram">
+        <rect x="10" y="18" width="240" height="84" rx="16" fill="#ffffff"/>
+        <circle cx="52" cy="60" r="24" fill="#6bb9e6"/>
+        <circle cx="130" cy="60" r="24" fill="#f6c35c"/>
+        <circle cx="208" cy="60" r="24" fill="#7ad48d"/>
+        <path d="M76 60h30M154 60h30" stroke="#2f5870" stroke-width="6" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <p>
+      Read the next sentence carefully. We expect a small break after commas,
+      and a slightly longer break after full stops.
+    </p>
+  </section>
+
+  <section class="page">
+    <h1>Page Two</h1>
+    <p>
+      Page two should be selectable on its own. If we start from page two, the
+      presentation should begin there, not from the first page.
+    </p>
+    <p>
+      Speed controls should also respond: slower, normal, faster. The timeline
+      and the displayed content should still stay together.
+    </p>
+  </section>
+</body>
+</html>

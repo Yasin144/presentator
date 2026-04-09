@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF Retest Harness</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: "Segoe UI", sans-serif;
+      background: #0f1720;
+      color: #f3f7fb;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 14px;
+      border-radius: 12px;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 2400px;
+      border: 0;
+      background: #ffffff;
+    }
+  </style>
+</head>
+<body>
+  <pre id="results">Starting retest...</pre>
+  <iframe id="appFrame" src="index.html"></iframe>
+  <script src="retest-pdf-data.js"></script>
+  <script>
+    const results = document.getElementById("results");
+    const frame = document.getElementById("appFrame");
+
+    function log(line) {
+      results.textContent += `\n${line}`;
+    }
+
+    function fail(message) {
+      log(`FAIL: ${message}`);
+      document.body.setAttribute("data-status", "fail");
+      throw new Error(message);
+    }
+
+    function base64ToUint8Array(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return bytes;
+    }
+
+    async function waitFor(check, timeoutMs, label) {
+      const startedAt = Date.now();
+      while ((Date.now() - startedAt) < timeoutMs) {
+        const value = await check();
+        if (value) {
+          return value;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+      fail(`Timed out waiting for ${label}.`);
+      return null;
+    }
+
+    async function run() {
+      await waitFor(() => {
+        const frameDoc = frame.contentDocument;
+        const frameWindow = frame.contentWindow;
+        return Boolean(
+          frameDoc
+          && frameWindow
+          && frameWindow.location.href !== "about:blank"
+          && frameDoc.getElementById("pdfInput")
+          && frameDoc.getElementById("playBtn")
+          && typeof frameWindow.loadSelectedPdf === "function"
+          && frameWindow.__learningOutcomesState
+        );
+      }, 15000, "app controls");
+
+      const appWindow = frame.contentWindow;
+      const appDoc = frame.contentDocument;
+
+      const pdfInput = appDoc.getElementById("pdfInput");
+      const pdfShowBtn = appDoc.getElementById("pdfShowBtn");
+      const pdfPresentBtn = appDoc.getElementById("pdfPresentBtn");
+      const playBtn = appDoc.getElementById("playBtn");
+      const stagePanel = appDoc.getElementById("stagePanel");
+      const pageIndicator = appDoc.getElementById("pageIndicator");
+      const playbackSpeedSelect = appDoc.getElementById("playbackSpeedSelect");
+      const statusText = appDoc.getElementById("statusText");
+      const pdfStatus = appDoc.getElementById("pdfStatus");
+      const pdfPageList = appDoc.getElementById("pdfPageList");
+      const pageCards = () => Array.from(appDoc.querySelectorAll(".pdf-page-card"));
+
+      const pdfBytes = base64ToUint8Array(window.RETEST_PDF_BASE64 || "");
+      if (!pdfBytes.length) {
+        fail("No PDF test data was loaded.");
+      }
+
+      const file = new File([pdfBytes], "retest-sample.pdf", { type: "application/pdf" });
+      if (appWindow.__learningOutcomesState && typeof appWindow.loadSelectedPdf === "function") {
+        appWindow.__learningOutcomesState.pdfSelectedFile = file;
+        await appWindow.loadSelectedPdf(true);
+      } else if (typeof appWindow.handlePdfSelection === "function") {
+        await appWindow.handlePdfSelection({
+          target: {
+            files: [file]
+          }
+        });
+      } else {
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        pdfInput.files = dataTransfer.files;
+        pdfInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      log(`PDF status right after selection: ${pdfStatus.textContent.trim()}`);
+      if (appWindow.__learningOutcomesState) {
+        log(`Immediate PDF pages: ${appWindow.__learningOutcomesState.pdf.pages.length}`);
+      }
+
+      await waitFor(() => {
+        const status = pdfStatus.textContent.trim();
+        if (/failed|could not|please choose/i.test(status)) {
+          fail(`PDF load failed early: ${status}`);
+        }
+        return /Loaded retest-sample\.pdf/i.test(status);
+      }, 30000, "PDF load");
+      log(`PDF status: ${pdfStatus.textContent.trim()}`);
+      if (appWindow.__learningOutcomesState) {
+        log(`PDF pages after load: ${appWindow.__learningOutcomesState.pdf.pages.length}`);
+      }
+
+      await waitFor(() => pageCards().length >= 2, 10000, "PDF page cards");
+      log(`PDF page cards: ${pageCards().length}`);
+
+      if (typeof appWindow.ensurePdfNarrationReadyForPresentation === "function" && typeof appWindow.getPdfNarrationExportBlob === "function") {
+        await appWindow.ensurePdfNarrationReadyForPresentation({ timeoutMs: 45000 });
+        const narrationBlob = await appWindow.getPdfNarrationExportBlob();
+        log(`Narration blob bytes: ${narrationBlob.size}`);
+      }
+
+      const secondCard = pageCards()[1];
+      if (!secondCard) {
+        fail("Second PDF page card was not found.");
+      }
+      secondCard.click();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      log(`Page indicator after selecting page 2: ${pageIndicator.textContent.trim()}`);
+
+      pdfShowBtn.click();
+      await waitFor(() => !stagePanel.classList.contains("hidden"), 10000, "stage open");
+      log(`Stage open status: ${statusText.textContent.trim()}`);
+
+      playBtn.click();
+      await waitFor(() => /Preparing PDF narration|playing with generated narration|timeline controls/i.test(statusText.textContent), 30000, "PDF play start");
+      log(`Playback status after play: ${statusText.textContent.trim()}`);
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+      if (appWindow.__learningOutcomesState) {
+        log(`Playback speaking: ${appWindow.__learningOutcomesState.speaking}`);
+        log(`Playback time ms: ${appWindow.__learningOutcomesState.pdf.currentTimeMs}`);
+      }
+
+      playbackSpeedSelect.value = "1.5";
+      playbackSpeedSelect.dispatchEvent(new Event("input", { bubbles: true }));
+      await waitFor(() => /1\.5x/i.test(statusText.textContent), 5000, "speed status update");
+      log(`Playback status after speed change: ${statusText.textContent.trim()}`);
+
+      pdfPresentBtn.click();
+      await waitFor(() => /playing with generated narration|Preparing PDF narration|timeline controls/i.test(statusText.textContent), 30000, "PDF present button");
+      log(`Present button status: ${statusText.textContent.trim()}`);
+
+      if (/unavailable right now/i.test(statusText.textContent)) {
+        fail(`Narration fallback was used instead of generated narration: ${statusText.textContent.trim()}`);
+      }
+
+      if (typeof appWindow.stopPlayback === "function") {
+        appWindow.stopPlayback(false);
+      }
+
+      const originalTriggerFileDownload = appWindow.triggerFileDownload;
+      let capturedDownload = null;
+      appWindow.triggerFileDownload = (blob, fileName) => {
+        capturedDownload = { blob, fileName };
+      };
+
+      const downloadBtn = appDoc.getElementById("downloadBtn");
+      downloadBtn.click();
+      await waitFor(() => capturedDownload && capturedDownload.blob && capturedDownload.blob.size > 0, 120000, "PDF context export");
+      log(`Export file: ${capturedDownload.fileName}`);
+      log(`Export bytes: ${capturedDownload.blob.size}`);
+      log(`Export status: ${statusText.textContent.trim()}`);
+      appWindow.triggerFileDownload = originalTriggerFileDownload;
+
+      document.body.setAttribute("data-status", "pass");
+      log("PASS: PDF load, stage open, and generated narration path responded without fallback.");
+    }
+
+    run().catch((error) => {
+      log(`ERROR: ${error.message}`);
+      document.body.setAttribute("data-status", "fail");
+    });
+  </script>
+</body>
+</html>
