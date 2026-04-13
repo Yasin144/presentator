@@ -121,13 +121,13 @@ class AnjaliCloneEngine:
             "gender": "female",
             "locale": "en-IN",
             "accent": "indian",
-            "style": "warm-natural-classroom",
+            "style": "indian-female-clear-classroom",
         }
         self.generate_options = {
-            "repetition_penalty": 1.08,
-            "top_p": 0.92,
-            "temperature": 0.67,
-            "top_k": 80,
+            "repetition_penalty": 1.12,
+            "top_p": 0.88,
+            "temperature": 0.58,
+            "top_k": 64,
             "exaggeration": 0.0,
             "cfg_weight": 0.0,
             "min_p": 0.0,
@@ -282,10 +282,10 @@ class AnjaliCloneEngine:
                 wav = model.generate(
                     safe_text,
                     audio_prompt_path=None,
-                    repetition_penalty=float(self.generate_options.get("repetition_penalty", 1.08)),
-                    top_p=float(self.generate_options.get("top_p", 0.92)),
-                    temperature=float(self.generate_options.get("temperature", 0.67)),
-                    top_k=int(self.generate_options.get("top_k", 80)),
+                    repetition_penalty=float(self.generate_options.get("repetition_penalty", 1.12)),
+                    top_p=float(self.generate_options.get("top_p", 0.88)),
+                    temperature=float(self.generate_options.get("temperature", 0.58)),
+                    top_k=int(self.generate_options.get("top_k", 64)),
                     cfg_weight=float(self.generate_options.get("cfg_weight", 0.0)),
                     exaggeration=float(self.generate_options.get("exaggeration", 0.0)),
                     min_p=float(self.generate_options.get("min_p", 0.0)),
@@ -359,10 +359,10 @@ class Handler(BaseHTTPRequestHandler):
             generation_options = payload.get("generationOptions")
             if isinstance(generation_options, dict):
                 ENGINE.generate_options = {
-                    "repetition_penalty": float(generation_options.get("repetitionPenalty", generation_options.get("repetition_penalty", 1.08)) or 1.08),
-                    "top_p": float(generation_options.get("topP", generation_options.get("top_p", 0.92)) or 0.92),
-                    "temperature": float(generation_options.get("temperature", 0.67) or 0.67),
-                    "top_k": int(generation_options.get("topK", generation_options.get("top_k", 80)) or 80),
+                    "repetition_penalty": float(generation_options.get("repetitionPenalty", generation_options.get("repetition_penalty", 1.12)) or 1.12),
+                    "top_p": float(generation_options.get("topP", generation_options.get("top_p", 0.88)) or 0.88),
+                    "temperature": float(generation_options.get("temperature", 0.58) or 0.58),
+                    "top_k": int(generation_options.get("topK", generation_options.get("top_k", 64)) or 64),
                     "cfg_weight": float(generation_options.get("cfgWeight", generation_options.get("cfg_weight", 0.0)) or 0.0),
                     "exaggeration": float(generation_options.get("exaggeration", 0.0) or 0.0),
                     "min_p": float(generation_options.get("minP", generation_options.get("min_p", 0.0)) or 0.0),

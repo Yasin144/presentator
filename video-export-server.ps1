@@ -1,6 +1,7 @@
 $port = 8430
 $baseUrl = "http://127.0.0.1:$port"
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+$script:MuxUploadSessions = @{}
 
 function Get-StatusText {
   param([int]$StatusCode)
@@ -247,6 +248,29 @@ function Read-JsonBody {
   return $json | ConvertFrom-Json
 }
 
+function Get-QueryParameters {
+  param([System.Uri]$Uri)
+
+  $result = @{}
+  $queryText = [string]$Uri.Query
+  if ([string]::IsNullOrWhiteSpace($queryText)) {
+    return $result
+  }
+
+  foreach ($pair in $queryText.TrimStart("?") -split "&") {
+    if ([string]::IsNullOrWhiteSpace($pair)) {
+      continue
+    }
+
+    $parts = $pair -split "=", 2
+    $name = [System.Uri]::UnescapeDataString($parts[0])
+    $value = if ($parts.Length -gt 1) { [System.Uri]::UnescapeDataString($parts[1]) } else { "" }
+    $result[$name] = $value
+  }
+
+  return $result
+}
+
 function Read-LittleEndianUInt32 {
   param(
     [byte[]]$Bytes,
@@ -272,6 +296,65 @@ function Write-ByteRangeToFile {
   } finally {
     $fileStream.Dispose()
   }
+}
+
+function Append-BytesToFile {
+  param(
+    [string]$Path,
+    [byte[]]$Bytes
+  )
+
+  $directory = Split-Path -Path $Path -Parent
+  if ($directory -and -not (Test-Path $directory)) {
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+  }
+
+  $fileStream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+  try {
+    if ($Bytes -and $Bytes.Length -gt 0) {
+      $fileStream.Write($Bytes, 0, $Bytes.Length)
+    }
+  } finally {
+    $fileStream.Dispose()
+  }
+}
+
+function New-MuxUploadSession {
+  param([object]$Metadata)
+
+  $sessionId = [System.Guid]::NewGuid().ToString()
+  $videoExtension = Get-FileExtension -FileName ([string]$Metadata.videoFileName) -FallbackExtension ".webm"
+  $audioExtension = Get-FileExtension -FileName ([string]$Metadata.audioFileName) -FallbackExtension ".wav"
+  $musicExtension = Get-FileExtension -FileName ([string]$Metadata.musicFileName) -FallbackExtension ".wav"
+  $session = @{
+    Id = $sessionId
+    Metadata = $Metadata
+    VideoPath = Join-Path $env:TEMP ("mux-video-" + $sessionId + $videoExtension)
+    AudioPath = Join-Path $env:TEMP ("mux-audio-" + $sessionId + $audioExtension)
+    MusicPath = Join-Path $env:TEMP ("mux-music-" + $sessionId + $musicExtension)
+    VideoBytes = 0
+    AudioBytes = 0
+    MusicBytes = 0
+  }
+  $script:MuxUploadSessions[$sessionId] = $session
+  return $session
+}
+
+function Remove-MuxUploadSession {
+  param([string]$SessionId)
+
+  if (-not $script:MuxUploadSessions.ContainsKey($SessionId)) {
+    return
+  }
+
+  $session = $script:MuxUploadSessions[$SessionId]
+  foreach ($path in @($session.VideoPath, $session.AudioPath, $session.MusicPath)) {
+    if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path $path)) {
+      Remove-Item $path -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  $script:MuxUploadSessions.Remove($SessionId)
 }
 
 function Read-MuxBinaryPayload {
@@ -369,6 +452,7 @@ function Invoke-VideoMux {
     [string]$AudioPath,
     [string]$MusicPath = "",
     [double]$AudioSpeed = 1.0,
+    [double]$VideoSpeed = 1.0,
     [string]$ExportQuality = "hd",
     [double]$MusicVolume = 0.18,
     [switch]$KeepOutputFile
@@ -380,36 +464,46 @@ function Invoke-VideoMux {
   try {
     $safeMusicVolume = [Math]::Min([Math]::Max($MusicVolume, 0.0), 1.0)
     $safeAudioSpeed = [Math]::Min([Math]::Max($AudioSpeed, 0.5), 2.0)
+    $safeVideoSpeed = [Math]::Min([Math]::Max($VideoSpeed, 1.0), 20.0)
     $volumeText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeMusicVolume)
     $audioSpeedText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeAudioSpeed)
+    $videoSpeedText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeVideoSpeed)
     $is4k = $ExportQuality -eq "4k"
     $is2k = $ExportQuality -eq "2k"
+    $scaleFilter = if ($is4k) { "scale=3840:2160:flags=lanczos" } elseif ($is2k) { "scale=2560:1440:flags=lanczos" } else { "" }
     $args = @("-y", "-i", $VideoPath, "-i", $AudioPath)
+    $videoFilters = @()
+    if ($safeVideoSpeed -ne 1.0) {
+      $videoFilters += "setpts=$videoSpeedText*PTS"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($scaleFilter)) {
+      $videoFilters += $scaleFilter
+    }
+    $videoFilterInput = if ($videoFilters.Count -gt 0) {
+      "[0:v]{0}[vout]" -f ($videoFilters -join ",")
+    } else {
+      "[0:v]null[vout]"
+    }
 
     if (-not [string]::IsNullOrWhiteSpace($MusicPath) -and (Test-Path $MusicPath)) {
       $args += @("-stream_loop", "-1", "-i", $MusicPath)
       $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText[narr]" } else { "[1:a]anull[narr]" }
       $args += @(
         "-filter_complex",
-        "$audioFilterInput;[2:a]volume=$volumeText[music];[narr][music]amix=inputs=2:duration=first:dropout_transition=2[aout]",
-        "-map", "0:v:0",
+        "$videoFilterInput;$audioFilterInput;[2:a]volume=$volumeText[music];[narr][music]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+        "-map", "[vout]",
         "-map", "[aout]"
       )
-    } elseif ($safeAudioSpeed -ne 1.0) {
+    } elseif ($safeAudioSpeed -ne 1.0 -or $videoFilters.Count -gt 0) {
+      $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText[aout]" } else { "[1:a]anull[aout]" }
       $args += @(
         "-filter_complex",
-        "[1:a]atempo=$audioSpeedText[aout]",
-        "-map", "0:v:0",
+        "$videoFilterInput;$audioFilterInput",
+        "-map", "[vout]",
         "-map", "[aout]"
       )
     } else {
       $args += @("-map", "0:v:0", "-map", "1:a:0")
-    }
-
-    if ($is4k) {
-      $args += @("-vf", "scale=3840:2160:flags=lanczos")
-    } elseif ($is2k) {
-      $args += @("-vf", "scale=2560:1440:flags=lanczos")
     }
 
     $args += @(
@@ -463,6 +557,7 @@ function Handle-Request {
 
   $uri = [System.Uri]::new("$baseUrl$($Request.RawUrl)")
   $path = $uri.AbsolutePath.TrimEnd("/")
+  $query = Get-QueryParameters -Uri $uri
 
   if ($Request.Method -eq "GET" -and ($path -eq "" -or $path -eq "/health")) {
     try {
@@ -474,6 +569,105 @@ function Handle-Request {
     return
   }
 
+  if ($Request.Method -eq "POST" -and $path -eq "/api/mux-upload-session") {
+    try {
+      $payload = Read-JsonBody -Bytes $Request.BodyBytes
+      $session = New-MuxUploadSession -Metadata $payload
+      Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{ ok = $true; sessionId = $session.Id }
+    } catch {
+      Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ error = $_.Exception.Message }
+    }
+    return
+  }
+
+  if ($Request.Method -eq "POST" -and $path -eq "/api/mux-upload-chunk") {
+    try {
+      $sessionId = [string]$query["sessionId"]
+      $target = [string]$query["target"]
+      if ([string]::IsNullOrWhiteSpace($sessionId) -or -not $script:MuxUploadSessions.ContainsKey($sessionId)) {
+        Write-JsonResponse -Stream $Stream -StatusCode 400 -Payload @{ error = "The chunked upload session was not found." }
+        return
+      }
+
+      $session = $script:MuxUploadSessions[$sessionId]
+      $targetPath = switch ($target) {
+        "audio" { $session.AudioPath; break }
+        "music" { $session.MusicPath; break }
+        default { $session.VideoPath; break }
+      }
+
+      Append-BytesToFile -Path $targetPath -Bytes $Request.BodyBytes
+      switch ($target) {
+        "audio" { $session.AudioBytes += $Request.BodyBytes.Length; break }
+        "music" { $session.MusicBytes += $Request.BodyBytes.Length; break }
+        default { $session.VideoBytes += $Request.BodyBytes.Length; break }
+      }
+      $script:MuxUploadSessions[$sessionId] = $session
+      Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
+        ok = $true
+        sessionId = $sessionId
+        target = $target
+        receivedBytes = switch ($target) {
+          "audio" { $session.AudioBytes; break }
+          "music" { $session.MusicBytes; break }
+          default { $session.VideoBytes; break }
+        }
+      }
+    } catch {
+      Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ error = $_.Exception.Message }
+    }
+    return
+  }
+
+  if ($Request.Method -eq "POST" -and $path -eq "/api/mux-upload-complete") {
+    $sessionId = ""
+    try {
+      $payload = Read-JsonBody -Bytes $Request.BodyBytes
+      $sessionId = if ($payload) { [string]$payload.sessionId } else { "" }
+      if ([string]::IsNullOrWhiteSpace($sessionId) -or -not $script:MuxUploadSessions.ContainsKey($sessionId)) {
+        Write-JsonResponse -Stream $Stream -StatusCode 400 -Payload @{ error = "The chunked upload session was not found." }
+        return
+      }
+
+      $session = $script:MuxUploadSessions[$sessionId]
+      if ($session.VideoBytes -le 0 -or $session.AudioBytes -le 0) {
+        Write-JsonResponse -Stream $Stream -StatusCode 400 -Payload @{ error = "Video and audio are both required." }
+        return
+      }
+
+      $metadata = $session.Metadata
+      $musicPath = if ($session.MusicBytes -gt 0 -and (Test-Path $session.MusicPath)) { $session.MusicPath } else { "" }
+      $muxedVideoPath = Invoke-VideoMux `
+        -VideoPath $session.VideoPath `
+        -AudioPath $session.AudioPath `
+        -MusicPath $musicPath `
+        -AudioSpeed $(if ($metadata) { [double]$metadata.audioSpeed } else { 1.0 }) `
+        -VideoSpeed $(if ($metadata) { [double]$metadata.videoSpeed } else { 1.0 }) `
+        -ExportQuality $(if ($metadata) { [string]$metadata.exportQuality } else { "hd" }) `
+        -MusicVolume $(if ($metadata) { [double]$metadata.musicVolume } else { 0.18 }) `
+        -KeepOutputFile
+      try {
+        Write-FileResponse -Stream $Stream -StatusCode 200 -FilePath $muxedVideoPath -ContentType "video/mp4" -ExtraHeaders @{
+          "Cache-Control" = "no-store, no-cache, must-revalidate, max-age=0"
+          "Pragma" = "no-cache"
+          "Expires" = "0"
+          "X-Content-Type-Options" = "nosniff"
+        }
+      } finally {
+        if ($muxedVideoPath -and (Test-Path $muxedVideoPath)) {
+          Remove-Item $muxedVideoPath -Force -ErrorAction SilentlyContinue
+        }
+      }
+    } catch {
+      Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ error = $_.Exception.Message }
+    } finally {
+      if ($sessionId) {
+        Remove-MuxUploadSession -SessionId $sessionId
+      }
+    }
+    return
+  }
+
   if ($Request.Method -eq "POST" -and ($path -eq "/api/mux" -or $path -eq "/api/mux-binary")) {
     $isBinaryUpload = $path -eq "/api/mux-binary"
     $videoFileName = ""
@@ -481,6 +675,7 @@ function Handle-Request {
     $musicFileName = ""
     $exportQuality = "hd"
     $audioSpeed = 1.0
+    $videoSpeed = 1.0
     $musicVolume = 0.18
     $musicLength = 0
     $videoBytes = $null
@@ -496,6 +691,7 @@ function Handle-Request {
       $musicFileName = if ($metadata) { [string]$metadata.musicFileName } else { "" }
       $exportQuality = if ($metadata) { [string]$metadata.exportQuality } else { "hd" }
       $audioSpeed = if ($metadata) { [double]$metadata.audioSpeed } else { 1.0 }
+      $videoSpeed = if ($metadata) { [double]$metadata.videoSpeed } else { 1.0 }
       $musicVolume = if ($metadata) { [double]$metadata.musicVolume } else { 0.18 }
 
       if ($binaryPayload.VideoLength -le 0 -or $binaryPayload.AudioLength -le 0) {
@@ -514,6 +710,7 @@ function Handle-Request {
       $musicFileName = if ($payload) { [string]$payload.musicFileName } else { "" }
       $exportQuality = if ($payload) { [string]$payload.exportQuality } else { "hd" }
       $audioSpeed = if ($payload) { [double]$payload.audioSpeed } else { 1.0 }
+      $videoSpeed = if ($payload) { [double]$payload.videoSpeed } else { 1.0 }
       $musicVolume = if ($payload) { [double]$payload.musicVolume } else { 0.18 }
 
       if ([string]::IsNullOrWhiteSpace($videoBase64) -or [string]::IsNullOrWhiteSpace($audioBase64)) {
@@ -562,6 +759,7 @@ function Handle-Request {
         -AudioPath $tempAudio `
         -MusicPath $tempMusic `
         -AudioSpeed $audioSpeed `
+        -VideoSpeed $videoSpeed `
         -ExportQuality $exportQuality `
         -MusicVolume $musicVolume `
         -KeepOutputFile

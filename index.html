@@ -54,7 +54,103 @@
         </div>
       </div>
 
-      <details class="section-card">
+      <section class="workflow-surface" aria-label="Lesson workflow">
+        <div class="workflow-story">
+          <p class="workflow-eyebrow">Workflow</p>
+          <h2 class="workflow-title">Build the lesson once, then open the screen when everything feels ready.</h2>
+          <p class="workflow-copy">
+            Keep your current working logic safe. This layout simply organizes the flow into a clearer order:
+            write the lesson, optionally pick a screen template, add support tools only when needed, then show
+            the presentation.
+          </p>
+        </div>
+        <div class="workflow-lane" role="list" aria-label="Workflow steps">
+          <button class="workflow-step" type="button" data-workflow-target="lessonContentSection">
+            <span class="workflow-step-index">01</span>
+            <span class="workflow-step-copy">
+              <strong>Lesson Input</strong>
+              <span>Write, translate, and style the maths content.</span>
+            </span>
+          </button>
+          <button class="workflow-step" type="button" data-workflow-target="templateWorkflowSection">
+            <span class="workflow-step-index">02</span>
+            <span class="workflow-step-copy">
+              <strong>Template</strong>
+              <span>Optional. Keep Classic or switch the stage look.</span>
+            </span>
+          </button>
+          <button class="workflow-step" type="button" data-workflow-target="mediaSection">
+            <span class="workflow-step-index">03</span>
+            <span class="workflow-step-copy">
+              <strong>Media And Voice</strong>
+              <span>Add intro, images, and Anjali narration only if needed.</span>
+            </span>
+          </button>
+          <button class="workflow-step workflow-step-show" type="button" data-workflow-target="showScreenBtn">
+            <span class="workflow-step-index">04</span>
+            <span class="workflow-step-copy">
+              <strong>Show Screen</strong>
+              <span>Open the presentation when the lesson is ready to present.</span>
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <details class="section-card template-section-card" id="templateWorkflowSection" open>
+        <summary class="section-summary">
+          <span class="summary-head">
+            <span class="section-icon">TPL</span>
+            <span class="summary-copy">
+              <span class="section-title">Presentation Template</span>
+              <span class="section-meta">Optional. The Classic stage stays as the default until you choose another template.</span>
+            </span>
+          </span>
+        </summary>
+        <div class="section-content">
+          <div class="template-section-shell">
+            <div class="template-section-copy">
+              <p class="upload-copy">
+                Pick a screen look before you open the presentation. If you do nothing, the current Classic blue
+                teaching board remains active and all existing workflows continue exactly as they do now.
+              </p>
+              <p class="upload-copy" id="presentationTemplateStatus">Classic stage is active by default.</p>
+            </div>
+            <div class="template-gallery" role="radiogroup" aria-label="Presentation template choices">
+              <label class="template-card" for="presentationTemplateClassic">
+                <input id="presentationTemplateClassic" class="template-radio" type="radio" name="presentationTemplate" value="classic" checked>
+                <span class="template-card-preview template-card-preview-classic" aria-hidden="true">
+                  <span class="template-preview-classic-rings"></span>
+                  <span class="template-preview-classic-card"></span>
+                </span>
+                <span class="template-card-body">
+                  <span class="template-card-title-row">
+                    <strong>Classic Stage</strong>
+                    <span class="template-chip">Default</span>
+                  </span>
+                  <span class="template-card-copy">Keep the current blue classroom board with the familiar layout and working behavior.</span>
+                </span>
+              </label>
+
+              <label class="template-card" for="presentationTemplateOutcomes">
+                <input id="presentationTemplateOutcomes" class="template-radio" type="radio" name="presentationTemplate" value="learning-outcomes">
+                <span class="template-card-preview template-card-preview-outcomes" aria-hidden="true">
+                  <span class="template-preview-outcomes-header">LEARNING OUTCOMES</span>
+                  <span class="template-preview-outcomes-logo">Info kids</span>
+                </span>
+                <span class="template-card-body">
+                  <span class="template-card-title-row">
+                    <strong>Learning Outcomes</strong>
+                    <span class="template-chip template-chip-optional">Optional</span>
+                  </span>
+                  <span class="template-card-copy">Use a cleaner classroom poster look with a white title strip and soft teaching board body.</span>
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="section-card" id="lessonContentSection">
         <summary class="section-summary">
           <span class="summary-head">
             <span class="section-icon">TXT</span>
@@ -213,7 +309,7 @@ three is less than nine"
         </div>
       </details>
 
-      <details class="section-card">
+      <details class="section-card" id="pdfSection">
         <summary class="section-summary">
           <span class="summary-head">
             <span class="section-icon">PDF</span>
@@ -232,8 +328,6 @@ three is less than nine"
               <div class="toolbar toolbar-compact">
                 <button id="pdfShowBtn" class="primary-btn" type="button" disabled>Show Screen</button>
                 <button id="pdfPresentBtn" class="accent-btn" type="button" disabled>Read And Present Context</button>
-                <button id="pdfSelectAllBtn" class="ghost-btn" type="button" disabled>Select All Pages</button>
-                <button id="pdfClearSelectionBtn" class="ghost-btn" type="button" disabled>Clear Page Selection</button>
                 <button id="clearPdfBtn" class="ghost-btn" type="button" disabled>Clear PDF</button>
               </div>
               <div
@@ -265,9 +359,15 @@ three is less than nine"
           </div>
 
           <div class="tool-card pdf-pages-card">
-            <div class="tool-card-head">
-              <span class="module-icon">PGS</span>
-              <p class="tool-card-title">PDF Page Picker</p>
+            <div class="tool-card-head pdf-pages-head">
+              <div class="pdf-pages-head-copy">
+                <span class="module-icon">PGS</span>
+                <p class="tool-card-title">PDF Page Picker</p>
+              </div>
+              <div class="pdf-page-bulk-actions" aria-label="PDF page bulk selection controls">
+                <button id="pdfSelectAllBtn" class="ghost-btn pdf-page-bulk-btn" type="button" disabled title="Select all PDF pages" aria-label="Select all PDF pages">&#10003; All</button>
+                <button id="pdfClearSelectionBtn" class="ghost-btn pdf-page-bulk-btn" type="button" disabled title="Deselect all PDF pages" aria-label="Deselect all PDF pages">&#10005; All</button>
+              </div>
             </div>
             <p class="upload-copy">Rendered page thumbnails keep the PDF layout exactly as it appears in the file. Tick only the pages you want to present.</p>
             <div id="pdfPageList" class="pdf-page-list hidden" aria-live="polite"></div>
@@ -392,7 +492,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."
         </div>
       </details>
 
-      <details class="section-card">
+      <details class="section-card" id="serverControlsSection">
         <summary class="section-summary">
               <span class="summary-head">
                 <span class="section-icon">SVC</span>
@@ -420,7 +520,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."
         </div>
       </details>
 
-      <details class="section-card">
+      <details class="section-card" id="speechToolsSection">
         <summary class="section-summary">
           <span class="summary-head">
             <span class="section-icon">MIC</span>
@@ -538,7 +638,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."
         </div>
       </details>
 
-      <details class="section-card">
+      <details class="section-card" id="audioToTextSection">
         <summary class="section-summary">
           <span class="summary-head">
             <span class="section-icon">AUD</span>
@@ -575,7 +675,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."
         </div>
       </details>
 
-      <details class="section-card">
+      <details class="section-card" id="mediaSection">
         <summary class="section-summary">
             <span class="summary-head">
               <span class="section-icon">IMG</span>
@@ -659,7 +759,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."
         </div>
       </details>
 
-      <details class="section-card">
+      <details class="section-card" id="narrationSection">
         <summary class="section-summary">
           <span class="summary-head">
             <span class="section-icon">REC</span>
@@ -722,11 +822,11 @@ Space topic with stars, dreamy motion, and a magical learning feel."
               <label class="stage-speed-field stage-speed-field-inline" for="stagePlaybackSpeedSelect">
                 <span class="style-label">Screen Speed</span>
                 <select id="stagePlaybackSpeedSelect" class="theme-select text-style-select stage-speed-select" aria-label="Choose screen playback speed">
-                  <option value="0.5" selected>0.5x</option>
+                  <option value="0.5">0.5x</option>
                   <option value="0.75">0.75x</option>
                   <option value="0.85">0.85x</option>
                   <option value="0.9">0.9x</option>
-                  <option value="1">1x</option>
+                  <option value="1" selected>1x</option>
                 </select>
               </label>
               <p class="stage-speed-copy">Slows narration only. Anjali pitch stays natural.</p>
@@ -836,11 +936,11 @@ Space topic with stars, dreamy motion, and a magical learning feel."
           <label class="stage-speed-field" for="playbackSpeedSelect">
             <span class="style-label">Speed</span>
             <select id="playbackSpeedSelect" class="theme-select text-style-select stage-speed-select" aria-label="Choose playback speed">
-              <option value="0.5" selected>0.5x</option>
+              <option value="0.5">0.5x</option>
               <option value="0.75">0.75x</option>
               <option value="0.85">0.85x</option>
               <option value="0.9">0.9x</option>
-              <option value="1">1x</option>
+              <option value="1" selected>1x</option>
             </select>
           </label>
         </div>

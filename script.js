@@ -13,6 +13,9 @@ const placeValueSystemSelect = document.getElementById("placeValueSystemSelect")
 const applyPlaceValueTableBtn = document.getElementById("applyPlaceValueTableBtn");
 const showPlaceValueTableBtn = document.getElementById("showPlaceValueTableBtn");
 const placeValueToolStatus = document.getElementById("placeValueToolStatus");
+const workflowStepButtons = Array.from(document.querySelectorAll("[data-workflow-target]"));
+const presentationTemplateInputs = Array.from(document.querySelectorAll('input[name="presentationTemplate"]'));
+const presentationTemplateStatus = document.getElementById("presentationTemplateStatus");
 const inputPanel = document.getElementById("inputPanel");
 const stagePanel = document.getElementById("stagePanel");
 const themeSelect = document.getElementById("themeSelect");
@@ -194,8 +197,10 @@ const narrationLiveProgressLabel = document.getElementById("narrationLiveProgres
 const previewCanvas = document.getElementById("previewCanvas");
 let canvas = previewCanvas;
 let ctx = canvas.getContext("2d");
+applyHighQualityImageRendering(ctx);
 const stageLogoImage = document.getElementById("stageLogoImage");
 const THEME_STORAGE_KEY = "learning-outcomes-theme";
+const PRESENTATION_TEMPLATE_STORAGE_KEY = "learning-outcomes-presentation-template";
 const MAX_IMAGE_UPLOADS = 12;
 const SLIDE_IMAGES_PER_PAGE = 4;
 const LOGO_SOURCE_BOUNDS = {
@@ -213,6 +218,10 @@ const FONT_SCALE_MAX = 1.6;
 const FONT_SCALE_STEP = 0.1;
 const PDF_JS_FILE = "pdf.min.js";
 const PDF_JS_WORKER_FILE = "pdf.worker.min.js";
+const PDF_RENDER_SCALE_MIN = 1.6;
+const PDF_RENDER_SCALE_MAX = 3.2;
+const PDF_RENDER_TARGET_MAX_WIDTH_PX = 2200;
+const PDF_RENDER_TARGET_MAX_HEIGHT_PX = 2800;
 const PDF_STAGE_SEEK_STEP_MS = 5000;
 const PDF_FACE_MASK_PADDING_X = 1.2;
 const PDF_FACE_MASK_PADDING_TOP = 1.4;
@@ -229,8 +238,10 @@ const STAGE_VIDEO_EDGE_FEATHER = 22;
 const DEFAULT_INTRO_VIDEO_FILE = "default-intro.mp4";
 const ANJALI_SAMPLE_AUDIO_FILE = "voice-preview-anjali.mp3";
 const EXPORT_NARRATION_VOICE = "anjali";
+const PRESENTATION_TEMPLATE_CLASSIC = "classic";
+const PRESENTATION_TEMPLATE_OUTCOMES = "learning-outcomes";
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
-const NARRATION_STYLE_PROMPT = "Speak in a clear Indian female English teacher voice. Pronounce every word carefully and correctly. Maintain a calm classroom teaching pace. Use natural Indian English pronunciation. Speak maths expressions in full spoken form. Be warm, strict, and highly intelligible for school students. Avoid foreign accent drift. Avoid casual speech. Avoid fast delivery.";
+const NARRATION_STYLE_PROMPT = "Speak in a natural Indian female teacher voice with clear Indian English pronunciation. Pronounce every word, number, unit, and maths symbol carefully. Keep the accent Indian, warm, and classroom-ready. Use a calm teaching pace, clear pauses, and highly intelligible school pronunciation. Avoid foreign accent drift, rushed speech, swallowed syllables, and casual delivery.";
 const NARRATION_STYLE_CONFIG = Object.freeze({
   locale: "en-IN",
   accent: "indian-female-english",
@@ -248,10 +259,10 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const ANJALI_GENERATION_OPTIONS = Object.freeze({
-  repetitionPenalty: 1.08,
-  topP: 0.92,
-  temperature: 0.67,
-  topK: 80,
+  repetitionPenalty: 1.12,
+  topP: 0.88,
+  temperature: 0.58,
+  topK: 64,
   cfgWeight: 0,
   exaggeration: 0,
   minP: 0,
@@ -265,16 +276,19 @@ const STAGE_TEXT_BOTTOM_MARGIN_PX = 42;
 const STAGE_IMAGE_WORKSPACE_PADDING_PX = 34;
 const STAGE_IMAGE_WORKSPACE_TOP_PX = 18;
 const STAGE_IMAGE_WORKSPACE_BOTTOM_PX = 20;
-const STAGE_PDF_IMAGE_STRIP_WIDTH_PX = 236;
+const STAGE_PDF_IMAGE_STRIP_WIDTH_PX = 320;
 const STAGE_PDF_IMAGE_STRIP_GAP_PX = 18;
 const STAGE_IMAGE_MIN_WIDTH_PX = 72;
 const STAGE_IMAGE_MIN_HEIGHT_PX = 72;
 const STAGE_IMAGE_HANDLE_SIZE_PX = 16;
 const NARRATION_CHUNK_MAX_LENGTH = 560;
 const NARRATION_CHUNK_THRESHOLD = 1800;
-const ANJALI_NARRATION_CHUNK_MAX_LENGTH = 72;
-const ANJALI_NARRATION_CHUNK_THRESHOLD = 48;
-const DEFAULT_STAGE_PLAYBACK_RATE = 0.5;
+const ANJALI_NARRATION_CHUNK_MAX_LENGTH = 320;
+const ANJALI_NARRATION_CHUNK_THRESHOLD = 420;
+const DEFAULT_STAGE_PLAYBACK_RATE = 1;
+const EXPORT_RENDER_SPEED_MULTIPLIER = 10;
+const MUX_CHUNK_UPLOAD_THRESHOLD_BYTES = 96 * 1024 * 1024;
+const MUX_CHUNK_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
 const STRICT_INTER_WORD_PAUSE_MS = 400;
 const STRICT_SENTENCE_PAUSE_MS = 800;
 const STRICT_SOFT_SENTENCE_PAUSE_MS = 520;
@@ -286,13 +300,13 @@ const STRICT_BACKGROUND_MUSIC_VOLUME = 0.2;
 const LIVE_SCENE_RENDER_FPS = 24;
 const EXPORT_SCENE_RENDER_FPS = 12;
 const SCENE_RENDER_MOUTH_DELTA = 0.035;
-const NARRATION_CHUNK_JOIN_GAP_MS = 120;
+const NARRATION_CHUNK_JOIN_GAP_MS = 0;
 const NARRATION_CHUNK_FADE_MS = 32;
 const SPEECH_SYNC_REVEAL_START = 0.16;
 const SPEECH_SYNC_REVEAL_END = 0.96;
-const SPEECH_SYNC_WORD_COMMIT_MIN = 0.54;
-const SPEECH_SYNC_WORD_COMMIT_MAX = 0.86;
-const SPEECH_SYNC_VISUAL_PROGRESS_LAG = 0.12;
+const SPEECH_SYNC_WORD_COMMIT_MIN = 0.38;
+const SPEECH_SYNC_WORD_COMMIT_MAX = 0.68;
+const SPEECH_SYNC_VISUAL_PROGRESS_LAG = 0.18;
 const MATHS_NUMBERS_TEMPLATE = `# Numbers
 1 is one.
 2 is two.
@@ -558,6 +572,7 @@ const state = {
   videoExportServerUrl: "http://127.0.0.1:8430",
   videoExportServerReady: false,
   text: "",
+  presentationTemplate: PRESENTATION_TEMPLATE_CLASSIC,
   lines: [],
   words: [],
   tokens: [],
@@ -607,11 +622,16 @@ const state = {
     pageTexts: [],
     pageCount: 0,
     pages: [],
+    contextPages: [],
+    contextPagesKey: "",
+    autoImageSyncKey: "",
+    lessonAutoImageSyncKey: "",
     selectedPageIndexes: [],
     renderMode: "context",
     currentTimeMs: 0,
     totalDurationMs: 0,
     playbackRate: DEFAULT_STAGE_PLAYBACK_RATE,
+    requestId: 0,
     pageSchedule: [],
     paused: false,
     audioDriven: false,
@@ -624,7 +644,8 @@ const state = {
       blob: null,
       textSource: "",
       voice: "",
-      source: ""
+      source: "",
+      syncProfile: null
     }
   },
   dictation: {
@@ -670,9 +691,11 @@ const state = {
   anjaliMonitor: {
     timerId: 0,
     lastKnownReady: null,
+    lastHealthyAt: 0,
     warming: false,
     lastError: "",
     modelLoaded: false,
+    transientFailureCount: 0,
     generationActiveCount: 0
   },
   lessonInputTimerId: 0,
@@ -1462,12 +1485,12 @@ function updateStagePageUi(currentPageIndex = 0, totalPageCount = 1) {
   const safeIndex = clamp(currentPageIndex, 0, safeTotal - 1);
   const lockNavigation = state.speaking || downloadBtn.disabled;
   const currentPdfPage = isPdfPresentationMode()
-    ? getPdfSelectedPages()[safeIndex]
+    ? getPdfPresentationPages()[safeIndex]
     : null;
 
   if (pageIndicator) {
     pageIndicator.textContent = currentPdfPage
-      ? `Selected ${safeIndex + 1} / ${safeTotal} | PDF ${currentPdfPage.pageNumber}`
+      ? `Selected ${safeIndex + 1} / ${safeTotal} | PDF ${currentPdfPage.sourcePageNumber || currentPdfPage.pageNumber}${currentPdfPage.totalParts > 1 ? ` • Part ${currentPdfPage.partIndex + 1}/${currentPdfPage.totalParts}` : ""}`
       : `Page ${safeIndex + 1} / ${safeTotal}`;
   }
 
@@ -1655,6 +1678,14 @@ function setPreviewZoom(nextZoom) {
 
 function setFontScale(nextScale) {
   state.fontScale = clamp(normalizeControlValue(nextScale), FONT_SCALE_MIN, FONT_SCALE_MAX);
+  state.pdf.contextPagesKey = "";
+  state.pdf.autoImageSyncKey = "";
+  state.pdf.lessonAutoImageSyncKey = "";
+
+  if (hasActivePdfSelection()) {
+    rebuildPdfPresentationSchedule({ preserveTime: true });
+  }
+  syncExtractedPdfLessonImages({ skipDraw: true });
   updateStageViewUi();
 
   if (!stagePanel.classList.contains("hidden")) {
@@ -1714,6 +1745,92 @@ function applyTheme(theme) {
 
 function initializeTheme() {
   applyTheme(getStoredTheme());
+}
+
+function normalizePresentationTemplate(value) {
+  return String(value || "").trim().toLowerCase() === PRESENTATION_TEMPLATE_OUTCOMES
+    ? PRESENTATION_TEMPLATE_OUTCOMES
+    : PRESENTATION_TEMPLATE_CLASSIC;
+}
+
+function getPresentationTemplateLabel(template = state.presentationTemplate) {
+  return normalizePresentationTemplate(template) === PRESENTATION_TEMPLATE_OUTCOMES
+    ? "Learning Outcomes"
+    : "Classic Stage";
+}
+
+function getStoredPresentationTemplate() {
+  try {
+    const savedTemplate = window.localStorage.getItem(PRESENTATION_TEMPLATE_STORAGE_KEY);
+    return normalizePresentationTemplate(savedTemplate);
+  } catch (error) {
+    console.error(error);
+  }
+
+  return PRESENTATION_TEMPLATE_CLASSIC;
+}
+
+function updatePresentationTemplateUi() {
+  const activeTemplate = normalizePresentationTemplate(state.presentationTemplate);
+  presentationTemplateInputs.forEach((input) => {
+    input.checked = normalizePresentationTemplate(input.value) === activeTemplate;
+  });
+
+  if (presentationTemplateStatus) {
+    presentationTemplateStatus.textContent = activeTemplate === PRESENTATION_TEMPLATE_OUTCOMES
+      ? "Learning Outcomes template is active. Classic is still available any time."
+      : "Classic stage is active by default.";
+  }
+}
+
+function setPresentationTemplate(template, options = {}) {
+  const nextTemplate = normalizePresentationTemplate(template);
+  const hasChanged = nextTemplate !== normalizePresentationTemplate(state.presentationTemplate);
+  state.presentationTemplate = nextTemplate;
+  updatePresentationTemplateUi();
+
+  try {
+    window.localStorage.setItem(PRESENTATION_TEMPLATE_STORAGE_KEY, nextTemplate);
+  } catch (error) {
+    console.error(error);
+  }
+
+  if (options.announce !== false) {
+    setStatus(nextTemplate === PRESENTATION_TEMPLATE_OUTCOMES
+      ? "Learning Outcomes template is ready for the presentation screen."
+      : "Classic stage template is active.");
+  }
+
+  if (!stagePanel.classList.contains("hidden") && options.redraw !== false) {
+    drawScene(state.mouthOpen);
+  }
+
+  return hasChanged;
+}
+
+function initializePresentationTemplate() {
+  state.presentationTemplate = getStoredPresentationTemplate();
+  updatePresentationTemplateUi();
+}
+
+function openWorkflowTarget(targetId = "") {
+  const target = document.getElementById(targetId);
+  if (!target) {
+    return;
+  }
+
+  if (target.tagName === "DETAILS") {
+    target.open = true;
+  }
+
+  target.scrollIntoView({
+    behavior: "smooth",
+    block: targetId === "showScreenBtn" ? "center" : "start"
+  });
+
+  if (typeof target.focus === "function") {
+    target.focus({ preventScroll: true });
+  }
 }
 
 function canExportVideo() {
@@ -1792,6 +1909,19 @@ function getPdfExportCaptureRate(renderMode = "context") {
   return renderMode === "exact" ? 7 : 8;
 }
 
+function getExportRenderSpeedMultiplier() {
+  const parsedMultiplier = Number(EXPORT_RENDER_SPEED_MULTIPLIER);
+  return Number.isFinite(parsedMultiplier) && parsedMultiplier > 0
+    ? Math.max(1, parsedMultiplier)
+    : 1;
+}
+
+function getAcceleratedExportCaptureRate(baseRate, renderSpeedMultiplier = getExportRenderSpeedMultiplier()) {
+  const safeBaseRate = Number.isFinite(Number(baseRate)) ? Math.max(1, Number(baseRate)) : 1;
+  const safeMultiplier = Number.isFinite(Number(renderSpeedMultiplier)) ? Math.max(1, Number(renderSpeedMultiplier)) : 1;
+  return Math.max(safeBaseRate, Math.round(safeBaseRate * safeMultiplier));
+}
+
 function setExportCaptureRate(fps) {
   const safeFps = Number.isFinite(Number(fps)) ? Math.max(1, Number(fps)) : 0;
   state.exportCapture.minFrameIntervalMs = safeFps ? (1000 / safeFps) : 0;
@@ -1856,17 +1986,30 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function applyHighQualityImageRendering(targetContext) {
+  if (!targetContext) {
+    return;
+  }
+
+  targetContext.imageSmoothingEnabled = true;
+  if ("imageSmoothingQuality" in targetContext) {
+    targetContext.imageSmoothingQuality = "high";
+  }
+}
+
 function resetCanvasSurface() {
   const width = canvas.width;
   const height = canvas.height;
   canvas.width = width;
   canvas.height = height;
   ctx = canvas.getContext("2d");
+  applyHighQualityImageRendering(ctx);
 }
 
 function useCanvasSurface(nextCanvas) {
   canvas = nextCanvas;
   ctx = canvas.getContext("2d");
+  applyHighQualityImageRendering(ctx);
 }
 
 function isSafeImageSource(source = "") {
@@ -2383,6 +2526,8 @@ const DEFAULT_NARRATION_REQUEST_TIMEOUT_MS = 45000;
 const LONG_NARRATION_REQUEST_BASE_TIMEOUT_MS = 60000;
 const LONG_NARRATION_REQUEST_PER_WORD_TIMEOUT_MS = 35;
 const LONG_NARRATION_REQUEST_MAX_TIMEOUT_MS = 600000;
+const ANJALI_CLONE_HEALTH_TIMEOUT_MS = 15000;
+const ANJALI_CLONE_HEALTH_GRACE_MS = 45000;
 const revealWeightCache = new Map();
 const speechSyncProfileCache = new Map();
 
@@ -2523,6 +2668,15 @@ function getVisibleChunkText(chunkText = "", speechProgress = 0) {
   const safeChunkText = String(chunkText || "");
   if (!safeChunkText) {
     return "";
+  }
+
+  if (/^\r?\n+$/.test(safeChunkText) || /^[ \t]+$/.test(safeChunkText) || /^[,.;:!?()[\]{}]+$/.test(safeChunkText)) {
+    return safeChunkText;
+  }
+
+  const commitThreshold = getSpeechSyncCommitThreshold(safeChunkText);
+  if (commitThreshold < 1) {
+    return clamp(speechProgress, 0, 1) >= commitThreshold ? safeChunkText : "";
   }
 
   const delayedProgress = clamp(
@@ -2867,8 +3021,12 @@ function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [
   const safeChunks = Array.isArray(narrationChunks)
     ? narrationChunks.map((chunk) => String(chunk || "").trim()).filter(Boolean)
     : [];
+  const joinGapMs = Math.max(0, Math.round(Number(NARRATION_CHUNK_JOIN_GAP_MS) || 0));
   const safeDurations = Array.isArray(chunkDurationsMs)
-    ? chunkDurationsMs.map((value) => Math.max(1, Math.round(Number(value) || 0))).filter((value) => value > 0)
+    ? chunkDurationsMs.map((value, index, source) => {
+      const baseDurationMs = Math.max(1, Math.round(Number(value) || 0));
+      return baseDurationMs + (index < (source.length - 1) ? joinGapMs : 0);
+    }).filter((value) => value > 0)
     : [];
 
   if (!safeText || !safeChunks.length || safeChunks.length !== safeDurations.length) {
@@ -2967,10 +3125,10 @@ function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [
   };
 }
 
-function getResolvedSpeechSyncProfile(text = "", targetDurationMs = 0) {
+function getResolvedSpeechSyncProfile(text = "", targetDurationMs = 0, options = {}) {
   const safeText = String(text || "");
   const safeTargetDurationMs = Math.max(0, Math.round(Number(targetDurationMs) || 0));
-  const narrationProfile = state.narration?.syncProfile;
+  const narrationProfile = options.syncProfileData || state.narration?.syncProfile;
   if (
     narrationProfile
     && narrationProfile.text === safeText
@@ -2986,7 +3144,7 @@ function getResolvedSpeechSyncProfile(text = "", targetDurationMs = 0) {
   return getSpeechSyncProfile(safeText, safeTargetDurationMs);
 }
 
-function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0) {
+function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, options = {}) {
   const safeText = String(text || "");
   if (!safeText) {
     return {
@@ -2996,7 +3154,7 @@ function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0) {
     };
   }
 
-  const profile = getResolvedSpeechSyncProfile(safeText, targetDurationMs);
+  const profile = getResolvedSpeechSyncProfile(safeText, targetDurationMs, options);
   const safeElapsedMs = clamp(Number(elapsedMs) || 0, 0, profile.totalDurationMs);
   let displayedText = "";
   let mouthActive = false;
@@ -3792,6 +3950,8 @@ function handleLessonInputChange() {
     updatePlaybackProgressUi(0, false);
   }
 
+  syncExtractedPdfLessonImages({ skipDraw: true });
+
   updateSpeechToolsUi();
   refreshSelectedPhraseFromInput();
 
@@ -4016,8 +4176,183 @@ function getPdfSelectedPages() {
     .filter(Boolean);
 }
 
+function getPdfContextLayoutArea(hasImages = false) {
+  const metrics = getPresentationTemplateMetrics();
+  const leftInset = Number.isFinite(metrics.contentLeftInset) ? metrics.contentLeftInset : metrics.contentSideInset;
+  const topInset = metrics.contentTopInset;
+  const pinnedStripArea = hasImages ? getPinnedPdfImageStripArea() : null;
+  const rightInset = hasImages && pinnedStripArea
+    ? Math.max(Number.isFinite(metrics.contentRightInset) ? metrics.contentRightInset : metrics.contentSideInset, pinnedStripArea.width + STAGE_IMAGE_WORKSPACE_PADDING_PX + STAGE_PDF_IMAGE_STRIP_GAP_PX)
+    : (Number.isFinite(metrics.contentRightInset) ? metrics.contentRightInset : metrics.contentSideInset);
+  const bottomInset = metrics.contentBottomInset;
+
+  return {
+    x: leftInset,
+    y: topInset,
+    width: Math.max(360, canvas.width - leftInset - rightInset),
+    height: Math.max(320, canvas.height - topInset - bottomInset)
+  };
+}
+
+function getPdfContextPagesKey() {
+  const selectedIndexes = getPdfSelectedPageIndexes().join(",");
+  const manualPdfSourceSignature = Array.from(new Set(
+    state.images
+      .filter((item) => item?.sourceTag === "pdf-clipboard" && Number.isFinite(Number(item?.sourcePageNumber)))
+      .map((item) => Math.max(0, Math.round(Number(item.sourcePageNumber) || 0)))
+      .filter(Boolean)
+  ))
+    .sort((left, right) => left - right)
+    .join(",");
+
+  return [
+    selectedIndexes,
+    canvas.width,
+    canvas.height,
+    state.fontScale,
+    normalizePresentationTemplate(state.presentationTemplate),
+    manualPdfSourceSignature
+  ].join("|");
+}
+
+function getLayoutPageText(rows = []) {
+  return rows
+    .filter((row) => !row?.spacer)
+    .map((row) => (row.segments || []).map((segment) => segment.text).join(""))
+    .join("\n")
+    .trim();
+}
+
+function buildPdfContextPages() {
+  const selectedPages = getPdfSelectedPages();
+  const contextPages = [];
+  const manualPdfSourcePages = new Set(
+    state.images
+      .filter((item) => item?.sourceTag === "pdf-clipboard" && Number.isFinite(Number(item?.sourcePageNumber)))
+      .map((item) => Math.max(0, Math.round(Number(item.sourcePageNumber) || 0)))
+      .filter(Boolean)
+  );
+  let textCursor = 0;
+
+  selectedPages.forEach((page, selectionIndex) => {
+    const pageText = `${page?.text || ""}`.trim();
+    const sourcePageNumber = Math.max(0, Math.round(Number(page?.pageNumber) || (selectionIndex + 1)));
+    const exampleImages = Array.isArray(page?.exampleImages) ? page.exampleImages : [];
+    const hasImages = Boolean(exampleImages.length || manualPdfSourcePages.has(sourcePageNumber));
+    const contentArea = getPdfContextLayoutArea(hasImages);
+    const layout = getContentLayoutWithMetrics(
+      buildDisplayedLines(pageText),
+      contentArea.width,
+      contentArea.height,
+      !pageText,
+      {
+        wordCount: page?.wordCount || splitIntoWords(pageText).length,
+        hasImages
+      }
+    );
+    const parts = paginateLayout(layout, contentArea.height);
+    const totalParts = Math.max(1, parts.length);
+
+    parts.forEach((part, partIndex) => {
+      const partText = getLayoutPageText(part.rows);
+      contextPages.push({
+        id: `pdf-context-${sourcePageNumber}-${partIndex + 1}`,
+        pageNumber: sourcePageNumber,
+        sourcePageNumber,
+        originalPageIndex: Number.isInteger(page?.index) ? page.index : selectionIndex,
+        selectionIndex,
+        partIndex,
+        totalParts,
+        isContinuation: partIndex > 0,
+        text: partText,
+        sourcePageText: pageText,
+        pageTextStartIndex: textCursor,
+        pageTextEndIndex: textCursor + pageText.length,
+        wordCount: splitIntoWords(partText).length,
+        hasImages: hasImages && partIndex === 0,
+        exampleImages,
+        rows: part.rows || [],
+        fontSize: part.fontSize || layout.fontSize,
+        rowHeight: part.rowHeight || layout.rowHeight,
+        totalHeight: part.totalHeight || 0,
+        page
+      });
+    });
+
+    textCursor += pageText.length;
+    if (selectionIndex < selectedPages.length - 1) {
+      textCursor += 2;
+    }
+  });
+
+  state.pdf.contextPages = contextPages;
+  state.pdf.contextPagesKey = getPdfContextPagesKey();
+  return contextPages;
+}
+
+function getPdfContextPages() {
+  if (!getPdfSelectedPageCount()) {
+    state.pdf.contextPages = [];
+    state.pdf.contextPagesKey = "";
+    return [];
+  }
+
+  const nextKey = getPdfContextPagesKey();
+  if (state.pdf.contextPagesKey !== nextKey || !Array.isArray(state.pdf.contextPages) || !state.pdf.contextPages.length) {
+    return buildPdfContextPages();
+  }
+
+  return state.pdf.contextPages;
+}
+
+function getPdfPresentationPages(renderMode = getPdfRenderMode()) {
+  return renderMode === "exact" ? getPdfSelectedPages() : getPdfContextPages();
+}
+
+function getPdfPresentationPageIndexForSourcePageNumber(sourcePageNumber = 0) {
+  const safePageNumber = Math.max(0, Math.round(Number(sourcePageNumber) || 0));
+  if (!safePageNumber) {
+    return -1;
+  }
+
+  return getPdfPresentationPages().findIndex((page) => Number(page?.sourcePageNumber || page?.pageNumber) === safePageNumber);
+}
+
+function getPdfSelectionIndexForSourcePageNumber(sourcePageNumber = 0) {
+  const safePageNumber = Math.max(0, Math.round(Number(sourcePageNumber) || 0));
+  if (!safePageNumber) {
+    return -1;
+  }
+
+  return getPdfSelectedPages().findIndex((page) => Number(page?.pageNumber) === safePageNumber);
+}
+
+function getPdfAutoExampleImagesForPage(pageIndex = state.previewPageIndex) {
+  if (!isPdfPresentationMode() || getPdfRenderMode() !== "context") {
+    return [];
+  }
+
+  const contextPages = getPdfContextPages();
+  const safePageIndex = clamp(pageIndex, 0, Math.max(0, contextPages.length - 1));
+  const page = contextPages[safePageIndex] || null;
+  if (!page || !Array.isArray(page.exampleImages) || !page.exampleImages.length) {
+    return [];
+  }
+
+  const hasManualPdfImages = getImageEntriesForPage(safePageIndex).some(({ item }) => isPinnedPdfExampleImage(item));
+  if (hasManualPdfImages) {
+    return [];
+  }
+
+  return page.exampleImages.filter((image) => image?.image);
+}
+
 function getPdfSelectedPageCount() {
   return getPdfSelectedPages().length;
+}
+
+function getPdfPresentationPageCount(renderMode = getPdfRenderMode()) {
+  return getPdfPresentationPages(renderMode).length;
 }
 
 function hasActivePdfSelection() {
@@ -4041,6 +4376,12 @@ function getPdfRenderMode() {
 
 function setPdfRenderMode(renderMode = "context") {
   state.pdf.renderMode = renderMode === "exact" ? "exact" : "context";
+  state.pdf.autoImageSyncKey = "";
+}
+
+function invalidatePdfPresentationRequest() {
+  state.pdf.requestId = Math.max(0, Math.round(Number(state.pdf.requestId) || 0)) + 1;
+  return state.pdf.requestId;
 }
 
 function createLessonRenderStateSnapshot() {
@@ -4175,22 +4516,22 @@ function estimatePdfPageDurationMs(page) {
 }
 
 function buildPdfPresentationSchedule(totalDurationMs = 0) {
-  const selectedPages = getPdfSelectedPages();
-  if (!selectedPages.length) {
+  const presentationPages = getPdfPresentationPages();
+  if (!presentationPages.length) {
     return [];
   }
 
-  const baseDurations = selectedPages.map((page) => estimatePdfPageDurationMs(page));
+  const baseDurations = presentationPages.map((page) => estimatePdfPageDurationMs(page));
   const baseTotal = baseDurations.reduce((sum, value) => sum + value, 0);
   const targetTotal = totalDurationMs > 0 ? totalDurationMs : baseTotal;
   const scale = baseTotal > 0 ? targetTotal / baseTotal : 1;
   let currentStartMs = 0;
 
-  return selectedPages.map((page, selectionIndex) => {
-    const durationMs = Math.max(1500, Math.round(baseDurations[selectionIndex] * scale));
+  return presentationPages.map((page, presentationIndex) => {
+    const durationMs = Math.max(1500, Math.round(baseDurations[presentationIndex] * scale));
     const scheduleItem = {
-      selectionIndex,
-      originalPageIndex: page.index,
+      selectionIndex: presentationIndex,
+      originalPageIndex: Number.isInteger(page?.originalPageIndex) ? page.originalPageIndex : page?.index,
       startMs: currentStartMs,
       endMs: currentStartMs + durationMs,
       durationMs,
@@ -4224,13 +4565,13 @@ function getPdfSelectionIndexForTime(timeMs = state.pdf.currentTimeMs) {
 }
 
 function syncPdfPreviewPageFromTime(timeMs = state.pdf.currentTimeMs) {
-  const selectedPageCount = getPdfSelectedPageCount();
-  if (!selectedPageCount) {
+  const presentationPageCount = getPdfPresentationPageCount();
+  if (!presentationPageCount) {
     state.previewPageIndex = 0;
     return;
   }
 
-  state.previewPageIndex = clamp(getPdfSelectionIndexForTime(timeMs), 0, selectedPageCount - 1);
+  state.previewPageIndex = clamp(getPdfSelectionIndexForTime(timeMs), 0, presentationPageCount - 1);
 }
 
 function rebuildPdfPresentationSchedule(options = {}) {
@@ -4259,7 +4600,7 @@ async function focusPdfSelectionPage(selectionIndex, options = {}) {
     return;
   }
 
-  const safeSelectionIndex = clamp(scheduleItem.selectionIndex, 0, Math.max(0, getPdfSelectedPageCount() - 1));
+  const safeSelectionIndex = clamp(scheduleItem.selectionIndex, 0, Math.max(0, getPdfPresentationPageCount() - 1));
   state.previewPageIndex = safeSelectionIndex;
 
   if (isPdfPresentationMode()) {
@@ -4319,7 +4660,8 @@ function resetPdfNarrationState() {
     blob: null,
     textSource: "",
     voice: "",
-    source: ""
+    source: "",
+    syncProfile: null
   };
 }
 
@@ -4362,7 +4704,7 @@ function updatePdfPageSelectionSummary() {
   const estimatedDuration = getPdfScheduleTotalDuration(estimatedSchedule);
   pdfPageSelectionSummary.textContent = selectedCount
     ? `${selectedCount} of ${state.pdf.pageCount} PDF page${state.pdf.pageCount === 1 ? "" : "s"} selected | estimated presentation length ${formatDurationMs(estimatedDuration)}. Use the stage speed control to play faster or slower.`
-    : "No PDF pages selected. Tick at least one page to show or present it.";
+    : "No PDF pages selected yet. Tick at least one page to show or present it.";
 }
 
 function getCopyIconSvg() {
@@ -4585,26 +4927,48 @@ function renderPdfPageList() {
       }
     };
 
+    const focusPageSelection = async () => {
+      const selectionIndex = getPdfSelectedPageIndexes().indexOf(page.index);
+      if (selectionIndex >= 0) {
+        await focusPdfSelectionPage(selectionIndex, {
+          startPlayback: isPdfPresentationMode() && !stagePanel.classList.contains("hidden")
+        });
+      }
+    };
+
+    const setPageSelection = async (shouldSelect, options = {}) => {
+      togglePageSelection(shouldSelect);
+      if (shouldSelect && options.focusPage !== false) {
+        await focusPageSelection();
+      }
+    };
+
     const checkboxLabel = document.createElement("label");
     checkboxLabel.className = "pdf-page-check";
-    checkboxLabel.addEventListener("click", (event) => event.stopPropagation());
+    checkboxLabel.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.pdfLoading) {
+        return;
+      }
+
+      const shouldSelect = !getPdfSelectedPageIndexes().includes(page.index);
+      await setPageSelection(shouldSelect);
+    });
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = selectedIndexes.has(page.index);
     checkbox.disabled = state.pdfLoading;
-    checkbox.addEventListener("click", (event) => event.stopPropagation());
-    checkbox.addEventListener("change", async () => {
-      togglePageSelection(checkbox.checked);
-
-      if (checkbox.checked) {
-        const selectionIndex = getPdfSelectedPageIndexes().indexOf(page.index);
-        if (selectionIndex >= 0) {
-          await focusPdfSelectionPage(selectionIndex, {
-            startPlayback: isPdfPresentationMode() && !stagePanel.classList.contains("hidden")
-          });
-        }
+    checkbox.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.pdfLoading) {
+        return;
       }
+
+      const shouldSelect = !getPdfSelectedPageIndexes().includes(page.index);
+      await setPageSelection(shouldSelect);
     });
 
     const checkboxText = document.createElement("span");
@@ -4621,15 +4985,11 @@ function renderPdfPageList() {
     thumb.addEventListener("click", async (event) => {
       event.stopPropagation();
       if (!getPdfSelectedPageIndexes().includes(page.index)) {
-        togglePageSelection(true);
+        await setPageSelection(true, { focusPage: true });
+        return;
       }
 
-      const selectionIndex = getPdfSelectedPageIndexes().indexOf(page.index);
-      if (selectionIndex >= 0) {
-        await focusPdfSelectionPage(selectionIndex, {
-          startPlayback: isPdfPresentationMode() && !stagePanel.classList.contains("hidden")
-        });
-      }
+      await focusPageSelection();
     });
 
     const meta = document.createElement("div");
@@ -4660,16 +5020,7 @@ function renderPdfPageList() {
       }
 
       const shouldSelect = !getPdfSelectedPageIndexes().includes(page.index);
-      togglePageSelection(shouldSelect);
-
-      if (shouldSelect) {
-        const selectionIndex = getPdfSelectedPageIndexes().indexOf(page.index);
-        if (selectionIndex >= 0) {
-          await focusPdfSelectionPage(selectionIndex, {
-            startPlayback: isPdfPresentationMode() && !stagePanel.classList.contains("hidden")
-          });
-        }
-      }
+      await setPageSelection(shouldSelect);
     });
     pdfPageList.appendChild(card);
   });
@@ -4682,12 +5033,13 @@ function updatePdfUi() {
   const hasSelectedFile = Boolean(state.pdfSelectedFile);
   const hasLoadedPdf = Boolean(state.pdf.pages.length);
   const hasSelection = Boolean(getPdfSelectedPageCount());
+  const allSelected = hasLoadedPdf && getPdfSelectedPageCount() === state.pdf.pages.length;
   const isBusy = state.pdfLoading;
 
   pdfInput.disabled = isBusy;
   pdfShowBtn.disabled = isBusy || !hasLoadedPdf || !hasSelection;
   pdfPresentBtn.disabled = isBusy || !hasLoadedPdf || !hasSelection;
-  pdfSelectAllBtn.disabled = isBusy || !hasLoadedPdf;
+  pdfSelectAllBtn.disabled = isBusy || !hasLoadedPdf || allSelected;
   pdfClearSelectionBtn.disabled = isBusy || !hasLoadedPdf || !hasSelection;
   clearPdfBtn.disabled = isBusy || (!hasSelectedFile && !hasLoadedPdf);
 
@@ -4708,9 +5060,11 @@ function clearPdfSelection(options = {}) {
   const keepLessonText = options.keepLessonText !== false;
 
   stopPlayback(false);
+  invalidatePdfPresentationRequest();
   state.pdfSelectedFile = null;
   state.pdfLoading = false;
   state.presentationMode = "lesson";
+  state.images = state.images.filter((item) => !isManagedAutoPdfImage(item));
   resetPdfNarrationState();
   state.pdf = {
     fileName: "",
@@ -4719,11 +5073,16 @@ function clearPdfSelection(options = {}) {
     pageTexts: [],
     pageCount: 0,
     pages: [],
+    contextPages: [],
+    contextPagesKey: "",
+    autoImageSyncKey: "",
+    lessonAutoImageSyncKey: "",
     selectedPageIndexes: [],
     renderMode: "context",
     currentTimeMs: 0,
     totalDurationMs: 0,
     playbackRate: Number(playbackSpeedSelect?.value || DEFAULT_STAGE_PLAYBACK_RATE),
+    requestId: 0,
     pageSchedule: [],
     paused: false,
     audioDriven: false,
@@ -4736,7 +5095,8 @@ function clearPdfSelection(options = {}) {
       blob: null,
       textSource: "",
       voice: "",
-      source: ""
+      source: "",
+      syncProfile: null
     }
   };
 
@@ -4744,6 +5104,7 @@ function clearPdfSelection(options = {}) {
   resetPdfProgress();
   renderPdfPreview();
   renderPdfPageList();
+  renderImagePreviews();
   setPdfStatus(
     keepLessonText
       ? "PDF cleared. The extracted lesson text stays in the content box until you change it."
@@ -5091,6 +5452,7 @@ function extractPdfExampleImageAssets(items = [], presentationCanvas, sourcePage
     cropCanvas.width = Math.max(1, Math.round(bounds.width));
     cropCanvas.height = Math.max(1, Math.round(bounds.height));
     const cropContext = cropCanvas.getContext("2d", { alpha: false });
+    applyHighQualityImageRendering(cropContext);
     cropContext.fillStyle = "#ffffff";
     cropContext.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
     cropContext.drawImage(
@@ -5278,6 +5640,7 @@ async function createFilteredPdfPageCanvas(sourceCanvas) {
     filteredCanvas.width = sourceCanvas.width;
     filteredCanvas.height = sourceCanvas.height;
     const filteredContext = filteredCanvas.getContext("2d", { alpha: false });
+    applyHighQualityImageRendering(filteredContext);
     filteredContext.fillStyle = "#ffffff";
     filteredContext.fillRect(0, 0, filteredCanvas.width, filteredCanvas.height);
     filteredContext.drawImage(sourceCanvas, 0, 0);
@@ -5316,10 +5679,13 @@ async function createFilteredPdfPageCanvas(sourceCanvas) {
 async function renderPdfPageAssets(pdfPage, pageNumber, textContent) {
   const sourceViewport = pdfPage.getViewport({ scale: 1 });
   const renderScale = Math.max(
-    1.2,
+    PDF_RENDER_SCALE_MIN,
     Math.min(
-      2.2,
-      Math.min(1600 / sourceViewport.width, 2000 / sourceViewport.height)
+      PDF_RENDER_SCALE_MAX,
+      Math.min(
+        PDF_RENDER_TARGET_MAX_WIDTH_PX / sourceViewport.width,
+        PDF_RENDER_TARGET_MAX_HEIGHT_PX / sourceViewport.height
+      )
     )
   );
   const renderViewport = pdfPage.getViewport({ scale: renderScale });
@@ -5328,6 +5694,7 @@ async function renderPdfPageAssets(pdfPage, pageNumber, textContent) {
   renderCanvas.height = Math.ceil(renderViewport.height);
 
   const renderContext = renderCanvas.getContext("2d", { alpha: false });
+  applyHighQualityImageRendering(renderContext);
   renderContext.fillStyle = "#ffffff";
   renderContext.fillRect(0, 0, renderCanvas.width, renderCanvas.height);
 
@@ -5346,6 +5713,7 @@ async function renderPdfPageAssets(pdfPage, pageNumber, textContent) {
   thumbCanvas.width = thumbWidth;
   thumbCanvas.height = thumbHeight;
   const thumbContext = thumbCanvas.getContext("2d", { alpha: false });
+  applyHighQualityImageRendering(thumbContext);
   thumbContext.fillStyle = "#eef6fb";
   thumbContext.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
   thumbContext.drawImage(presentationCanvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
@@ -5430,21 +5798,28 @@ async function loadSelectedPdf(forceReload = false) {
   updatePdfUi();
 
   try {
+    const previousPdfText = state.pdf.extractedText.trim();
+    const existingLessonText = lessonInput.value.trim();
     setPdfProgress(12, "Loading PDF reader");
     const payload = await extractPdfContent(file);
     resetPdfNarrationState();
-    state.pdf = {
-      fileName: file.name,
+  state.pdf = {
+    fileName: file.name,
       fileSignature,
       extractedText: payload.extractedText,
       pageTexts: payload.pageTexts,
       pageCount: payload.pageCount,
       pages: payload.pages,
-      selectedPageIndexes: payload.pages.map((page) => page.index),
+      contextPages: [],
+      contextPagesKey: "",
+      autoImageSyncKey: "",
+      lessonAutoImageSyncKey: "",
+      selectedPageIndexes: [],
       renderMode: "context",
       currentTimeMs: 0,
       totalDurationMs: 0,
       playbackRate: Number(playbackSpeedSelect?.value || DEFAULT_STAGE_PLAYBACK_RATE),
+      requestId: 0,
       pageSchedule: [],
       paused: false,
       audioDriven: false,
@@ -5457,15 +5832,27 @@ async function loadSelectedPdf(forceReload = false) {
         blob: null,
         textSource: "",
         voice: "",
-        source: ""
+        source: "",
+        syncProfile: null
       }
-    };
-    state.pdf.pageSchedule = buildPdfPresentationSchedule();
+  };
+  const shouldLoadExtractedTextIntoLesson = Boolean(payload.extractedText.trim()) && (
+    !existingLessonText
+    || normalizePdfSearchFragment(existingLessonText) === normalizePdfSearchFragment(previousPdfText)
+  );
+  if (shouldLoadExtractedTextIntoLesson && lessonInput.value !== payload.extractedText) {
+    lessonInput.value = payload.extractedText;
+    handleLessonInputChange();
+  }
+  state.images = state.images.filter((item) => !isManagedAutoPdfImage(item));
+  state.pdf.pageSchedule = buildPdfPresentationSchedule();
     state.pdf.totalDurationMs = getPdfScheduleTotalDuration(state.pdf.pageSchedule);
     rebuildPdfPresentationSchedule({ preserveTime: false });
 
     renderPdfPreview();
     renderPdfPageList();
+    preloadPdfExampleImages(payload.pages);
+    syncExtractedPdfLessonImages({ skipDraw: true });
     setPdfProgress(100, "Ready");
     const maskedPageCount = payload.pages.filter((page) => page.humanContentMasked).length;
     const maskSummary = maskedPageCount
@@ -5473,12 +5860,14 @@ async function loadSelectedPdf(forceReload = false) {
       : "";
     setPdfStatus(
       payload.extractedText
-        ? `Loaded ${file.name}. The extracted PDF content is ready in the PDF section. Copy only the page or examples you want into the lesson box.${maskSummary}`
-        : `Loaded ${file.name}. No readable text was found, but the exact PDF page images are ready to show on screen.${maskSummary}`
+        ? `Loaded ${file.name}. No pages are selected yet. Tick the pages you want, then show or present them.${maskSummary}`
+        : `Loaded ${file.name}. No pages are selected yet, but the exact PDF page images are ready when you choose pages to show on screen.${maskSummary}`
       );
     setSpeechToolsStatus(
       payload.extractedText
-        ? "PDF text is ready in the extracted PDF section. Copy a page into the content box only where you want it."
+        ? (shouldLoadExtractedTextIntoLesson
+          ? "PDF text is in the lesson box now. Tick the PDF pages you want, and their example images will follow onto the matching lesson pages."
+          : "PDF text is ready in the extracted PDF section. Copy a page into the content box only where you want it.")
         : "The PDF page images are ready. This file may be image-based, so reading may need OCR text from another source."
     );
     return true;
@@ -5517,6 +5906,7 @@ async function handlePdfSelection(event) {
   }
 
   state.pdfSelectedFile = file;
+  invalidatePdfPresentationRequest();
   state.pdf = {
     fileName: "",
     fileSignature: "",
@@ -5524,11 +5914,16 @@ async function handlePdfSelection(event) {
     pageTexts: [],
     pageCount: 0,
     pages: [],
+    contextPages: [],
+    contextPagesKey: "",
+    autoImageSyncKey: "",
+    lessonAutoImageSyncKey: "",
     selectedPageIndexes: [],
     renderMode: "context",
     currentTimeMs: 0,
     totalDurationMs: 0,
-      playbackRate: Number(playbackSpeedSelect?.value || DEFAULT_STAGE_PLAYBACK_RATE),
+    playbackRate: Number(playbackSpeedSelect?.value || DEFAULT_STAGE_PLAYBACK_RATE),
+    requestId: 0,
     pageSchedule: [],
     paused: false,
     audioDriven: false,
@@ -5541,11 +5936,14 @@ async function handlePdfSelection(event) {
       blob: null,
       textSource: "",
       voice: "",
-      source: ""
+      source: "",
+      syncProfile: null
     }
   };
+  state.images = state.images.filter((item) => !isManagedAutoPdfImage(item));
   renderPdfPreview();
   renderPdfPageList();
+  renderImagePreviews();
   resetPdfProgress();
   setPdfStatus(`Selected PDF: ${file.name}. Extracting text now...`);
   updatePdfUi();
@@ -5553,6 +5951,7 @@ async function handlePdfSelection(event) {
 }
 
 async function showPdfOnScreen() {
+  invalidatePdfPresentationRequest();
   const ready = await loadSelectedPdf();
   if (!ready) {
     return;
@@ -5576,12 +5975,12 @@ function isPdfPresentationMode() {
 }
 
 function getPdfCurrentStagePage() {
-  const selectedPages = getPdfSelectedPages();
-  if (!selectedPages.length) {
+  const presentationPages = getPdfPresentationPages();
+  if (!presentationPages.length) {
     return null;
   }
 
-  return selectedPages[clamp(state.previewPageIndex, 0, selectedPages.length - 1)] || null;
+  return presentationPages[clamp(state.previewPageIndex, 0, presentationPages.length - 1)] || null;
 }
 
 function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder = true, options = {}) {
@@ -5652,16 +6051,66 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
 function getPdfContextVisibleText(page, selectionIndex) {
   const fullText = page?.text || "";
   if (!fullText) {
-    return "";
+    return {
+      fullText: "",
+      partText: "",
+      layoutPage: null,
+      mouthActive: false,
+      speechElapsedMs: 0
+    };
   }
 
   if (!state.speaking && !state.pdf.paused) {
     return fullText;
   }
 
+  const syncProfileData = state.pdf?.narration?.syncProfile;
+  const combinedPdfText = getPdfPresentationText();
+  if (combinedPdfText && syncProfileData?.profile && syncProfileData?.text === combinedPdfText) {
+    const visualLagMs = Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
+    const syncFrame = getSpeechSyncFrame(
+      combinedPdfText,
+      Math.max(0, state.pdf.currentTimeMs - visualLagMs),
+      state.pdf.narration.durationMs || state.pdf.totalDurationMs,
+      { syncProfileData }
+    );
+    const pageTextStartIndex = Math.max(0, Math.round(Number(page?.pageTextStartIndex) || 0));
+    const sourcePageText = String(page?.sourcePageText || "");
+    const visiblePageText = syncFrame.displayedText.length <= pageTextStartIndex
+      ? ""
+      : syncFrame.displayedText.slice(pageTextStartIndex, pageTextStartIndex + sourcePageText.length);
+
+    const contentArea = getStageContentArea(state.previewPageIndex, Boolean(page?.hasImages || getStageHasVisibleImagesForPage(state.previewPageIndex)));
+    const visibleLayout = getContentLayoutWithMetrics(
+      buildDisplayedLines(visiblePageText),
+      contentArea.width,
+      contentArea.height,
+      !sourcePageText,
+      {
+        wordCount: splitIntoWords(visiblePageText).length || page?.wordCount || splitIntoWords(sourcePageText).length,
+        hasImages: Boolean(page?.hasImages)
+      }
+    );
+    const visibleParts = paginateLayout(visibleLayout, contentArea.height);
+    const visiblePart = visibleParts[page?.partIndex || 0] || null;
+    return {
+      fullText: visiblePageText,
+      partText: getLayoutPageText(visiblePart?.rows || []),
+      layoutPage: visiblePart,
+      mouthActive: syncFrame.mouthActive,
+      speechElapsedMs: syncFrame.speechElapsedMs
+    };
+  }
+
   const scheduleItem = state.pdf.pageSchedule[selectionIndex] || null;
   if (!scheduleItem || scheduleItem.durationMs <= 0) {
-    return fullText;
+    return {
+      fullText,
+      partText: fullText,
+      layoutPage: null,
+      mouthActive: false,
+      speechElapsedMs: 0
+    };
   }
 
   const pageProgress = clamp(
@@ -5670,7 +6119,14 @@ function getPdfContextVisibleText(page, selectionIndex) {
     1
   );
 
-  return getVisibleTextForProgress(fullText, pageProgress);
+  const visibleText = getVisibleTextForProgress(fullText, pageProgress);
+  return {
+    fullText: visibleText,
+    partText: visibleText,
+    layoutPage: null,
+    mouthActive: pageProgress > 0 && pageProgress < 1,
+    speechElapsedMs: Math.max(0, state.pdf.currentTimeMs - scheduleItem.startMs)
+  };
 }
 
 function getPdfPresentationFallbackLabel() {
@@ -5684,14 +6140,25 @@ function applyPdfPageSelection(nextIndexes) {
     stopPlayback(false);
   }
 
+  invalidatePdfPresentationRequest();
   state.pdf.selectedPageIndexes = Array.from(new Set(nextIndexes))
     .filter((index) => Number.isInteger(index) && index >= 0 && index < state.pdf.pages.length)
     .sort((left, right) => left - right);
+  state.pdf.contextPages = [];
+  state.pdf.contextPagesKey = "";
+  state.pdf.autoImageSyncKey = "";
+  state.pdf.lessonAutoImageSyncKey = "";
   resetPdfNarrationState();
   resetPdfPlaybackState(true);
   renderPdfPageList();
   updatePdfUi();
   updateStageModeUi();
+
+  syncExtractedPdfLessonImages({ skipDraw: true });
+
+  if (getPdfRenderMode() === "context") {
+    syncPdfContextStageImages({ skipDraw: true });
+  }
 
   if (isPdfPresentationMode() && !stagePanel.classList.contains("hidden")) {
     drawScene(state.mouthOpen);
@@ -5742,8 +6209,9 @@ function updateStageTimelineUi() {
   syncPdfPreviewPageFromTime(state.pdf.currentTimeMs);
 
   const usingGeneratedAudio = Boolean(state.pdf.narration.url);
+  const presentationPageCount = getPdfPresentationPageCount();
   if (stageTimelineMeta) {
-    stageTimelineMeta.textContent = `${getPdfSelectedPageCount()} selected page${getPdfSelectedPageCount() === 1 ? "" : "s"} | ${usingGeneratedAudio ? "Generated narration ready" : "Using timed page playback"} | Speed ${getPdfPlaybackRate()}x`;
+    stageTimelineMeta.textContent = `${getPdfSelectedPageCount()} selected PDF page${getPdfSelectedPageCount() === 1 ? "" : "s"} | ${presentationPageCount} narration page${presentationPageCount === 1 ? "" : "s"} | ${usingGeneratedAudio ? "Generated narration ready" : "Using timed page playback"} | Speed ${getPdfPlaybackRate()}x`;
   }
 
   if (stageCurrentTime) {
@@ -5854,14 +6322,15 @@ function showPdfScreen(renderMode = "context") {
     return;
   }
 
-  const selectedPageCount = getPdfSelectedPageCount();
-  const preferredPreviewIndex = clamp(state.previewPageIndex, 0, Math.max(0, selectedPageCount - 1));
   stopDictation(false);
   stopInputPreview(false);
   stopPlayback(false);
+  invalidatePdfPresentationRequest();
   state.presentationMode = "pdf";
   setPdfRenderMode(renderMode);
   resetPdfPlaybackState(true);
+  const presentationPageCount = getPdfPresentationPageCount();
+  const preferredPreviewIndex = clamp(state.previewPageIndex, 0, Math.max(0, presentationPageCount - 1));
   state.previewPageIndex = preferredPreviewIndex;
   const previewSlot = state.pdf.pageSchedule[preferredPreviewIndex] || null;
   state.pdf.currentTimeMs = previewSlot ? previewSlot.startMs : 0;
@@ -5882,7 +6351,7 @@ function showPdfScreen(renderMode = "context") {
   );
 }
 
-async function setPdfNarrationFromBlob(blob, fileName, sourceLabel, textSource = "", voice = "") {
+async function setPdfNarrationFromBlob(blob, fileName, sourceLabel, textSource = "", voice = "", options = {}) {
   const nextUrl = URL.createObjectURL(blob);
 
   try {
@@ -5892,6 +6361,9 @@ async function setPdfNarrationFromBlob(blob, fileName, sourceLabel, textSource =
       : getPdfScheduleTotalDuration(buildPdfPresentationSchedule());
 
     resetPdfNarrationState();
+    const syncProfile = options.syncProfile
+      ? scaleSpeechSyncProfile(options.syncProfile, durationMs)
+      : null;
     state.pdf.narration = {
       url: nextUrl,
       fileName,
@@ -5899,7 +6371,13 @@ async function setPdfNarrationFromBlob(blob, fileName, sourceLabel, textSource =
       source: sourceLabel,
       blob,
       textSource,
-      voice
+      voice,
+      syncProfile: syncProfile
+        ? {
+          text: textSource,
+          profile: syncProfile
+        }
+        : null
     };
 
     rebuildPdfPresentationSchedule({ preserveTime: true });
@@ -5928,8 +6406,18 @@ async function ensurePdfNarrationReadyForPresentation(options = {}) {
 
   const label = `Generated ${getNarrationVoiceLabel(voice).toLowerCase()} PDF narration`;
   const fileName = `generated-${voice}-pdf-narration.wav`;
-  const blob = await requestNarrationBlob(pdfText, voice, options);
-  await setPdfNarrationFromBlob(blob, fileName, label, pdfText, voice);
+  let syncProfile = null;
+  const blob = await requestNarrationBlob(pdfText, voice, {
+    ...options,
+    timeoutMs: options.timeoutMs || getLongNarrationRequestTimeoutMs(pdfText),
+    onSyncProfile: (profile) => {
+      syncProfile = profile;
+      if (typeof options.onSyncProfile === "function") {
+        options.onSyncProfile(profile);
+      }
+    }
+  });
+  await setPdfNarrationFromBlob(blob, fileName, label, pdfText, voice, { syncProfile });
 }
 
 function forceExportVoiceToAnjali() {
@@ -5982,13 +6470,33 @@ async function ensureAnjaliPdfNarrationReadyForExport(options = {}) {
 
   forceExportVoiceToAnjali();
 
-  const blob = await requestNarrationBlob(pdfText, EXPORT_NARRATION_VOICE, options);
+  const hasMatchingNarration = Boolean(
+    state.pdf.narration.blob
+    && state.pdf.narration.voice === EXPORT_NARRATION_VOICE
+    && state.pdf.narration.textSource === pdfText
+  );
+  if (hasMatchingNarration) {
+    return state.pdf.narration.blob;
+  }
+
+  let syncProfile = null;
+  const blob = await requestNarrationBlob(pdfText, EXPORT_NARRATION_VOICE, {
+    ...options,
+    timeoutMs: options.timeoutMs || getLongNarrationRequestTimeoutMs(pdfText),
+    onSyncProfile: (profile) => {
+      syncProfile = profile;
+      if (typeof options.onSyncProfile === "function") {
+        options.onSyncProfile(profile);
+      }
+    }
+  });
   await setPdfNarrationFromBlob(
     blob,
     `generated-${EXPORT_NARRATION_VOICE}-pdf-narration.wav`,
     "Generated anjali PDF narration",
     pdfText,
-    EXPORT_NARRATION_VOICE
+    EXPORT_NARRATION_VOICE,
+    { syncProfile }
   );
   return blob;
 }
@@ -6052,14 +6560,17 @@ function startPdfPlaybackLoop(options = {}) {
     }
 
     const activeSelectionIndex = getPdfSelectionIndexForTime(currentTimeMs);
-    const activePage = getPdfSelectedPages()[activeSelectionIndex] || null;
-    const visibleText = getPdfRenderMode() === "context"
+    const activePage = getPdfPresentationPages()[activeSelectionIndex] || null;
+    const visibleState = getPdfRenderMode() === "context"
       ? getPdfContextVisibleText(activePage, activeSelectionIndex)
-      : "";
+      : null;
+    const visibleText = visibleState?.partText || "";
     const shouldRedrawContext = getPdfRenderMode() === "context"
       ? (visibleText !== lastVisibleText || activeSelectionIndex !== lastRenderedSelectionIndex)
       : activeSelectionIndex !== lastRenderedSelectionIndex;
-    const nextMouth = 0.12;
+    const nextMouth = visibleState?.mouthActive
+      ? getFallbackMouth(visibleState.speechElapsedMs)
+      : 0.12;
     const shouldDrawFrame = shouldRenderAnimatedSceneFrame(nowMs, {
       force: shouldRedrawContext,
       lastRenderAt,
@@ -6183,6 +6694,7 @@ async function playPdfPresentation() {
     }
   }
 
+  const requestId = invalidatePdfPresentationRequest();
   rebuildPdfPresentationSchedule({ preserveTime: true });
 
   if (state.pdf.currentTimeMs >= state.pdf.totalDurationMs && state.pdf.totalDurationMs) {
@@ -6216,6 +6728,10 @@ async function playPdfPresentation() {
     setStatus("Preparing PDF narration...");
     updateTaskProgressUi(0.2, true, { mirrorStage: true });
     await ensurePdfNarrationReadyForPresentation();
+    if (requestId !== state.pdf.requestId) {
+      resetTaskProgressUi();
+      return;
+    }
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
     resetTaskProgressUi();
     await startPdfNarrationPlayback("PDF presentation is playing with generated narration.");
@@ -6645,10 +7161,14 @@ async function ensureNarrationServer() {
 }
 
 async function ensureAnjaliCloneServer() {
+  const now = Date.now();
+  const recentlyHealthy = state.anjaliMonitor.lastHealthyAt > 0
+    && (now - state.anjaliMonitor.lastHealthyAt) <= ANJALI_CLONE_HEALTH_GRACE_MS;
+
   if (isAnjaliGenerationActive()) {
     const keepReady = Boolean(
       state.anjaliCloneServerReady
-      || state.anjaliMonitor.lastKnownReady
+      || recentlyHealthy
       || state.anjaliMonitor.modelLoaded
     );
     state.anjaliCloneServerReady = keepReady;
@@ -6661,17 +7181,25 @@ async function ensureAnjaliCloneServer() {
     const response = await fetchWithTimeout(`${state.anjaliCloneServerUrl}/health`, {
       method: "GET",
       cache: "no-store"
-    }, 8000);
+    }, ANJALI_CLONE_HEALTH_TIMEOUT_MS);
     const payload = response.ok ? await response.clone().json().catch(() => null) : null;
     state.anjaliMonitor.modelLoaded = Boolean(payload?.modelLoaded);
     state.anjaliMonitor.warming = Boolean(response.ok && payload && payload.modelLoaded === false);
     state.anjaliMonitor.lastError = String(payload?.error || "").trim();
     state.anjaliCloneServerReady = Boolean(response.ok && (payload?.modelLoaded ?? true));
+    if (state.anjaliCloneServerReady) {
+      state.anjaliMonitor.lastHealthyAt = now;
+      state.anjaliMonitor.transientFailureCount = 0;
+    } else if (recentlyHealthy && !state.anjaliMonitor.warming) {
+      state.anjaliCloneServerReady = true;
+      state.anjaliMonitor.transientFailureCount = Math.max(1, Number(state.anjaliMonitor.transientFailureCount || 0) + 1);
+    }
   } catch (error) {
-    state.anjaliMonitor.modelLoaded = false;
+    state.anjaliMonitor.modelLoaded = recentlyHealthy ? state.anjaliMonitor.modelLoaded : false;
     state.anjaliMonitor.warming = false;
-    state.anjaliMonitor.lastError = "";
-    state.anjaliCloneServerReady = false;
+    state.anjaliMonitor.lastError = String(error?.message || "").trim();
+    state.anjaliMonitor.transientFailureCount = Math.max(1, Number(state.anjaliMonitor.transientFailureCount || 0) + 1);
+    state.anjaliCloneServerReady = recentlyHealthy;
   }
 
   if (!state.anjaliCloneServerReady) {
@@ -6875,6 +7403,123 @@ function base64ToBlob(base64, contentType = "application/octet-stream") {
 
 async function blobToBase64(blob) {
   return arrayBufferToBase64(await blob.arrayBuffer());
+}
+
+function shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob) {
+  const totalSize = Number(videoBlob?.size || 0) + Number(audioBlob?.size || 0) + Number(musicBlob?.size || 0);
+  return totalSize >= MUX_CHUNK_UPLOAD_THRESHOLD_BYTES;
+}
+
+async function uploadBlobToMuxSession(sessionId, target, blob, onProgress = null) {
+  const safeTarget = target === "music" ? "music" : (target === "audio" ? "audio" : "video");
+  const safeBlob = blob instanceof Blob ? blob : new Blob();
+  const totalBytes = Number(safeBlob.size || 0);
+
+  if (!totalBytes) {
+    return;
+  }
+
+  let uploadedBytes = 0;
+  while (uploadedBytes < totalBytes) {
+    const nextChunk = safeBlob.slice(uploadedBytes, uploadedBytes + MUX_CHUNK_UPLOAD_SIZE_BYTES);
+    const response = await fetch(`${state.videoExportServerUrl}/api/mux-upload-chunk?sessionId=${encodeURIComponent(sessionId)}&target=${encodeURIComponent(safeTarget)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream"
+      },
+      body: nextChunk
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => ({}));
+      throw new Error(errorPayload.error || `Uploading the ${safeTarget} chunk failed.`);
+    }
+
+    uploadedBytes += nextChunk.size;
+    if (typeof onProgress === "function") {
+      onProgress(uploadedBytes, totalBytes);
+    }
+  }
+}
+
+async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options = {}) {
+  const audioFileName = options.audioFileName || state.narration.fileName || "narration.wav";
+  const audioSpeed = Number.isFinite(Number(options.audioSpeed)) ? Number(options.audioSpeed) : 1;
+  const videoSpeed = Number.isFinite(Number(options.videoSpeed)) ? Number(options.videoSpeed) : 1;
+  const musicVolume = state.music.enabled
+    ? Math.min(STRICT_BACKGROUND_MUSIC_VOLUME, Number(state.music.volume) || STRICT_BACKGROUND_MUSIC_VOLUME)
+    : 0;
+  const exportQuality = getEffectiveExportQuality();
+  const saveHandle = options.saveHandle || null;
+  const uploadPlan = [
+    { key: "video", blob: videoBlob },
+    { key: "audio", blob: audioBlob }
+  ];
+
+  if (musicBlob?.size) {
+    uploadPlan.push({ key: "music", blob: musicBlob });
+  }
+
+  const totalBytes = uploadPlan.reduce((sum, item) => sum + Number(item.blob?.size || 0), 0);
+  const sessionResponse = await fetch(`${state.videoExportServerUrl}/api/mux-upload-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      videoFileName: "canvas-export.webm",
+      audioFileName,
+      musicFileName: musicBlob?.size ? (state.music.fileName || "background-music.wav") : "",
+      audioSpeed,
+      videoSpeed,
+      musicVolume,
+      exportQuality
+    })
+  });
+
+  if (!sessionResponse.ok) {
+    const errorPayload = await sessionResponse.json().catch(() => ({}));
+    throw new Error(errorPayload.error || "The local video export server could not start a chunked export session.");
+  }
+
+  const sessionPayload = await sessionResponse.json().catch(() => ({}));
+  const sessionId = String(sessionPayload.sessionId || "");
+  if (!sessionId) {
+    throw new Error("The local video export server did not return a chunked export session id.");
+  }
+
+  let uploadedBytes = 0;
+  for (const item of uploadPlan) {
+    await uploadBlobToMuxSession(sessionId, item.key, item.blob, (itemUploadedBytes, itemTotalBytes) => {
+      const overallUploadedBytes = uploadedBytes + itemUploadedBytes;
+      const progress = totalBytes > 0 ? clamp(overallUploadedBytes / totalBytes, 0, 1) : 1;
+      updateTaskProgressUi(0.9 + (progress * 0.08), true, {
+        mirrorStage: true,
+        label: "Uploading the rendered video to FFmpeg in chunks. Please wait..."
+      });
+    });
+    uploadedBytes += Number(item.blob?.size || 0);
+  }
+
+  const completeResponse = await fetch(`${state.videoExportServerUrl}/api/mux-upload-complete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sessionId })
+  });
+
+  if (!completeResponse.ok) {
+    const errorPayload = await completeResponse.json().catch(() => ({}));
+    throw new Error(errorPayload.error || "The local video export server could not finish the chunked export.");
+  }
+
+  if (saveHandle) {
+    await streamResponseToFileHandle(completeResponse, saveHandle);
+    return null;
+  }
+
+  return completeResponse.blob();
 }
 
 function buildMuxBinaryRequestBlob(videoBlob, audioBlob, musicBlob, metadata) {
@@ -7861,6 +8506,11 @@ function getPreferredPreviewVoice(voicePreference) {
 
 async function requestNarrationBlobSingle(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
   const isAnjaliClone = voice === "anjali";
+  const requestTimeoutMs = isAnjaliClone
+    ? 0
+    : (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
+      ? Number(options.timeoutMs)
+      : DEFAULT_NARRATION_REQUEST_TIMEOUT_MS);
   if (typeof options.onProgress === "function") {
     options.onProgress({
       label: isAnjaliClone ? "Checking Anjali voice server..." : "Checking narration server...",
@@ -7902,7 +8552,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
           : { text: narrationText }
       )
     },
-    0
+    requestTimeoutMs
   );
 
   if (!response.ok) {
@@ -8178,16 +8828,26 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
   const musicBlob = state.music.enabled ? await getBackgroundMusicExportBlob() : null;
   const audioFileName = options.audioFileName || state.narration.fileName || "narration.wav";
   const audioSpeed = Number.isFinite(Number(options.audioSpeed)) ? Number(options.audioSpeed) : 1;
+  const videoSpeed = Number.isFinite(Number(options.videoSpeed)) ? Number(options.videoSpeed) : 1;
   const musicVolume = state.music.enabled
     ? Math.min(STRICT_BACKGROUND_MUSIC_VOLUME, Number(state.music.volume) || STRICT_BACKGROUND_MUSIC_VOLUME)
     : 0;
   const exportQuality = getEffectiveExportQuality();
   const saveHandle = options.saveHandle || null;
+  if (shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob)) {
+    return muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, {
+      audioFileName,
+      audioSpeed,
+      videoSpeed,
+      saveHandle
+    });
+  }
   const requestBody = buildMuxBinaryRequestBlob(videoBlob, audioBlob, musicBlob, {
     videoFileName: "canvas-export.webm",
     audioFileName,
     musicFileName: musicBlob ? (state.music.fileName || "background-music.wav") : "",
     audioSpeed,
+    videoSpeed,
     musicVolume,
     exportQuality
   });
@@ -8217,6 +8877,7 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       audioFileName,
       musicFileName: musicBlob ? (state.music.fileName || "background-music.wav") : "",
       audioSpeed,
+      videoSpeed,
       musicVolume,
       exportQuality
     };
@@ -8671,17 +9332,58 @@ function paginateLayout(layout, maxHeight) {
   return pages;
 }
 
+function getPresentationTemplateMetrics() {
+  if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
+    return {
+      contentTopInset: 150,
+      contentLeftInset: 378,
+      contentRightInset: 38,
+      contentSideInset: 58,
+      contentBottomInset: 40,
+      imagePanelTopInset: 148,
+      imagePanelBottomInset: 22,
+      pdfStripTopInset: 156,
+      videoTopInset: 138
+    };
+  }
+
+  return {
+    contentTopInset: STAGE_TEXT_TOP_MARGIN_PX,
+    contentSideInset: STAGE_TEXT_SIDE_MARGIN_PX,
+    contentBottomInset: STAGE_TEXT_BOTTOM_MARGIN_PX,
+    imagePanelTopInset: STAGE_IMAGE_WORKSPACE_TOP_PX,
+    imagePanelBottomInset: STAGE_IMAGE_WORKSPACE_BOTTOM_PX,
+    pdfStripTopInset: STAGE_TEXT_TOP_MARGIN_PX,
+    videoTopInset: STAGE_IMAGE_WORKSPACE_TOP_PX
+  };
+}
+
+function getPresentationHeaderTitle() {
+  if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
+    return "LEARNING OUTCOMES";
+  }
+
+  const heading = extractLessonHeading(state.text);
+  const firstMeaningfulLine = String(state.text || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#+\s*/, "").trim())
+    .find((line) => line && !/^[-*•]/.test(line));
+  const baseTitle = heading || firstMeaningfulLine || "Maths Lesson";
+  return baseTitle.replace(/\s+/g, " ").trim().slice(0, 72).toUpperCase();
+}
+
 function getStageContentArea(pageIndex = state.previewPageIndex, forceHasImages = null) {
+  const metrics = getPresentationTemplateMetrics();
   const hasImages = forceHasImages === null
     ? Boolean(getVisibleSlideImages(pageIndex).length)
     : Boolean(forceHasImages);
-  const leftInset = STAGE_TEXT_SIDE_MARGIN_PX;
-  const topInset = STAGE_TEXT_TOP_MARGIN_PX;
+  const leftInset = Number.isFinite(metrics.contentLeftInset) ? metrics.contentLeftInset : metrics.contentSideInset;
+  const topInset = metrics.contentTopInset;
   const pinnedStripArea = hasImages ? getPinnedPdfImageStripArea() : null;
   const rightInset = hasImages && pinnedStripArea
-    ? Math.max(STAGE_TEXT_SIDE_MARGIN_PX, pinnedStripArea.width + STAGE_IMAGE_WORKSPACE_PADDING_PX + STAGE_PDF_IMAGE_STRIP_GAP_PX)
-    : STAGE_TEXT_SIDE_MARGIN_PX;
-  const bottomInset = STAGE_TEXT_BOTTOM_MARGIN_PX;
+    ? Math.max(Number.isFinite(metrics.contentRightInset) ? metrics.contentRightInset : metrics.contentSideInset, pinnedStripArea.width + STAGE_IMAGE_WORKSPACE_PADDING_PX + STAGE_PDF_IMAGE_STRIP_GAP_PX)
+    : (Number.isFinite(metrics.contentRightInset) ? metrics.contentRightInset : metrics.contentSideInset);
+  const bottomInset = metrics.contentBottomInset;
 
   return {
     x: leftInset,
@@ -8782,7 +9484,7 @@ function drawContentHighlightPanel(contentArea, options = {}) {
   return;
 }
 
-function drawTeachingStageBackdrop() {
+function drawClassicTeachingStageBackdrop() {
   const background = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
   background.addColorStop(0, "#083843");
   background.addColorStop(0.52, "#0d5561");
@@ -8821,6 +9523,35 @@ function drawTeachingStageBackdrop() {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function drawLearningOutcomesBackdrop() {
+  const boardGradient = ctx.createLinearGradient(0, 118, 0, canvas.height);
+  boardGradient.addColorStop(0, "#c7e4ef");
+  boardGradient.addColorStop(0.56, "#b7ddea");
+  boardGradient.addColorStop(1, "#b0d7e4");
+  ctx.fillStyle = boardGradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  drawHeaderBackdrop();
+
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  for (let index = 0; index < 16; index += 1) {
+    const y = 150 + (index * 34);
+    ctx.fillStyle = index % 2 === 0 ? "rgba(255, 255, 255, 0.42)" : "rgba(98, 151, 175, 0.18)";
+    ctx.fillRect(0, y, canvas.width, 2);
+  }
+  ctx.restore();
+}
+
+function drawTeachingStageBackdrop() {
+  if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
+    drawLearningOutcomesBackdrop();
+    return;
+  }
+
+  drawClassicTeachingStageBackdrop();
 }
 
 function isUsingDefaultStageStyle(style) {
@@ -8864,6 +9595,10 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
 }
 
 function drawSceneVfx() {
+  if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
+    return;
+  }
+
   const palette = Array.isArray(state.scene.palette) && state.scene.palette.length >= 3
     ? state.scene.palette
     : ["#0e84ad", "#4eb6de", "#ffb548"];
@@ -9557,15 +10292,38 @@ function getNextImageLayerOrder(images = state.images) {
 function getImageEntriesForPage(pageIndex = 0, images = state.images) {
   return images
     .map((item, index) => ({ item, index }))
-    .filter(({ item, index }) => getImagePageIndexForItem(item, index) === pageIndex)
+    .filter(({ item, index }) => (
+      getImagePageIndexForItem(item, index) === pageIndex
+      && shouldRenderStageImage(item)
+    ))
     .sort((left, right) => {
       const layerDifference = getImageLayerOrder(left.item, left.index) - getImageLayerOrder(right.item, right.index);
       return layerDifference || (left.index - right.index);
     });
 }
 
+function isAutoPdfExampleImage(item) {
+  return item?.sourceTag === "pdf-auto";
+}
+
+function isAutoPdfLessonImage(item) {
+  return item?.sourceTag === "pdf-lesson-auto";
+}
+
+function isManagedAutoPdfImage(item) {
+  return isAutoPdfExampleImage(item) || isAutoPdfLessonImage(item);
+}
+
+function shouldRenderStageImage(item) {
+  if (isAutoPdfLessonImage(item)) {
+    return !isPdfPresentationMode();
+  }
+
+  return true;
+}
+
 function isPinnedPdfExampleImage(item) {
-  return item?.sourceTag === "pdf-clipboard";
+  return item?.sourceTag === "pdf-clipboard" || isAutoPdfExampleImage(item);
 }
 
 function getVisibleSlideImages(pageIndex = 0) {
@@ -9577,11 +10335,12 @@ function getStageHasVisibleImagesForPage(pageIndex = state.previewPageIndex) {
 }
 
 function getDefaultSlideImagePanelArea() {
+  const metrics = getPresentationTemplateMetrics();
   return {
     x: STAGE_IMAGE_WORKSPACE_PADDING_PX,
-    y: STAGE_IMAGE_WORKSPACE_TOP_PX,
+    y: metrics.imagePanelTopInset,
     width: Math.max(240, canvas.width - (STAGE_IMAGE_WORKSPACE_PADDING_PX * 2)),
-    height: Math.max(220, canvas.height - STAGE_IMAGE_WORKSPACE_TOP_PX - STAGE_IMAGE_WORKSPACE_BOTTOM_PX),
+    height: Math.max(220, canvas.height - metrics.imagePanelTopInset - metrics.imagePanelBottomInset),
     padding: 0,
     gap: 0,
     titleHeight: 0
@@ -9589,12 +10348,13 @@ function getDefaultSlideImagePanelArea() {
 }
 
 function getPinnedPdfImageStripArea() {
-  const width = Math.min(STAGE_PDF_IMAGE_STRIP_WIDTH_PX, Math.max(180, canvas.width * 0.24));
+  const metrics = getPresentationTemplateMetrics();
+  const width = Math.min(STAGE_PDF_IMAGE_STRIP_WIDTH_PX, Math.max(220, canvas.width * 0.3));
   return {
     x: Math.max(STAGE_IMAGE_WORKSPACE_PADDING_PX, canvas.width - width - STAGE_IMAGE_WORKSPACE_PADDING_PX),
-    y: STAGE_TEXT_TOP_MARGIN_PX,
+    y: metrics.pdfStripTopInset,
     width,
-    height: Math.max(220, canvas.height - STAGE_TEXT_TOP_MARGIN_PX - STAGE_TEXT_BOTTOM_MARGIN_PX)
+    height: Math.max(220, canvas.height - metrics.pdfStripTopInset - metrics.contentBottomInset)
   };
 }
 
@@ -9749,7 +10509,7 @@ function applyDefaultImageLayouts(images) {
       pageBuckets.set(pageIndex, []);
     }
 
-    pageBuckets.get(pageIndex).push({ normalized, index });
+    pageBuckets.get(pageIndex).push({ original: item, normalized, index });
   });
 
   pageBuckets.forEach((entries, pageIndex) => {
@@ -9761,8 +10521,8 @@ function applyDefaultImageLayouts(images) {
       return;
     }
 
-    const preservedEntries = entries.filter(({ normalized }) => hasExplicitImageFrame(normalized));
-    const newEntries = entries.filter(({ normalized }) => !hasExplicitImageFrame(normalized));
+    const preservedEntries = entries.filter(({ original }) => hasExplicitImageFrame(original));
+    const newEntries = entries.filter(({ original }) => !hasExplicitImageFrame(original));
     const pinnedStripArea = getPinnedPdfImageStripArea();
     const pinnedEntries = newEntries.filter(({ normalized }) => isPinnedPdfExampleImage(normalized));
     const regularEntries = newEntries.filter(({ normalized }) => !isPinnedPdfExampleImage(normalized));
@@ -9780,17 +10540,17 @@ function applyDefaultImageLayouts(images) {
         workspace.width,
         Math.max(STAGE_IMAGE_MIN_WIDTH_PX, pinnedStripArea.width - 8)
       );
-      const preferredWidth = clamp(maxWidth, 150, 228);
+      const preferredWidth = clamp(maxWidth, 232, Math.max(232, pinnedStripArea.width));
       const preferredHeight = entry.normalized.aspectRatio > 0
         ? Math.max(STAGE_IMAGE_MIN_HEIGHT_PX, preferredWidth / entry.normalized.aspectRatio)
         : preferredWidth;
-      const maxHeight = Math.max(STAGE_IMAGE_MIN_HEIGHT_PX, (pinnedStripArea.height - ((Math.max(0, pinnedEntries.length - 1)) * 16)) / Math.max(1, pinnedEntries.length));
+      const maxHeight = Math.max(STAGE_IMAGE_MIN_HEIGHT_PX, (pinnedStripArea.height - ((Math.max(0, pinnedEntries.length - 1)) * 18)) / Math.max(1, pinnedEntries.length));
       const finalHeight = Math.min(preferredHeight, maxHeight);
       const finalWidth = entry.normalized.aspectRatio > 0
         ? Math.min(preferredWidth, finalHeight * entry.normalized.aspectRatio)
         : preferredWidth;
       const x = pinnedStripArea.x + Math.max(0, (pinnedStripArea.width - finalWidth));
-      const y = pinnedStripArea.y + (pinnedIndex * (finalHeight + 16));
+      const y = pinnedStripArea.y + (pinnedIndex * (finalHeight + 18));
       const placed = clampImageFrame({
         ...entry.normalized,
         width: finalWidth,
@@ -9894,7 +10654,7 @@ function getResizeCursorForHandle(handleName = "") {
 }
 
 function drawHeaderBackdrop() {
-  drawRoundedRect(0, 34, canvas.width, 84, 0, "#fefefe");
+  drawRoundedRect(0, 0, canvas.width, 118, 0, "#fefefe");
 
   const shadowGradient = ctx.createLinearGradient(0, 112, 0, 126);
   shadowGradient.addColorStop(0, "rgba(0, 0, 0, 0.22)");
@@ -9904,8 +10664,8 @@ function drawHeaderBackdrop() {
 
   ctx.fillStyle = "rgba(114, 159, 188, 0.16)";
   ctx.beginPath();
-  ctx.moveTo(0, 34);
-  ctx.lineTo(135, 34);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(135, 0);
   ctx.lineTo(50, 118);
   ctx.lineTo(0, 118);
   ctx.closePath();
@@ -9913,8 +10673,8 @@ function drawHeaderBackdrop() {
 
   ctx.fillStyle = "rgba(72, 122, 160, 0.18)";
   ctx.beginPath();
-  ctx.moveTo(0, 34);
-  ctx.lineTo(92, 34);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(92, 0);
   ctx.lineTo(22, 118);
   ctx.lineTo(0, 118);
   ctx.closePath();
@@ -9922,8 +10682,8 @@ function drawHeaderBackdrop() {
 
   ctx.fillStyle = "rgba(53, 93, 127, 0.15)";
   ctx.beginPath();
-  ctx.moveTo(0, 52);
-  ctx.lineTo(72, 34);
+  ctx.moveTo(0, 18);
+  ctx.lineTo(72, 0);
   ctx.lineTo(8, 118);
   ctx.lineTo(0, 118);
   ctx.closePath();
@@ -9964,7 +10724,29 @@ function getLogoDrawRect() {
 }
 
 function drawInfoKidsLogo() {
-  return;
+  if (normalizePresentationTemplate(state.presentationTemplate) !== PRESENTATION_TEMPLATE_OUTCOMES) {
+    return;
+  }
+
+  const titleLines = wrapCanvasText(
+    getPresentationHeaderTitle(),
+    canvas.width - 140,
+    '900 66px "League Spartan"'
+  ).slice(0, 2);
+  const titleFontSize = titleLines.length > 1 ? 54 : 66;
+  const titleLineHeight = titleLines.length > 1 ? 48 : 56;
+  const titleBlockHeight = titleLines.length * titleLineHeight;
+  const titleY = 36 + Math.max(0, (80 - titleBlockHeight) / 2);
+
+  ctx.save();
+  ctx.fillStyle = "#050709";
+  ctx.font = `900 ${titleFontSize}px "League Spartan"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  titleLines.forEach((line, index) => {
+    ctx.fillText(line, canvas.width / 2, titleY + (index * titleLineHeight));
+  });
+  ctx.restore();
 }
 
 function drawPresenterFigure() {
@@ -10218,6 +11000,7 @@ function drawOptionalImages(currentPageIndex = 0, totalPageCount = 1) {
     const drawH = item.image.height * scale;
     const drawX = innerX + (targetW - drawW) / 2;
     const drawY = innerY + (targetH - drawH) / 2;
+    applyHighQualityImageRendering(ctx);
     ctx.drawImage(item.image, drawX, drawY, drawW, drawH);
     if (item.cutoutApplied) {
       applyScreenMatchOverlay(
@@ -10284,6 +11067,60 @@ function drawOptionalImages(currentPageIndex = 0, totalPageCount = 1) {
 
 }
 
+function drawPdfAutoExampleImages(pageIndex = state.previewPageIndex, autoImages = []) {
+  const safeImages = Array.isArray(autoImages) ? autoImages.filter((image) => image?.image) : [];
+  if (!safeImages.length) {
+    return;
+  }
+
+  const stripArea = getPinnedPdfImageStripArea();
+  const frameGap = 18;
+  const framePadding = 8;
+  const totalGap = Math.max(0, safeImages.length - 1) * frameGap;
+  const frameHeight = Math.max(
+    132,
+    Math.min(stripArea.height, (stripArea.height - totalGap) / Math.max(1, safeImages.length))
+  );
+
+  safeImages.forEach((image, index) => {
+    const x = stripArea.x;
+    const y = stripArea.y + (index * (frameHeight + frameGap));
+    const width = stripArea.width;
+    const height = Math.min(frameHeight, Math.max(120, stripArea.y + stripArea.height - y));
+    if (height <= 0) {
+      return;
+    }
+
+    const innerX = x + framePadding;
+    const innerY = y + framePadding;
+    const innerWidth = Math.max(24, width - (framePadding * 2));
+    const innerHeight = Math.max(24, height - (framePadding * 2));
+    const scale = Math.min(innerWidth / image.image.width, innerHeight / image.image.height);
+    const drawWidth = Math.max(1, image.image.width * scale);
+    const drawHeight = Math.max(1, image.image.height * scale);
+    const drawX = innerX + ((innerWidth - drawWidth) / 2);
+    const drawY = innerY + ((innerHeight - drawHeight) / 2);
+
+    ctx.save();
+    ctx.shadowColor = "rgba(18, 47, 68, 0.24)";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 8;
+    drawRoundedRect(x, y, width, height, 18, "rgba(255,255,255,0.96)");
+    ctx.shadowColor = "transparent";
+    ctx.beginPath();
+    ctx.moveTo(innerX + 14, innerY);
+    ctx.arcTo(innerX + innerWidth, innerY, innerX + innerWidth, innerY + innerHeight, 14);
+    ctx.arcTo(innerX + innerWidth, innerY + innerHeight, innerX, innerY + innerHeight, 14);
+    ctx.arcTo(innerX, innerY + innerHeight, innerX, innerY, 14);
+    ctx.arcTo(innerX, innerY, innerX + innerWidth, innerY, 14);
+    ctx.closePath();
+    ctx.clip();
+    applyHighQualityImageRendering(ctx);
+    ctx.drawImage(image.image, drawX, drawY, drawWidth, drawHeight);
+    ctx.restore();
+  });
+}
+
 function requestCanvasExportFrame() {
   if (state.exportVideoTrack?.readyState === "live" && typeof state.exportVideoTrack.requestFrame === "function") {
     try {
@@ -10310,10 +11147,11 @@ function drawPdfContextScene() {
   drawTeachingStageBackdrop();
   drawSceneVfx();
 
-  const selectedPages = getPdfSelectedPages();
-  const totalPageCount = Math.max(1, selectedPages.length);
+  syncPdfContextStageImages({ skipDraw: true });
+  const contextPages = getPdfContextPages();
+  const totalPageCount = Math.max(1, contextPages.length);
   const currentPageIndex = clamp(state.previewPageIndex, 0, Math.max(0, totalPageCount - 1));
-  const currentPage = selectedPages[currentPageIndex] || null;
+  const currentPage = contextPages[currentPageIndex] || null;
 
   state.previewPageIndex = currentPageIndex;
   state.renderedPageCount = totalPageCount;
@@ -10339,17 +11177,34 @@ function drawPdfContextScene() {
 
   const hasSideImages = getStageHasVisibleImagesForPage(currentPageIndex);
   const contentArea = getStageContentArea(currentPageIndex, hasSideImages);
-  const visibleText = getPdfContextVisibleText(currentPage, currentPageIndex);
-  const layout = getContentLayoutWithMetrics(
-    buildDisplayedLines(visibleText),
-    contentArea.width,
-    contentArea.height,
-    !currentPage.text,
-    {
-      wordCount: currentPage.wordCount || splitIntoWords(currentPage.text).length,
-      hasImages: hasSideImages
-    }
-  );
+  const visibleState = getPdfContextVisibleText(currentPage, currentPageIndex);
+  const visibleText = visibleState?.partText || "";
+  const usingFullPageText = visibleText === currentPage.text;
+  const visibleLayout = usingFullPageText
+    ? null
+    : getContentLayoutWithMetrics(
+      buildDisplayedLines(visibleText),
+      contentArea.width,
+      contentArea.height,
+      !currentPage.text,
+      {
+        wordCount: currentPage.wordCount || splitIntoWords(currentPage.text).length,
+        hasImages: hasSideImages
+      }
+    );
+  const layoutRows = visibleState?.layoutPage?.rows?.length
+    ? visibleState.layoutPage.rows
+    : (usingFullPageText && currentPage?.rows?.length
+      ? currentPage.rows
+      : (visibleLayout?.rows || []));
+  const layoutPageFontSize = visibleState?.layoutPage?.fontSize || null;
+  const layoutPageRowHeight = visibleState?.layoutPage?.rowHeight || null;
+  const layoutFontSize = usingFullPageText
+    ? (layoutPageFontSize || currentPage?.fontSize || clamp(Math.round(28 * state.fontScale), 16, 54))
+    : (visibleLayout?.fontSize || clamp(Math.round(28 * state.fontScale), 16, 54));
+  const layoutRowHeight = usingFullPageText
+    ? (layoutPageRowHeight || currentPage?.rowHeight || Math.max(layoutFontSize + 4, Math.round(layoutFontSize * 1.2)))
+    : (visibleLayout?.rowHeight || Math.max(layoutFontSize + 4, Math.round(layoutFontSize * 1.2)));
 
   drawContentHighlightPanel(contentArea, {
     insetX: 24,
@@ -10368,19 +11223,18 @@ function drawPdfContextScene() {
   const contentPaddingY = 6;
   let y = contentArea.y + contentPaddingY;
 
-  layout.rows.forEach((row, rowIndex) => {
+  layoutRows.forEach((row, rowIndex) => {
     if (row.spacer) {
       y += row.height;
       return;
     }
 
     const rowText = row.segments.map((segment) => segment.text).join("");
-    const rowWidth = measureStyledRuns(ctx, row.segments, layout.fontSize);
     const rowStartX = contentArea.x + contentPaddingX + (row.bullet ? 18 : 0);
 
     if (row.bullet) {
       ctx.beginPath();
-      ctx.arc(contentArea.x + contentPaddingX + 6, y + Math.round(layout.fontSize * 0.42), 6, 0, Math.PI * 2);
+      ctx.arc(contentArea.x + contentPaddingX + 6, y + Math.round(layoutFontSize * 0.42), 6, 0, Math.PI * 2);
       ctx.fillStyle = getAnimatedTeachingTextColor(rowText, rowIndex, 0);
       ctx.fill();
     }
@@ -10391,7 +11245,7 @@ function drawPdfContextScene() {
         return;
       }
 
-      ctx.font = getContentFont(layout.fontSize, segment.style);
+      ctx.font = getContentFont(layoutFontSize, segment.style);
       const segmentWidth = drawAnimatedTeachingSegment(
         segment,
         x,
@@ -10399,24 +11253,24 @@ function drawPdfContextScene() {
         rowText,
         rowIndex,
         segmentIndex,
-        layout.fontSize
+        layoutFontSize
       );
       if (segment.style.underline) {
         const visibleUnderlineText = segment.text.replace(/\s+$/, "");
         if (visibleUnderlineText) {
           const underlineWidth = ctx.measureText(visibleUnderlineText).width;
-          const underlineY = y + layout.fontSize + Math.max(2, Math.round(layout.fontSize * 0.06));
+          const underlineY = y + layoutFontSize + Math.max(2, Math.round(layoutFontSize * 0.06));
           ctx.fillStyle = isUsingDefaultStageStyle(segment.style)
             ? getAnimatedTeachingTextColor(rowText, rowIndex, segmentIndex)
             : segment.style.color;
-          ctx.fillRect(x, underlineY, underlineWidth, Math.max(2, Math.round(layout.fontSize * 0.08)));
+          ctx.fillRect(x, underlineY, underlineWidth, Math.max(2, Math.round(layoutFontSize * 0.08)));
         }
       }
 
       x += segmentWidth;
     });
 
-    y += layout.rowHeight;
+    y += layoutRowHeight;
   });
 
   if (state.speaking && visibleText !== currentPage.text) {
@@ -10444,7 +11298,7 @@ function drawPdfScene() {
   ctx.fillStyle = "#15181d";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const selectedPages = getPdfSelectedPages();
+  const selectedPages = getPdfPresentationPages("exact");
   const totalPageCount = Math.max(1, selectedPages.length);
   const currentPageIndex = clamp(state.previewPageIndex, 0, Math.max(0, totalPageCount - 1));
   const currentPage = selectedPages[currentPageIndex] || null;
@@ -10489,6 +11343,7 @@ function drawPdfScene() {
   ctx.fillRect(drawX, drawY, drawWidth, drawHeight);
   ctx.restore();
 
+  applyHighQualityImageRendering(ctx);
   ctx.drawImage(currentPage.renderCanvas, drawX, drawY, drawWidth, drawHeight);
 
   requestCanvasExportFrame();
@@ -10701,6 +11556,342 @@ function loadImageFromDataUrl(dataUrl) {
   });
 }
 
+function ensurePdfExampleImageLoaded(exampleImage) {
+  if (!exampleImage?.dataUrl) {
+    return Promise.resolve(null);
+  }
+
+  if (exampleImage.image) {
+    return Promise.resolve(exampleImage.image);
+  }
+
+  if (exampleImage.loadFailed) {
+    return Promise.resolve(null);
+  }
+
+  if (!exampleImage.loadPromise) {
+    exampleImage.loadPromise = loadImageFromDataUrl(exampleImage.dataUrl)
+      .then((image) => {
+        exampleImage.image = image;
+        exampleImage.width = image.naturalWidth || image.width || exampleImage.width;
+        exampleImage.height = image.naturalHeight || image.height || exampleImage.height;
+        if (isPdfPresentationMode() && getPdfRenderMode() === "context" && !stagePanel.classList.contains("hidden")) {
+          drawScene(state.mouthOpen);
+        }
+        return image;
+      })
+      .catch((error) => {
+        console.error(error);
+        exampleImage.loadFailed = true;
+        return null;
+      })
+      .finally(() => {
+        exampleImage.loadPromise = null;
+      });
+  }
+
+  return exampleImage.loadPromise;
+}
+
+function preloadPdfExampleImages(pages = state.pdf.pages) {
+  if (!Array.isArray(pages) || !pages.length) {
+    return;
+  }
+
+  pages.forEach((page) => {
+    const exampleImages = Array.isArray(page?.exampleImages) ? page.exampleImages : [];
+    exampleImages.forEach((exampleImage) => {
+      void ensurePdfExampleImageLoaded(exampleImage);
+    });
+  });
+}
+
+function getPdfLessonAutoImageSyncKey() {
+  const lessonText = lessonInput?.value.trim() || "";
+  const selectedPageSignature = getPdfSelectedPages()
+    .map((page) => Math.max(0, Math.round(Number(page?.pageNumber) || 0)))
+    .filter(Boolean)
+    .join(",");
+  const manualPdfSignature = state.images
+    .filter((item) => item?.sourceTag === "pdf-clipboard")
+    .map((item) => `${Math.max(0, Math.round(Number(item?.sourcePageNumber) || 0))}:${getImagePageIndexForItem(item)}`)
+    .sort()
+    .join("|");
+
+  return `${state.pdf.fileSignature || state.pdf.fileName}|${selectedPageSignature}|${manualPdfSignature}|${state.fontScale}|${lessonText}`;
+}
+
+function getPdfAutoImageSyncKey() {
+  const presentationKey = getPdfRenderMode() === "context" ? getPdfContextPagesKey() : "";
+  const manualPdfSignature = state.images
+    .filter((item) => item?.sourceTag === "pdf-clipboard")
+    .map((item) => `${Math.max(0, Math.round(Number(item?.sourcePageNumber) || 0))}:${getImagePageIndexForItem(item)}`)
+    .sort()
+    .join("|");
+
+  return `${state.presentationMode}|${getPdfRenderMode()}|${presentationKey}|${manualPdfSignature}|${state.pdf.fileSignature || state.pdf.fileName}`;
+}
+
+function getPdfPageTextRangeInExtractedText(pageIndex = -1) {
+  const safePageIndex = Math.max(0, Math.round(Number(pageIndex) || 0));
+  let cursor = 0;
+
+  for (let index = 0; index < state.pdf.pageTexts.length; index += 1) {
+    const pageText = String(state.pdf.pageTexts[index] || "").trim();
+    if (!pageText) {
+      continue;
+    }
+
+    const start = cursor;
+    const end = start + pageText.length;
+    if (index === safePageIndex) {
+      return { start, end, matched: true };
+    }
+
+    cursor = end + 2;
+  }
+
+  return {
+    start: 0,
+    end: 0,
+    matched: false
+  };
+}
+
+function getPdfLessonImagePageAssignments(lessonText = lessonInput?.value.trim() || "") {
+  const safeLessonText = String(lessonText || "").trim();
+  if (!safeLessonText) {
+    return new Map();
+  }
+
+  const paginatedContent = getPaginatedSlideContent(safeLessonText, !safeLessonText, state.previewPageIndex, false);
+  const pages = Array.isArray(paginatedContent?.pages) ? paginatedContent.pages : [];
+  const pageAssignments = new Map();
+  const lessonMatchesExtractedPdf = normalizePdfSearchFragment(safeLessonText) === normalizePdfSearchFragment(state.pdf.extractedText);
+  let searchStart = 0;
+  let fallbackPageIndex = 0;
+
+  getPdfSelectedPages().forEach((page) => {
+    const sourcePageNumber = Math.max(0, Math.round(Number(page?.pageNumber) || 0));
+    if (!sourcePageNumber) {
+      return;
+    }
+
+    let matchedPageIndex = clamp(fallbackPageIndex, 0, Math.max(0, pages.length - 1));
+    const pageText = String(page?.text || state.pdf.pageTexts[page.index] || "").trim();
+
+    if (pageText) {
+      const match = findPdfAnchorLocalOffset(safeLessonText, pageText, searchStart);
+      if (match.matched) {
+        matchedPageIndex = getPageIndexForTextOffset(pages, match.nextSearchStart, matchedPageIndex);
+        searchStart = Math.max(searchStart, match.nextSearchStart);
+      } else if (lessonMatchesExtractedPdf) {
+        const extractedRange = getPdfPageTextRangeInExtractedText(page.index);
+        if (extractedRange.matched) {
+          matchedPageIndex = getPageIndexForTextOffset(pages, extractedRange.end, matchedPageIndex);
+          searchStart = Math.max(searchStart, extractedRange.end);
+        } else {
+          return;
+        }
+      } else {
+        return;
+      }
+    } else if (!lessonMatchesExtractedPdf) {
+      return;
+    }
+
+    fallbackPageIndex = matchedPageIndex;
+    pageAssignments.set(sourcePageNumber, matchedPageIndex);
+  });
+
+  return pageAssignments;
+}
+
+function syncExtractedPdfLessonImages(options = {}) {
+  const existingImages = [...state.images];
+  const existingLessonAutoImages = existingImages.filter((item) => isAutoPdfLessonImage(item));
+  const nonLessonAutoImages = existingImages.filter((item) => !isAutoPdfLessonImage(item));
+  const lessonText = lessonInput?.value.trim() || "";
+  const shouldShowLessonAutoImages = Boolean(lessonText && getPdfSelectedPageCount() > 0 && state.pdf.pages.length);
+  const nextSyncKey = shouldShowLessonAutoImages ? getPdfLessonAutoImageSyncKey() : "";
+
+  if (state.pdf.lessonAutoImageSyncKey === nextSyncKey && (shouldShowLessonAutoImages || !existingLessonAutoImages.length)) {
+    return;
+  }
+
+  let syncedImages = [...nonLessonAutoImages];
+
+  if (shouldShowLessonAutoImages) {
+    const pageAssignments = getPdfLessonImagePageAssignments(lessonText);
+    const manualSourcePages = new Set(
+      nonLessonAutoImages
+        .filter((item) => item?.sourceTag === "pdf-clipboard" && Number.isFinite(Number(item?.sourcePageNumber)))
+        .map((item) => Math.max(0, Math.round(Number(item.sourcePageNumber) || 0)))
+        .filter(Boolean)
+    );
+    const existingAutoByKey = new Map(
+      existingLessonAutoImages
+        .filter((item) => item?.pdfImageKey)
+        .map((item) => [item.pdfImageKey, item])
+    );
+
+    getPdfSelectedPages().forEach((page) => {
+      const sourcePageNumber = Math.max(0, Math.round(Number(page?.pageNumber) || 0));
+      if (!sourcePageNumber || manualSourcePages.has(sourcePageNumber)) {
+        return;
+      }
+
+      const pageIndex = pageAssignments.get(sourcePageNumber);
+      if (!Number.isInteger(pageIndex) || pageIndex < 0) {
+        return;
+      }
+
+      const exampleImages = Array.isArray(page?.exampleImages) ? page.exampleImages : [];
+      exampleImages.forEach((exampleImage, exampleIndex) => {
+        const dataUrl = exampleImage?.dataUrl || "";
+        const imageElement = exampleImage?.image || null;
+        if (!dataUrl.startsWith("data:image/")) {
+          return;
+        }
+
+        if (!imageElement) {
+          void ensurePdfExampleImageLoaded(exampleImage).then(() => {
+            state.pdf.lessonAutoImageSyncKey = "";
+            syncExtractedPdfLessonImages();
+          });
+          return;
+        }
+
+        const pdfImageKey = `pdf-lesson-auto:${sourcePageNumber}:${exampleIndex}`;
+        const existingAuto = existingAutoByKey.get(pdfImageKey);
+        syncedImages.push({
+          ...existingAuto,
+          fileName: exampleImage.fileName || `pdf-page-${sourcePageNumber}-example-${exampleIndex + 1}.png`,
+          dataUrl,
+          image: imageElement,
+          sourceTag: "pdf-lesson-auto",
+          pdfImageKey,
+          sourcePageNumber,
+          pageIndex,
+          aspectRatio: imageElement.width && imageElement.height
+            ? imageElement.width / imageElement.height
+            : (existingAuto?.aspectRatio || 4 / 3)
+        });
+      });
+    });
+  }
+
+  state.images = applyDefaultImageLayouts(syncedImages);
+  state.pdf.lessonAutoImageSyncKey = nextSyncKey;
+
+  if (state.imageEditor.activeIndex >= state.images.length) {
+    state.imageEditor.activeIndex = state.images.length ? state.images.length - 1 : -1;
+  }
+
+  renderImagePreviews();
+  updateStageMediaToolUi();
+
+  if (!options.skipDraw && !stagePanel.classList.contains("hidden")) {
+    drawScene(state.mouthOpen);
+  }
+}
+
+function syncPdfContextStageImages(options = {}) {
+  const existingImages = [...state.images];
+  const existingAutoImages = existingImages.filter((item) => isAutoPdfExampleImage(item));
+  const nonAutoImages = existingImages.filter((item) => !isAutoPdfExampleImage(item));
+  const shouldShowAutoImages = isPdfPresentationMode() && getPdfRenderMode() === "context" && getPdfSelectedPageCount() > 0;
+  const nextSyncKey = shouldShowAutoImages ? getPdfAutoImageSyncKey() : "";
+
+  if (state.pdf.autoImageSyncKey === nextSyncKey && (shouldShowAutoImages || !existingAutoImages.length)) {
+    return;
+  }
+
+  let syncedImages = [...nonAutoImages];
+
+  if (shouldShowAutoImages) {
+    const selectedPages = getPdfSelectedPages();
+    const manualSourcePages = new Set(
+      nonAutoImages
+        .filter((item) => item?.sourceTag === "pdf-clipboard" && Number.isFinite(Number(item?.sourcePageNumber)))
+        .map((item) => Math.max(0, Math.round(Number(item.sourcePageNumber) || 0)))
+        .filter(Boolean)
+    );
+    const existingAutoByKey = new Map(
+      existingAutoImages
+        .filter((item) => item?.pdfImageKey)
+        .map((item) => [item.pdfImageKey, item])
+    );
+
+    selectedPages.forEach((page) => {
+      const sourcePageNumber = Math.max(0, Math.round(Number(page?.pageNumber) || 0));
+      if (!sourcePageNumber || manualSourcePages.has(sourcePageNumber)) {
+        return;
+      }
+
+      const presentationPageIndex = getPdfPresentationPageIndexForSourcePageNumber(sourcePageNumber);
+      if (presentationPageIndex < 0) {
+        return;
+      }
+
+      const exampleImages = Array.isArray(page?.exampleImages) ? page.exampleImages : [];
+      exampleImages.forEach((exampleImage, exampleIndex) => {
+        const imageElement = exampleImage?.image || null;
+        const dataUrl = exampleImage?.dataUrl || "";
+        if (!imageElement || !dataUrl.startsWith("data:image/")) {
+          return;
+        }
+
+        const pdfImageKey = `pdf-auto:${sourcePageNumber}:${exampleIndex}`;
+        const existingAuto = existingAutoByKey.get(pdfImageKey);
+        syncedImages.push({
+          ...existingAuto,
+          fileName: exampleImage.fileName || `pdf-page-${sourcePageNumber}-example-${exampleIndex + 1}.png`,
+          dataUrl,
+          image: imageElement,
+          sourceTag: "pdf-auto",
+          pdfImageKey,
+          sourcePageNumber,
+          pageIndex: presentationPageIndex,
+          aspectRatio: imageElement.width && imageElement.height
+            ? imageElement.width / imageElement.height
+            : (existingAuto?.aspectRatio || 4 / 3)
+        });
+      });
+    });
+
+    syncedImages = syncedImages.map((item, index) => {
+      if (item?.sourceTag !== "pdf-clipboard") {
+        return item;
+      }
+
+      const mappedPageIndex = getPdfPresentationPageIndexForSourcePageNumber(item?.sourcePageNumber);
+      if (mappedPageIndex < 0) {
+        return item;
+      }
+
+      return {
+        ...item,
+        pageIndex: mappedPageIndex
+      };
+    });
+  }
+
+  state.images = applyDefaultImageLayouts(syncedImages);
+  state.pdf.autoImageSyncKey = nextSyncKey;
+
+  if (state.imageEditor.activeIndex >= state.images.length) {
+    state.imageEditor.activeIndex = state.images.length ? state.images.length - 1 : -1;
+  }
+
+  renderImagePreviews();
+  updateStageMediaToolUi();
+
+  if (!options.skipDraw && !stagePanel.classList.contains("hidden")) {
+    drawScene(state.mouthOpen);
+  }
+}
+
 async function addStageImagesFromDataUrls(imageItems = [], options = {}) {
   const existingImages = [...state.images];
   const targetPageIndex = Number.isInteger(options.targetPageIndex)
@@ -10721,6 +11912,7 @@ async function addStageImagesFromDataUrls(imageItems = [], options = {}) {
       dataUrl: item.dataUrl,
       image: await loadImageFromDataUrl(item.dataUrl),
       sourceTag: item.sourceTag || "pdf-clipboard",
+      sourcePageNumber: Math.max(0, Math.round(Number(item?.sourcePageNumber) || 0)),
       pageIndex: Number.isInteger(item.pageIndex) ? Math.max(0, item.pageIndex) : undefined
     }))
   );
@@ -10728,6 +11920,9 @@ async function addStageImagesFromDataUrls(imageItems = [], options = {}) {
   const pageAssignedImages = assignPageIndexesToNewImages(existingImages, loadedImages, targetPageIndex);
   state.images = applyDefaultImageLayouts([...existingImages, ...pageAssignedImages]);
   state.imageEditor.activeIndex = state.images.length ? state.images.length - 1 : -1;
+  if (getPdfRenderMode() === "context") {
+    syncPdfContextStageImages({ skipDraw: true });
+  }
   renderImagePreviews();
   drawScene(state.mouthOpen);
   return pageAssignedImages.length;
@@ -11190,6 +12385,18 @@ async function startStageVideoPlayback(options = {}) {
     }
   }
 
+  const playbackRate = Number.isFinite(Number(options.playbackRate)) && Number(options.playbackRate) > 0
+    ? Number(options.playbackRate)
+    : 1;
+  try {
+    videoElement.playbackRate = playbackRate;
+    videoElement.preservesPitch = true;
+    videoElement.mozPreservesPitch = true;
+    videoElement.webkitPreservesPitch = true;
+  } catch (error) {
+    console.error(error);
+  }
+
   try {
     const started = await playVideoWithAutoplayRecovery(videoElement, { muted: true, volume: 0 });
     if (!started) {
@@ -11275,7 +12482,7 @@ async function playIntroClipIfEnabled() {
   }
 }
 
-async function playIntroClipForExport() {
+async function playIntroClipForExport(options = {}) {
   if (isPdfPresentationMode() || !state.introPlayback.enabled) {
     return false;
   }
@@ -11286,6 +12493,9 @@ async function playIntroClipForExport() {
   }
 
   const introElement = state.introPlayback.element;
+  const playbackRate = Number.isFinite(Number(options.playbackRate)) && Number(options.playbackRate) > 0
+    ? Number(options.playbackRate)
+    : 1;
   state.introPlayback.previewVisible = false;
   state.introPlayback.active = true;
   state.mouthOpen = 0.12;
@@ -11297,7 +12507,7 @@ async function playIntroClipForExport() {
     introElement.loop = false;
     introElement.muted = true;
     introElement.volume = 0;
-    introElement.playbackRate = 1;
+    introElement.playbackRate = playbackRate;
     introElement.currentTime = 0;
 
     const duration = introElement.duration || (state.introPlayback.durationMs / 1000) || 0;
@@ -11361,15 +12571,19 @@ async function playIntroClipForExport() {
   }
 }
 
-async function renderNarrationTimelineForExport(durationMs, playbackRate = getLessonPlaybackRate()) {
+async function renderNarrationTimelineForExport(durationMs, playbackRate = getLessonPlaybackRate(), options = {}) {
   const safeDurationMs = Math.max(1000, Math.round(durationMs || 1000));
   const safePlaybackRate = Number.isFinite(Number(playbackRate)) && Number(playbackRate) > 0
     ? Number(playbackRate)
     : 1;
-  const frameRate = Math.max(1, getLessonExportCaptureRate());
-  const frameDurationMs = Math.max(24, Math.round(1000 / frameRate));
+  const renderSpeedMultiplier = Number.isFinite(Number(options.renderSpeedMultiplier)) && Number(options.renderSpeedMultiplier) > 0
+    ? Number(options.renderSpeedMultiplier)
+    : getExportRenderSpeedMultiplier();
+  const frameRate = getAcceleratedExportCaptureRate(getLessonExportCaptureRate(), renderSpeedMultiplier);
+  const frameDurationMs = Math.max(4, Math.round(1000 / frameRate));
   const narrationTimelineMs = Math.max(1, Math.round(safeDurationMs / safePlaybackRate));
   const startedAt = performance.now();
+  const visualLagMs = Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
 
   state.displayedText = "";
   state.speaking = true;
@@ -11377,13 +12591,68 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
   drawScene(0.12);
 
   while (true) {
-    const elapsedMs = performance.now() - startedAt;
+    const elapsedMs = Math.min(
+      narrationTimelineMs,
+      (performance.now() - startedAt) * renderSpeedMultiplier
+    );
+    const syncElapsedMs = Math.max(0, elapsedMs - visualLagMs);
     const progress = clamp(elapsedMs / narrationTimelineMs, 0, 1);
-    const syncFrame = getSpeechSyncFrame(state.text, elapsedMs, narrationTimelineMs);
+    const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, narrationTimelineMs);
     state.displayedText = syncFrame.displayedText;
     syncLessonPlaybackProgressUi(progress, true);
     updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
     state.mouthOpen = syncFrame.mouthActive ? getFallbackMouth(syncFrame.speechElapsedMs) : 0.12;
+    drawScene(state.mouthOpen);
+
+    if (progress >= 1) {
+      break;
+    }
+
+    await delay(frameDurationMs);
+  }
+}
+
+async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), options = {}) {
+  const safeRenderMode = renderMode === "exact" ? "exact" : "context";
+  const renderSpeedMultiplier = Number.isFinite(Number(options.renderSpeedMultiplier)) && Number(options.renderSpeedMultiplier) > 0
+    ? Number(options.renderSpeedMultiplier)
+    : getExportRenderSpeedMultiplier();
+  const frameRate = getAcceleratedExportCaptureRate(getPdfExportCaptureRate(safeRenderMode), renderSpeedMultiplier);
+  const frameDurationMs = Math.max(4, Math.round(1000 / frameRate));
+  const targetTimelineMs = Math.max(1, Math.round(state.pdf.totalDurationMs || 1000));
+  const timelineAdvanceRate = Math.max(0.1, getPdfPlaybackRate()) * renderSpeedMultiplier;
+  const startedAt = performance.now();
+
+  state.pdf.audioDriven = false;
+  state.pdf.paused = false;
+  state.pdf.timelineStartedAt = 0;
+  state.pdf.timelineStartOffsetMs = 0;
+  state.pdf.currentTimeMs = 0;
+  state.speaking = true;
+  state.mouthOpen = 0.12;
+  syncPdfPreviewPageFromTime(0);
+  updatePlaybackProgressUi(0, true);
+  drawScene(0.12);
+
+  while (true) {
+    const elapsedMs = Math.min(
+      targetTimelineMs,
+      (performance.now() - startedAt) * timelineAdvanceRate
+    );
+    const progress = clamp(elapsedMs / targetTimelineMs, 0, 1);
+    state.pdf.currentTimeMs = elapsedMs;
+    syncPdfPreviewPageFromTime(elapsedMs);
+    updatePlaybackProgressUi(progress, true);
+    updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
+
+    const activeSelectionIndex = getPdfSelectionIndexForTime(elapsedMs);
+    const activePage = getPdfPresentationPages()[activeSelectionIndex] || null;
+    const visibleState = safeRenderMode === "context"
+      ? getPdfContextVisibleText(activePage, activeSelectionIndex)
+      : null;
+    state.mouthOpen = visibleState?.mouthActive
+      ? getFallbackMouth(visibleState.speechElapsedMs)
+      : 0.12;
     drawScene(state.mouthOpen);
 
     if (progress >= 1) {
@@ -11536,11 +12805,12 @@ function resetStageVideoState() {
 }
 
 function getStageVideoDrawArea() {
+  const metrics = getPresentationTemplateMetrics();
   return {
     x: 0,
-    y: STAGE_IMAGE_WORKSPACE_TOP_PX,
+    y: metrics.videoTopInset,
     width: canvas.width,
-    height: canvas.height - STAGE_IMAGE_WORKSPACE_TOP_PX
+    height: canvas.height - metrics.videoTopInset
   };
 }
 
@@ -12176,6 +13446,8 @@ function updateStageMediaToolUi() {
   const selectedImage = imageIndex >= 0 ? state.images[imageIndex] : null;
   const hasActiveVideo = Boolean(state.stageVideo?.id);
   const activeVideo = hasActiveVideo ? state.stageVideo : null;
+  const pdfContextMode = isPdfPresentationMode() && getPdfRenderMode() === "context";
+  const exactPdfMode = isPdfPresentationMode() && getPdfRenderMode() === "exact";
 
   if (stageImageCutoutBtn) {
     stageImageCutoutBtn.disabled = isPdfPresentationMode() || !selectedImage || Boolean(selectedImage.cutoutApplied);
@@ -12210,8 +13482,12 @@ function updateStageMediaToolUi() {
   }
 
   if (stageMediaStatus) {
-    if (isPdfPresentationMode()) {
-      setStageMediaStatus("Media removal is disabled while the PDF context is active.");
+    if (pdfContextMode && selectedImage) {
+      setStageMediaStatus(`${selectedImage.fileName} is selected on narration page ${getImagePageIndexForItem(selectedImage, imageIndex) + 1}. Drag it anywhere on this PDF context page and use the corner handles to resize it. Removal and cutout stay locked while PDF narration is active.`);
+    } else if (pdfContextMode && state.images.length) {
+      setStageMediaStatus("PDF narration images can be dragged and resized on the current page. Removal and cutout stay locked while PDF narration is active.");
+    } else if (exactPdfMode) {
+      setStageMediaStatus("Exact PDF mode stays locked to the original page render. Switch to PDF Context to drag and resize example images.");
     } else if (selectedImage) {
       setStageMediaStatus(`${selectedImage.fileName} is selected on page ${getImagePageIndexForItem(selectedImage, imageIndex) + 1}. Drag it anywhere on the full slide, use the corner handles to resize, and hold Shift for free resize.`);
     } else if (activeVideo) {
@@ -12504,8 +13780,12 @@ function renderImagePreviews() {
     showHereBtn.type = "button";
     showHereBtn.className = "ghost-btn image-cutout-btn";
     showHereBtn.textContent = "Show Here";
+    showHereBtn.disabled = isPdfPresentationMode() && isPinnedPdfExampleImage(item);
     showHereBtn.addEventListener("click", (event) => {
       event.stopPropagation();
+      if (showHereBtn.disabled) {
+        return;
+      }
       moveImageToCurrentPage(index);
     });
 
@@ -12595,7 +13875,8 @@ function getStageVideoHitTarget(point) {
 }
 
 function updateCanvasCursor(point) {
-  if (stagePanel.classList.contains("hidden") || isPdfPresentationMode()) {
+  const exactPdfMode = isPdfPresentationMode() && getPdfRenderMode() === "exact";
+  if (stagePanel.classList.contains("hidden") || exactPdfMode) {
     previewCanvas.style.cursor = "default";
     state.imageEditor.hoverIndex = -1;
     state.imageEditor.hoverMode = "";
@@ -12605,7 +13886,7 @@ function updateCanvasCursor(point) {
   }
 
   const imageHit = point ? getImageHitTarget(point) : null;
-  const videoHit = !imageHit && point ? getStageVideoHitTarget(point) : null;
+  const videoHit = !isPdfPresentationMode() && !imageHit && point ? getStageVideoHitTarget(point) : null;
   const hitMode = videoHit?.mode || imageHit?.mode || "";
   state.stageVideoEditor.hoverMode = videoHit?.mode || "";
   state.imageEditor.hoverIndex = imageHit ? imageHit.index : -1;
@@ -12619,13 +13900,14 @@ function updateCanvasCursor(point) {
 }
 
 function beginImageInteraction(event) {
-  if (stagePanel.classList.contains("hidden") || isPdfPresentationMode()) {
+  const exactPdfMode = isPdfPresentationMode() && getPdfRenderMode() === "exact";
+  if (stagePanel.classList.contains("hidden") || exactPdfMode) {
     return;
   }
 
   const point = getCanvasPoint(event);
   const imageHit = getImageHitTarget(point);
-  const videoHit = imageHit ? null : getStageVideoHitTarget(point);
+  const videoHit = isPdfPresentationMode() || imageHit ? null : getStageVideoHitTarget(point);
   if (videoHit) {
     const video = clampStageVideoFrame(state.stageVideo);
     commitStageVideoUpdate(video.id, video);
@@ -13262,6 +14544,7 @@ function startNarrationLoop(audioElement) {
         : (state.narration.durationMs || getDefaultNarrationDurationMs())
     )
   );
+  const visualLagMs = Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
 
   const tick = () => {
     if (!state.speaking || !state.activeAudio) {
@@ -13270,9 +14553,10 @@ function startNarrationLoop(audioElement) {
 
     const nowMs = performance.now();
     const elapsedMs = Math.max(0, (audioElement.currentTime || 0) * 1000);
+    const syncElapsedMs = Math.max(0, elapsedMs - visualLagMs);
     const progress = durationMs ? clamp(elapsedMs / durationMs, 0, 1) : 0;
     const previousText = state.displayedText;
-    const syncFrame = getSpeechSyncFrame(state.text, elapsedMs, durationMs);
+    const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, durationMs);
     state.displayedText = syncFrame.displayedText;
     syncLessonPlaybackProgressUi(progress, true);
 
@@ -13281,7 +14565,9 @@ function startNarrationLoop(audioElement) {
     }
 
     const audioMouth = getAudioDrivenMouth();
-    const nextMouth = syncFrame.mouthActive
+    const nextMouth = (audioMouth !== null && audioMouth > 0.11 && syncFrame.mouthActive)
+      ? clamp(audioMouth, 0.08, 0.48)
+      : syncFrame.mouthActive
       ? (audioMouth ?? getFallbackMouth(syncFrame.speechElapsedMs))
       : 0.12;
     state.mouthOpen = nextMouth;
@@ -13634,6 +14920,7 @@ async function exportPdfModeVideo(renderMode = "context") {
     : "selected-pdf-context-video.mp4";
   const effectiveExportQuality = getEffectiveExportQuality();
   const exportQualityLabel = getExportQualityLabel(effectiveExportQuality);
+  const exportRenderSpeedMultiplier = getExportRenderSpeedMultiplier();
   const previousRenderMode = getPdfRenderMode();
   const previousPresentationMode = state.presentationMode;
 
@@ -13680,7 +14967,6 @@ async function exportPdfModeVideo(renderMode = "context") {
       ? "pdf-presentation-audio.wav"
       : "pdf-context-audio.wav";
     let audioStatusLabel = "silent timing track";
-    let exportNarrationAudio = null;
 
     if (pdfText) {
       try {
@@ -13701,15 +14987,18 @@ async function exportPdfModeVideo(renderMode = "context") {
 
     await ensureVideoExportServer();
     const renderingPdfExportMessage = normalizedRenderMode === "exact"
-      ? `Rendering ${modeLabel} video with full page images and ${audioStatusLabel}. Please wait...`
-      : `Rendering ${modeLabel} video with synced page text, visuals, and ${audioStatusLabel}. Please wait...`;
+      ? `Rendering ${modeLabel} video with full page images and ${audioStatusLabel} at ${exportRenderSpeedMultiplier}x export speed. Please wait...`
+      : `Rendering ${modeLabel} video with synced page text, visuals, and ${audioStatusLabel} at ${exportRenderSpeedMultiplier}x export speed. Please wait...`;
     setStatus(renderingPdfExportMessage);
     updateTaskProgressUi(0.24, true, { mirrorStage: true, label: renderingPdfExportMessage });
     state.pdf.currentTimeMs = 0;
     syncPdfPreviewPageFromTime(0);
     drawScene(0.12);
 
-    const captureRate = getPdfExportCaptureRate(normalizedRenderMode);
+    const captureRate = getAcceleratedExportCaptureRate(
+      getPdfExportCaptureRate(normalizedRenderMode),
+      exportRenderSpeedMultiplier
+    );
     setExportCaptureRate(captureRate);
     canvasStream = canvas.captureStream(captureRate);
     const videoTracks = canvasStream.getVideoTracks();
@@ -13725,16 +15014,6 @@ async function exportPdfModeVideo(renderMode = "context") {
     state.exportVideoTrack = videoOnlyTracks[0];
     drawScene(0.12);
     exportStream = canvasStream;
-
-    if (normalizedRenderMode === "context" && state.pdf.narration.url) {
-      exportNarrationAudio = await createLoadedAudio(state.pdf.narration.url);
-      exportNarrationAudio.currentTime = 0;
-      applyNaturalVoicePlayback(exportNarrationAudio, getPdfPlaybackRate());
-      exportNarrationAudio.muted = true;
-      exportNarrationAudio.volume = 0;
-      state.activeAudio = exportNarrationAudio;
-      teardownAudioGraph();
-    }
 
     const recorder = createExportMediaRecorder(
       exportStream,
@@ -13775,40 +15054,10 @@ async function exportPdfModeVideo(renderMode = "context") {
       };
     });
 
-    const playbackFinished = new Promise((resolve, reject) => {
-      state.pdf.paused = false;
-      state.speaking = true;
-      updateStageModeUi();
-      drawScene(0.12);
-
-      if (exportNarrationAudio) {
-        state.pdf.audioDriven = true;
-        state.pdf.timelineStartedAt = 0;
-        state.pdf.timelineStartOffsetMs = 0;
-        startPdfPlaybackLoop({
-          audioElement: exportNarrationAudio,
-          onComplete: resolve,
-          onError: reject
-        });
-        return;
-      }
-
-      state.pdf.audioDriven = false;
-      state.pdf.timelineStartedAt = performance.now();
-      state.pdf.timelineStartOffsetMs = 0;
-      startPdfPlaybackLoop({
-        onComplete: resolve,
-        onError: reject
-      });
-    });
-
     recorder.start(1500);
-    if (exportNarrationAudio) {
-      await exportNarrationAudio.play().catch((error) => {
-        throw new Error(error?.message || "PDF narration playback could not start during export.");
-      });
-    }
-    await playbackFinished;
+    await renderPdfTimelineForExport(normalizedRenderMode, {
+      renderSpeedMultiplier: exportRenderSpeedMultiplier
+    });
 
     state.speaking = false;
     cancelVisualLoop();
@@ -13816,7 +15065,7 @@ async function exportPdfModeVideo(renderMode = "context") {
     state.pdf.currentTimeMs = state.pdf.totalDurationMs;
     syncPdfPreviewPageFromTime(state.pdf.currentTimeMs);
     drawScene(0.12);
-    await delay(getFinalExportHoldMs());
+    await delay(Math.max(24, Math.round(getFinalExportHoldMs() / exportRenderSpeedMultiplier)));
     recorder.stop();
 
     const videoBlob = await blobPromise;
@@ -13844,6 +15093,7 @@ async function exportPdfModeVideo(renderMode = "context") {
     const finalBlob = await muxVideoAndAudio(videoBlob, exportAudioBlob, {
       audioFileName: exportAudioFileName,
       audioSpeed: getPdfPlaybackRate(),
+      videoSpeed: exportRenderSpeedMultiplier,
       saveHandle: videoSaveHandle
     });
     if (!videoSaveHandle && (!finalBlob || !finalBlob.size)) {
@@ -13942,6 +15192,7 @@ async function exportVideo() {
   state.exportingVideo = true;
   const exportPlaybackRate = getLessonPlaybackRate();
   const effectiveExportQuality = getEffectiveExportQuality();
+  const exportRenderSpeedMultiplier = getExportRenderSpeedMultiplier();
   const exportQualityLabel = getExportQualityLabel(effectiveExportQuality);
   const shouldIncludeIntro = Boolean(state.introPlayback.enabled);
   const preparingVideoExportMessage = `Preparing ${exportQualityLabel} video with${shouldIncludeIntro ? " intro, " : " "}Anjali narration and typing effect. Please wait...`;
@@ -13974,14 +15225,17 @@ async function exportVideo() {
     await ensureVideoExportServer();
     await ensureCanvasReadyForExport();
     const renderingVideoExportMessage = shouldIncludeIntro
-      ? "Rendering video in the background with the intro clip first, then natural Anjali narration and typing. Please wait..."
-      : "Rendering video in the background with natural Anjali narration and typing effect. Please wait...";
+      ? `Rendering video in the background at ${exportRenderSpeedMultiplier}x with the intro clip first, then natural Anjali narration and typing. Please wait...`
+      : `Rendering video in the background at ${exportRenderSpeedMultiplier}x with natural Anjali narration and typing effect. Please wait...`;
     setStatus(renderingVideoExportMessage);
     updateTaskProgressUi(0.24, true, { mirrorStage: true, label: renderingVideoExportMessage });
     state.displayedText = "";
     drawScene(0.12);
 
-    const captureRate = getLessonExportCaptureRate();
+    const captureRate = getAcceleratedExportCaptureRate(
+      getLessonExportCaptureRate(),
+      exportRenderSpeedMultiplier
+    );
     setExportCaptureRate(captureRate);
 
     try {
@@ -14052,7 +15306,9 @@ async function exportVideo() {
     recorder.start(1500);
     if (shouldIncludeIntro) {
       try {
-        includedIntroInExport = await playIntroClipForExport();
+        includedIntroInExport = await playIntroClipForExport({
+          playbackRate: exportRenderSpeedMultiplier
+        });
       } catch (error) {
         console.error(error);
         includedIntroInExport = false;
@@ -14060,11 +15316,15 @@ async function exportVideo() {
       }
     }
     if (state.stageVideo.element) {
-      await startStageVideoPlayback({ restart: true });
+      await startStageVideoPlayback({
+        restart: true,
+        playbackRate: exportRenderSpeedMultiplier
+      });
     }
     await renderNarrationTimelineForExport(
       state.narration.durationMs || getDefaultNarrationDurationMs(),
-      exportPlaybackRate
+      exportPlaybackRate,
+      { renderSpeedMultiplier: exportRenderSpeedMultiplier }
     );
 
     state.speaking = false;
@@ -14072,7 +15332,7 @@ async function exportVideo() {
     state.mouthOpen = 0.12;
     state.displayedText = state.text;
     drawScene(0.12);
-    await delay(getFinalExportHoldMs());
+    await delay(Math.max(24, Math.round(getFinalExportHoldMs() / exportRenderSpeedMultiplier)));
     recorder.stop();
 
     const videoBlob = await blobPromise;
@@ -14116,6 +15376,7 @@ async function exportVideo() {
     const finalBlob = await muxVideoAndAudio(videoBlob, audioBlob, {
       audioFileName,
       audioSpeed: exportPlaybackRate,
+      videoSpeed: exportRenderSpeedMultiplier,
       saveHandle: videoSaveHandle
     });
     if (!videoSaveHandle && (!finalBlob || !finalBlob.size)) {
@@ -14162,6 +15423,14 @@ async function exportVideo() {
       state.introPlayback.element.pause();
       try {
         state.introPlayback.element.currentTime = 0;
+        state.introPlayback.element.playbackRate = 1;
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    if (state.stageVideo.element) {
+      try {
+        state.stageVideo.element.playbackRate = 1;
       } catch (error) {
         console.error(error);
       }
@@ -14319,6 +15588,130 @@ function getPageIndexForTextOffset(pages = [], textOffset = 0, fallbackIndex = 0
   return Math.max(0, Math.min(Math.max(0, pages.length - 1), Math.round(Number(fallbackIndex) || 0)));
 }
 
+function buildNormalizedPdfSearchIndex(text = "") {
+  const source = String(text || "");
+  const chars = [];
+  const indexMap = [];
+  let pendingSpace = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (/\s/.test(character)) {
+      pendingSpace = chars.length > 0;
+      continue;
+    }
+
+    if (pendingSpace) {
+      chars.push(" ");
+      indexMap.push(index);
+      pendingSpace = false;
+    }
+
+    chars.push(character.toLowerCase());
+    indexMap.push(index);
+  }
+
+  return {
+    text: chars.join(""),
+    indexMap
+  };
+}
+
+function normalizePdfSearchFragment(text = "") {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getPdfAnchorSearchCandidates(anchorText = "") {
+  const normalizedAnchor = normalizePdfSearchFragment(anchorText);
+  if (!normalizedAnchor) {
+    return [];
+  }
+
+  const candidates = [normalizedAnchor];
+  const clauses = normalizedAnchor
+    .split(/\s{2,}|(?<=[.:;!?])\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 10);
+
+  clauses.forEach((clause) => {
+    if (!candidates.includes(clause)) {
+      candidates.push(clause);
+    }
+  });
+
+  const firstWords = normalizedAnchor.split(" ").slice(0, 8).join(" ").trim();
+  if (firstWords.length >= 10 && !candidates.includes(firstWords)) {
+    candidates.push(firstWords);
+  }
+
+  return candidates.sort((left, right) => right.length - left.length);
+}
+
+function findPdfAnchorLocalOffset(insertedText = "", anchorText = "", searchStart = 0) {
+  const directAnchor = String(anchorText || "").trim();
+  if (directAnchor) {
+    const directIndex = String(insertedText || "").indexOf(directAnchor, Math.max(0, searchStart));
+    if (directIndex >= 0) {
+      return {
+        localOffset: directIndex,
+        nextSearchStart: directIndex + directAnchor.length,
+        matched: true
+      };
+    }
+  }
+
+  const normalizedInserted = buildNormalizedPdfSearchIndex(insertedText);
+  if (!normalizedInserted.text) {
+    return {
+      localOffset: -1,
+      nextSearchStart: Math.max(0, searchStart),
+      matched: false
+    };
+  }
+
+  const normalizedSearchStart = (() => {
+    if (searchStart <= 0 || !normalizedInserted.indexMap.length) {
+      return 0;
+    }
+
+    const mappedIndex = normalizedInserted.indexMap.findIndex((sourceIndex) => sourceIndex >= searchStart);
+    return mappedIndex >= 0 ? mappedIndex : normalizedInserted.text.length;
+  })();
+
+  const candidates = getPdfAnchorSearchCandidates(anchorText);
+  for (const candidate of candidates) {
+    let normalizedIndex = normalizedInserted.text.indexOf(candidate, normalizedSearchStart);
+    if (normalizedIndex < 0 && normalizedSearchStart > 0) {
+      normalizedIndex = normalizedInserted.text.indexOf(candidate);
+    }
+
+    if (normalizedIndex < 0) {
+      continue;
+    }
+
+    const localOffset = normalizedInserted.indexMap[Math.min(normalizedIndex, normalizedInserted.indexMap.length - 1)] ?? 0;
+    const nextNormalizedIndex = Math.min(
+      normalizedInserted.indexMap.length - 1,
+      normalizedIndex + Math.max(0, candidate.length - 1)
+    );
+    const nextSearchStart = (normalizedInserted.indexMap[nextNormalizedIndex] ?? localOffset) + 1;
+    return {
+      localOffset,
+      nextSearchStart,
+      matched: true
+    };
+  }
+
+  return {
+    localOffset: -1,
+    nextSearchStart: Math.max(0, searchStart),
+    matched: false
+  };
+}
+
 function getPdfClipboardImagePageIndexes(insertedText, insertedAbsoluteStartIndex, pages, images = [], fallbackPageIndex = 0) {
   const safeInsertedText = String(insertedText || "");
   if (!safeInsertedText || !Array.isArray(images) || !images.length) {
@@ -14326,34 +15719,35 @@ function getPdfClipboardImagePageIndexes(insertedText, insertedAbsoluteStartInde
   }
 
   let searchStart = 0;
+  const sourcePageAssignments = new Map();
   const orderedImages = [...images].sort((left, right) => {
     const leftOrder = Number(left?.anchorOrder) || 0;
     const rightOrder = Number(right?.anchorOrder) || 0;
     return leftOrder - rightOrder;
   });
 
-  return orderedImages.map((image, index) => {
-    const anchorText = String(image?.anchorText || "").trim();
-    let localOffset = -1;
-
-    if (anchorText) {
-      localOffset = safeInsertedText.indexOf(anchorText, searchStart);
-      if (localOffset < 0) {
-        localOffset = safeInsertedText.indexOf(anchorText);
+  return orderedImages.map((image) => {
+    const anchorMatch = findPdfAnchorLocalOffset(safeInsertedText, image?.anchorText || "", searchStart);
+    if (anchorMatch.matched) {
+      searchStart = anchorMatch.nextSearchStart;
+      const matchedPageIndex = getPageIndexForTextOffset(
+        pages,
+        Math.max(0, insertedAbsoluteStartIndex + anchorMatch.localOffset),
+        fallbackPageIndex
+      );
+      const sourcePageNumber = Math.max(0, Math.round(Number(image?.sourcePageNumber) || 0));
+      if (sourcePageNumber > 0) {
+        sourcePageAssignments.set(sourcePageNumber, matchedPageIndex);
       }
+      return matchedPageIndex;
     }
 
-    if (localOffset < 0) {
-      localOffset = Math.round(((index + 1) / (orderedImages.length + 1)) * safeInsertedText.length);
-    } else {
-      searchStart = localOffset + anchorText.length;
+    const sourcePageNumber = Math.max(0, Math.round(Number(image?.sourcePageNumber) || 0));
+    if (sourcePageNumber > 0 && sourcePageAssignments.has(sourcePageNumber)) {
+      return sourcePageAssignments.get(sourcePageNumber);
     }
 
-    return getPageIndexForTextOffset(
-      pages,
-      Math.max(0, insertedAbsoluteStartIndex + localOffset),
-      fallbackPageIndex
-    );
+    return Math.max(0, fallbackPageIndex);
   });
 }
 
@@ -14440,9 +15834,22 @@ async function handleLessonInputPaste(event) {
 
     const stageImagesWithPages = stageImages.map((item, index) => ({
       ...item,
-      pageIndex: Number.isInteger(imagePageIndexes[index])
-        ? imagePageIndexes[index]
-        : (Number.isInteger(item.pageIndex) ? item.pageIndex : targetPageIndex)
+      pageIndex: (() => {
+        const pdfPresentationIndex = getPdfPresentationPageIndexForSourcePageNumber(item?.sourcePageNumber);
+        if (pdfPresentationIndex >= 0) {
+          return pdfPresentationIndex;
+        }
+
+        if (Number.isInteger(imagePageIndexes[index])) {
+          return imagePageIndexes[index];
+        }
+
+        if (Number.isInteger(item.pageIndex)) {
+          return item.pageIndex;
+        }
+
+        return targetPageIndex;
+      })()
     }));
 
     const addedCount = await addStageImagesFromDataUrls(stageImagesWithPages, { targetPageIndex });
@@ -14660,6 +16067,9 @@ async function generateNarrationDownload(voice) {
 
   try {
     const label = getNarrationVoiceLabel(voice);
+    const sourceLabel = voice === "anjali"
+      ? `Generated ${label.toLowerCase()} narration`
+      : `${label} narration`;
     state.preferredNarrationVoice = voice;
     updatePreferredVoiceUi();
     setNarrationGenStatus(`Generating ${label.toLowerCase()} narration...`);
@@ -14676,7 +16086,7 @@ async function generateNarrationDownload(voice) {
     });
     updateTaskProgressUi(0.74, true, { label: `Finishing ${label.toLowerCase()} narration...` });
     const fileName = `${voice}-narration.wav`;
-    await setNarrationFromBlob(blob, fileName, `${label} narration`, text, voice, { syncProfile });
+    await setNarrationFromBlob(blob, fileName, sourceLabel, text, voice, { syncProfile });
     updateTaskProgressUi(0.9, true, { label: `${label} narration is ready to download.` });
     triggerFileDownload(blob, fileName);
     setNarrationGenStatus(`${label} narration downloaded and loaded into the app.`);
@@ -14710,6 +16120,9 @@ async function loadGeneratedNarrationIntoApp(voice) {
 
   try {
     const label = getNarrationVoiceLabel(voice);
+    const sourceLabel = voice === "anjali"
+      ? `Generated ${label.toLowerCase()} narration`
+      : `${label} narration`;
     state.preferredNarrationVoice = voice;
     updatePreferredVoiceUi();
     setNarrationGenStatus(`Generating ${label.toLowerCase()} narration for the app...`);
@@ -14726,7 +16139,7 @@ async function loadGeneratedNarrationIntoApp(voice) {
     });
     updateTaskProgressUi(0.74, true, { label: `Loading ${label.toLowerCase()} narration into the app...` });
     const fileName = `${voice}-narration.wav`;
-    await setNarrationFromBlob(blob, fileName, `${label} narration`, text, voice, { syncProfile });
+    await setNarrationFromBlob(blob, fileName, sourceLabel, text, voice, { syncProfile });
     setNarrationGenStatus(`${label} narration is loaded into the app.`);
     setStatus(`${label} narration is loaded into the app.`);
     if (audioPreview?.src) {
@@ -14964,6 +16377,18 @@ if (themeToggle) {
     applyTheme(event.target.checked ? "dark" : "light");
   });
 }
+workflowStepButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    openWorkflowTarget(button.dataset.workflowTarget || "");
+  });
+});
+presentationTemplateInputs.forEach((input) => {
+  input.addEventListener("change", (event) => {
+    if (event.target.checked) {
+      setPresentationTemplate(event.target.value);
+    }
+  });
+});
 textColorSelect.addEventListener("change", (event) => {
   updateDisplayStyle({ color: event.target.value });
 });
@@ -15022,8 +16447,8 @@ stageToolbarGroups.forEach((group) => {
   });
 });
 pdfInput.addEventListener("change", handlePdfSelection);
-pdfShowBtn.addEventListener("click", () => runLockedAction("pdfShow", [pdfShowBtn, pdfPresentBtn, showScreenBtn], showPdfOnScreen));
-pdfPresentBtn.addEventListener("click", () => runLockedAction("pdfPresent", [pdfShowBtn, pdfPresentBtn, playBtn], presentPdf));
+pdfShowBtn.addEventListener("click", () => runLockedAction("pdfShow", [pdfShowBtn, showScreenBtn], showPdfOnScreen));
+pdfPresentBtn.addEventListener("click", () => runLockedAction("pdfPresent", [pdfPresentBtn, playBtn], presentPdf));
 pdfSelectAllBtn.addEventListener("click", selectAllPdfPages);
 pdfClearSelectionBtn.addEventListener("click", clearSelectedPdfPages);
 clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: true }));
@@ -15117,11 +16542,14 @@ if (downloadPdfContextBtn) {
 editBtn.addEventListener("click", () => {
   stopInputPreview(false);
   stopPlayback();
+  invalidatePdfPresentationRequest();
   pauseStageVideoPlayback();
+  state.images = state.images.filter((item) => !isAutoPdfExampleImage(item));
   state.presentationMode = "lesson";
   updatePlaybackProgressUi(0, false);
   stagePanel.classList.add("hidden");
   inputPanel.classList.remove("hidden");
+  renderImagePreviews();
   setStatus("You can edit the content now.");
   updateStageModeUi();
   updateStageViewUi();
@@ -15307,6 +16735,7 @@ if (window.INFO_KIDS_LOGO_DATA_URI) {
 window.__learningOutcomesState = state;
 
 initializeTheme();
+initializePresentationTemplate();
 initializeDefaultPlaybackRate();
 initializeMathsTeacherAssets();
 updateStageVideoUi();
