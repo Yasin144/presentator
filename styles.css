@@ -498,6 +498,20 @@ body::after {
   line-height: 1.5;
 }
 
+.template-title-toolbar {
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.template-title-field {
+  min-width: min(100%, 420px);
+  flex: 1 1 320px;
+}
+
+.spacing-toolbar {
+  flex-wrap: wrap;
+}
+
 .theme-value {
   font-size: 1rem;
   color: var(--text-strong);
