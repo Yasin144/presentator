@@ -13830,7 +13830,7 @@ async function autoTeachSelectedImage() {
   
   setStatus("Engaging Moondream2 Vision AI... (The brain takes ~25 seconds to download/load if this is the first use!)");
   try {
-    const response = await fetch("http://127.0.0.1:8424/api/vision/analyze", {
+    const response = await fetch("http://127.0.0.1:8426/api/vision/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
