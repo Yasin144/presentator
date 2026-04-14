@@ -2538,6 +2538,7 @@ function verbalizeMathForSpeech(text) {
     .replace(/\+/g, " plus ")
     .replace(/(?<!\d)-(?=\d)/g, " minus ")
     .replace(/(?<=\d)\s*-\s*(?=\d)/g, " minus ")
+    .replace(/\s+-\s+/g, " minus ")
     .replace(/=/g, " equals ")
     .replace(/≤/g, " less than or equal to ")
     .replace(/≥/g, " greater than or equal to ")
@@ -2641,7 +2642,7 @@ function splitNarrationTextIntoChunks(narrationText, maxChunkLength = NARRATION_
       words.forEach((word) => {
         const candidate = segment ? `${segment} ${word}` : word;
         if (candidate.length > maxChunkLength && segment) {
-          chunks.push(segment.trim());
+          chunks.push(`${segment.trim()}...`);
           segment = word;
         } else {
           segment = candidate;
