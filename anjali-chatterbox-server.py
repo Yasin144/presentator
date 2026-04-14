@@ -49,13 +49,16 @@ def get_vision_engine():
             raise Exception("The ultra-smart Vision AI is currently downloading/loading its brain (1.5GB) into memory. Please wait a few moments and try again!")
         VISION_LOADING = True
         try:
-            print("\n[VISION] Booting Moondream2 Local Vision-Language Brain... (May take a moment to download).", flush=True)
+            print("\n[VISION] Booting Moondream2 Local Vision-Language Brain to D: Drive... (May take a moment to download).", flush=True)
+            import os
+            cache_path = "D:\\AI_Models\\HuggingFace"
+            os.makedirs(cache_path, exist_ok=True)
             from transformers import AutoModelForCausalLM, AutoTokenizer
             model_id = "vikhyatk/moondream2"
             revision = "2024-08-26"
-            VISION_MODEL = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True, revision=revision)
-            VISION_TOKENIZER = AutoTokenizer.from_pretrained(model_id, revision=revision)
-            print("[VISION] Vision Brain fully initialized and ready to auto-teach!", flush=True)
+            VISION_MODEL = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True, revision=revision, cache_dir=cache_path)
+            VISION_TOKENIZER = AutoTokenizer.from_pretrained(model_id, revision=revision, cache_dir=cache_path)
+            print("[VISION] Vision Brain fully initialized on D: Drive and ready to auto-teach!", flush=True)
         finally:
             VISION_LOADING = False
     return VISION_MODEL, VISION_TOKENIZER
