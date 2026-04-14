@@ -11339,6 +11339,104 @@ function drawPresenterFigure() {
   ctx.restore();
 }
 
+function drawProceduralMathAnimations() {
+  const isAnimatingContent = state.speaking || (state.displayedText && state.displayedText !== state.text);
+  const boardSourceText = isAnimatingContent ? (state.displayedText || state.text) : state.text;
+  
+  const mathMatch = boardSourceText.match(/(?:let's\s*add|adding)?\s*(\d+)\s*\+\s*(\d+)\s*=\s*(\d+)/i) || 
+                    boardSourceText.match(/jumps?\s*from\s*(\d+).*?(?:add|jump|moves)\s*(\d+).*?(?:to|position)\s*(\d+)/i) || 
+                    boardSourceText.match(/(\d+)\s*\+\s*(\d+)\s*=\s*(\d+)/);
+
+  if (!mathMatch) return;
+  
+  const startNum = parseInt(mathMatch[1]);
+  const jumps = parseInt(mathMatch[2]);
+  const endNum = parseInt(mathMatch[3]);
+  if (isNaN(startNum) || isNaN(jumps) || isNaN(endNum) || startNum + jumps !== endNum) return;
+  if (jumps > 30) return; 
+
+  const rawTime = (state.activeAudio?.currentTime || performance.now() / 1000);
+  const progress = (rawTime * Math.max(1, state.exportPlaybackRate)) % (jumps * 1.5 + 2); 
+  
+  const lineY = canvas.height - 150;
+  const lineStartX = 100;
+  const lineEndX = canvas.width - 100;
+  
+  const lineLength = Math.max(endNum, startNum + jumps) + 1; 
+  const segmentWidth = (lineEndX - lineStartX) / lineLength;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(lineStartX, lineY);
+  ctx.lineTo(lineEndX, lineY);
+  ctx.lineWidth = 12;
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(255, 204, 0, 0.95)";
+  ctx.stroke();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 28px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+
+  for (let i = 0; i <= lineLength; i++) {
+    const x = lineStartX + (i * segmentWidth);
+    ctx.beginPath();
+    ctx.arc(x, lineY, 8, 0, Math.PI * 2);
+    ctx.fillStyle = i === startNum || i === endNum ? "#ffffff" : "rgba(255,255,255,0.7)";
+    ctx.fill();
+    ctx.fillText(`${i}`, x, lineY + 20);
+  }
+
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "#4ceb34"; 
+  
+  const jumpProgressIndex = Math.floor(progress / 1.5);
+  const arcProgress = (progress % 1.5) / 1.5;
+
+  for (let j = 0; j < jumps; j++) {
+     if (j > jumpProgressIndex) continue;
+     
+     const jxStart = lineStartX + ((startNum + j) * segmentWidth);
+     const jxEnd = lineStartX + ((startNum + j + 1) * segmentWidth);
+     const arcHeight = -80;
+     
+     ctx.beginPath();
+     ctx.moveTo(jxStart, lineY);
+     if (j < jumpProgressIndex) {
+        ctx.quadraticCurveTo(jxStart + (jxEnd - jxStart)/2, lineY + arcHeight, jxEnd, lineY);
+        ctx.stroke();
+     } else if (j === jumpProgressIndex) {
+        const p = arcProgress;
+        const currentX = jxStart + (jxEnd - jxStart) * p;
+        const currentY = lineY + (arcHeight * Math.sin(p * Math.PI));
+        ctx.quadraticCurveTo(jxStart + (currentX - jxStart)/2, lineY + (arcHeight * Math.sin((p/2) * Math.PI)), currentX, currentY);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.arc(currentX, currentY, 14, 0, Math.PI * 2);
+        ctx.fillStyle = "#ff4545"; 
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+     }
+  }
+
+  if (progress >= jumps * 1.5) {
+     const endX = lineStartX + (endNum * segmentWidth);
+     ctx.beginPath();
+     ctx.arc(endX, lineY, 24, 0, Math.PI * 2);
+     ctx.fillStyle = "#ff4545";
+     ctx.fill();
+     ctx.strokeStyle = "#ffffff";
+     ctx.lineWidth = 4;
+     ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 function drawOptionalImages(currentPageIndex = 0, totalPageCount = 1) {
   const pageIndex = clamp(currentPageIndex, 0, Math.max(0, Math.max(1, totalPageCount) - 1));
   const pageEntries = getImageEntriesForPage(pageIndex);
@@ -11887,6 +11985,7 @@ function drawScene(mouthOpen = 0.12) {
     state.contentScrollOffset = 0;
     drawMathPlaceValueBoard(contentArea, boardData, currentPageIndex, totalPageCount);
     drawOptionalImages(currentPageIndex, totalPageCount);
+    drawProceduralMathAnimations();
     drawRuntimeDisplayErrorOverlay();
     requestCanvasExportFrame();
     return;
@@ -11967,6 +12066,7 @@ function drawScene(mouthOpen = 0.12) {
 
   ctx.restore();
   drawOptionalImages(currentPageIndex, totalPageCount);
+  drawProceduralMathAnimations();
   drawRuntimeDisplayErrorOverlay();
   requestCanvasExportFrame();
 }
