@@ -90,6 +90,7 @@ const stageImageRestoreBtn = document.getElementById("stageImageRestoreBtn");
 const stageVideoCutoutBtn = document.getElementById("stageVideoCutoutBtn");
 const stageVideoRestoreBtn = document.getElementById("stageVideoRestoreBtn");
 const stageAutoTeachBtn = document.getElementById("stageAutoTeachBtn");
+const stageAutoBRollBtn = document.getElementById("stageAutoBRollBtn");
 const stageRemoveImageBtn = document.getElementById("stageRemoveImageBtn");
 const stageClearImagesBtn = document.getElementById("stageClearImagesBtn");
 const stageRemoveVideoBtn = document.getElementById("stageRemoveVideoBtn");
@@ -11339,6 +11340,186 @@ function drawPresenterFigure() {
   ctx.restore();
 }
 
+function drawCinematicCaptions() {
+  const timeline = state.narration?.syncProfile?.timeline || [];
+  if (!timeline.length) return;
+  if (!state.speaking && !state.exportingVideo) return; // Only show if active
+
+  const rawTime = (state.activeAudio?.currentTime || performance.now() / 1000);
+  const currentMs = rawTime * 1000;
+  
+  let activeIndex = -1;
+  for (let i = 0; i < timeline.length; i++) {
+     if (currentMs >= timeline[i].startMs && currentMs <= timeline[i].startMs + timeline[i].lengthMs) {
+        activeIndex = i;
+        break;
+     }
+  }
+
+  if (activeIndex === -1) {
+    let pastIndex = -1;
+    for (let i = timeline.length-1; i >= 0; i--) {
+       if (currentMs >= timeline[i].startMs) {
+          pastIndex = i;
+          break;
+       }
+    }
+    activeIndex = pastIndex;
+  }
+  
+  if (activeIndex === -1) return;
+
+  let chunkStart = activeIndex;
+  while (chunkStart > 0 && (activeIndex - chunkStart) < 3 && !/[.,?!]/.test(timeline[chunkStart - 1].text)) {
+      chunkStart--;
+  }
+
+  let chunkEnd = activeIndex;
+  while (chunkEnd < timeline.length - 1 && (chunkEnd - activeIndex) < 3 && !/[.,?!]/.test(timeline[chunkEnd].text)) {
+      chunkEnd++;
+  }
+  
+  if (chunkEnd - chunkStart > 5) {
+     chunkStart = Math.max(0, activeIndex - 2);
+     chunkEnd = Math.min(timeline.length - 1, activeIndex + 3);
+  }
+
+  const chunk = timeline.slice(chunkStart, chunkEnd + 1);
+
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  
+  const yBase = canvas.height - 80;
+  
+  ctx.font = '900 64px "Nunito", sans-serif'; 
+  const wordWidths = chunk.map((word, i) => {
+     const isSpoken = (chunkStart + i === activeIndex);
+     ctx.font = isSpoken ? '900 74px "Nunito", sans-serif' : '900 64px "Nunito", sans-serif';
+     return ctx.measureText(word.text).width + 18;
+  });
+  
+  const totalWidth = wordWidths.reduce((a, b) => a + b, 0);
+  let cursorX = (canvas.width - totalWidth) / 2;
+  
+  for (let i = 0; i < chunk.length; i++) {
+     const wordText = chunk[i].text.replace(/[\[\]]/g, '');
+     const isSpoken = (chunkStart + i === activeIndex);
+     
+     const wWidth = wordWidths[i];
+     const wordCenterX = cursorX + (wWidth / 2);
+     const wordY = yBase + (isSpoken ? -8 : 0); 
+     
+     ctx.font = isSpoken ? '900 74px "Nunito", sans-serif' : '900 64px "Nunito", sans-serif';
+     
+     ctx.strokeStyle = "rgba(0,0,0,0.85)";
+     ctx.lineWidth = 14;
+     ctx.lineJoin = "round";
+     ctx.strokeText(wordText, wordCenterX, wordY);
+     
+     ctx.fillStyle = isSpoken ? "#ffcc00" : "#ffffff";
+     
+     ctx.shadowColor = "rgba(0,0,0,0.6)";
+     ctx.shadowBlur = 12;
+     ctx.shadowOffsetY = 4;
+     
+     ctx.fillText(wordText, wordCenterX, wordY);
+     
+     ctx.shadowBlur = 0;
+     ctx.shadowColor = "transparent";
+     
+     cursorX += wWidth;
+  }
+  ctx.restore();
+}
+
+function drawAutoQuizOverlay() {
+  if (!state.speaking && !state.exportingVideo) return;
+  const boardSourceText = state.displayedText || state.text;
+  
+  const quizMatch = boardSourceText.match(/Quiz:\s*(.*?)\s*[A|a]\)\s*(.*?)\s*[B|b]\)\s*(.*?)\s*[C|c]\)\s*(.*?)(?:\s*[D|d]\)\s*(.*?))?\s*(?:The\s*answer\s*is|Answer:)\s*([A-D])/i);
+  if (!quizMatch) return;
+  
+  const [_, question, optA, optB, optC, optD, answer] = quizMatch;
+  
+  const rawTime = (state.activeAudio?.currentTime || performance.now() / 1000);
+  const currentMs = rawTime * 1000;
+  
+  const timeline = state.narration?.syncProfile?.timeline || [];
+  let answerRevealMs = 99999999;
+  for (let i = 0; i < timeline.length; i++) {
+     if (timeline[i].text.toLowerCase().includes("answer") || timeline[i].text.toLowerCase().includes(answer.toLowerCase())) {
+         answerRevealMs = Math.min(answerRevealMs, timeline[i].startMs);
+     }
+  }
+
+  const isAnswerRevealed = currentMs >= answerRevealMs;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(10, 15, 25, 0.95)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height); 
+  
+  ctx.fillStyle = "#ffffff";
+  ctx.font = 'bold 50px "Nunito", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  
+  ctx.shadowColor = "rgba(0,0,0,0.8)";
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 4;
+  ctx.fillText(question.trim(), canvas.width / 2, 180);
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
+  
+  const options = [
+    { label: "A", text: optA, y: 350 },
+    { label: "B", text: optB, y: 450 },
+    { label: "C", text: optC, y: 550 },
+  ];
+  if (optD && optD.trim().length > 0) options.push({ label: "D", text: optD, y: 650 });
+
+  options.forEach((opt) => {
+     let optBg = "#1c2b36";
+     let optTxt = "#ffffff";
+     
+     if (isAnswerRevealed) {
+         if (opt.label.toLowerCase() === answer.toLowerCase()) {
+             optBg = "#4ceb34"; 
+             optTxt = "#000000";
+         } else {
+             optBg = "#11151a"; 
+             optTxt = "#334455";
+         }
+     }
+     
+     const boxW = 860;
+     const boxH = 80;
+     const boxX = (canvas.width - boxW) / 2;
+     
+     ctx.fillStyle = optBg;
+     ctx.beginPath();
+     if (ctx.roundRect) {
+         ctx.roundRect(boxX, opt.y - boxH/2, boxW, boxH, 16);
+     } else {
+         ctx.fillRect(boxX, opt.y - boxH/2, boxW, boxH);
+     }
+     ctx.fill();
+     
+     if (!isAnswerRevealed || opt.label.toLowerCase() === answer.toLowerCase()) {
+         ctx.lineWidth = 3;
+         ctx.strokeStyle = isAnswerRevealed ? "#ffffff" : "#2a4254";
+         ctx.stroke();
+     }
+     
+     ctx.fillStyle = optTxt;
+     ctx.font = 'bold 36px "Nunito", sans-serif';
+     ctx.textAlign = "left";
+     ctx.fillText(`${opt.label})  ${opt.text.trim()}`, boxX + 40, opt.y);
+  });
+  
+  ctx.restore();
+}
+
 function drawProceduralConceptAnimations() {
   const isAnimatingContent = state.speaking || (state.displayedText && state.displayedText !== state.text);
   const boardSourceText = isAnimatingContent ? (state.displayedText || state.text) : state.text;
@@ -12071,6 +12252,8 @@ function drawScene(mouthOpen = 0.12) {
     drawMathPlaceValueBoard(contentArea, boardData, currentPageIndex, totalPageCount);
     drawOptionalImages(currentPageIndex, totalPageCount);
     drawProceduralConceptAnimations();
+    drawCinematicCaptions();
+    drawAutoQuizOverlay();
     drawRuntimeDisplayErrorOverlay();
     requestCanvasExportFrame();
     return;
@@ -12152,6 +12335,8 @@ function drawScene(mouthOpen = 0.12) {
   ctx.restore();
   drawOptionalImages(currentPageIndex, totalPageCount);
   drawProceduralConceptAnimations();
+  drawCinematicCaptions();
+  drawAutoQuizOverlay();
   drawRuntimeDisplayErrorOverlay();
   requestCanvasExportFrame();
 }
@@ -14002,6 +14187,68 @@ async function applySmartCutoutToImageAt(index, force = true) {
   };
 }
 
+async function autoFetchSmartBRoll() {
+  if (state.exportingVideo) return; 
+  
+  const currentText = lessonInput?.value.trim();
+  if (!currentText) {
+     setStatus("No lesson text found! Please write a script first before generating B-Roll.");
+     return;
+  }
+  
+  setStatus("🎬 Analyzing script and fetching cinematic B-Roll imagery...");
+  
+  const words = currentText.split(/\s+/).filter(w => w.length > 5 && !w.match(/jump|add|equal|quiz|answer|times|this|that/i));
+  const keyword = words.length > 0 ? words[Math.floor(Math.random() * Math.min(3, words.length))].replace(/[^a-zA-Z]/g, "") : "Science";
+  
+  let bRollUrl = `https://picsum.photos/seed/${encodeURIComponent(keyword)}/1280/720`;
+  
+  try {
+     const url = `https://en.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&piprop=original&titles=${encodeURIComponent(keyword)}&origin=*`;
+     const res = await fetch(url);
+     const data = await res.json();
+     const pages = data.query.pages;
+     const pageId = Object.keys(pages)[0];
+     if (pageId !== "-1" && pages[pageId].original) {
+         bRollUrl = pages[pageId].original.source; 
+     }
+  } catch (e) {
+     console.warn("Wikipedia API failed, falling back to Picsum.");
+  }
+  
+  try {
+      const res = await fetch(bRollUrl);
+      const blob = await res.blob();
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+         const dataUrl = reader.result;
+         
+         const imageObj = await loadImageFromDataUrl(dataUrl);
+         state.images.push({
+           dataUrl,
+           width: imageObj.width,
+           height: imageObj.height,
+           renderWidth: Math.min(800, imageObj.width),
+           renderHeight: Math.min(450, imageObj.height),
+           x: 60,
+           y: 120 + (state.images.length * 30) % 150, 
+           aspectRatio: imageObj.width / imageObj.height,
+           active: true,
+           sourceTag: "b-roll",
+           hasSmartCutout: false
+         });
+         
+         state.imageEditor.activeIndex = state.images.length - 1;
+         setStatus(`🎬 Successfully fetched and appended cinematic B-Roll for topic: ${keyword.toUpperCase()}`);
+         updateStageMediaUi();
+         requestCanvasExportFrame();
+      };
+      reader.readAsDataURL(blob);
+  } catch (error) {
+     setStatus("Failed to fetch B-Roll. Please check your internet connection.");
+  }
+}
+
 async function autoTeachSelectedImage() {
   if (isPdfPresentationMode()) {
     setStatus("Auto-Teach is only available for individually uploaded Stage Images.");
@@ -14152,6 +14399,10 @@ function updateStageMediaToolUi() {
   
   if (stageAutoTeachBtn) {
     stageAutoTeachBtn.style.display = (isPdfPresentationMode() || !selectedImage) ? "none" : "block";
+  }
+
+  if (stageAutoBRollBtn) {
+    stageAutoBRollBtn.style.display = isPdfPresentationMode() ? "none" : "block";
   }
 
   if (stageClearImagesBtn) {
@@ -17557,6 +17808,9 @@ checkServerHealth();
 startAnjaliCloneMonitor();
 if (stageAutoTeachBtn) {
   stageAutoTeachBtn.addEventListener("click", autoTeachSelectedImage);
+}
+if (stageAutoBRollBtn) {
+  stageAutoBRollBtn.addEventListener("click", autoFetchSmartBRoll);
 }
 if (stageRemoveImageBtn) {
   stageRemoveImageBtn.addEventListener("click", removeSelectedStageImage);

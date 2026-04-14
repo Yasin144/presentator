@@ -494,7 +494,7 @@ function Invoke-VideoMux {
 
     if (-not [string]::IsNullOrWhiteSpace($MusicPath) -and (Test-Path $MusicPath)) {
       $args += @("-stream_loop", "-1", "-i", $MusicPath)
-      $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText[narr]" } else { "[1:a]anull[narr]" }
+      $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText,asplit[narr_out][narr_sc]" } else { "[1:a]anull,asplit[narr_out][narr_sc]" }
       $mixedAudioTail = if ($targetDurationSecondsText) {
         "amix=inputs=2:duration=first:dropout_transition=2,apad=whole_dur=$targetDurationSecondsText[aout]"
       } else {
@@ -502,7 +502,7 @@ function Invoke-VideoMux {
       }
       $args += @(
         "-filter_complex",
-        "$videoFilterInput;$audioFilterInput;[2:a]volume=$volumeText[music];[narr][music]$mixedAudioTail",
+        "$videoFilterInput;$audioFilterInput;[2:a]volume=$volumeText[music];[music][narr_sc]sidechaincompress=threshold=0.08:ratio=4:attack=5:release=50[ducked_music];[narr_out][ducked_music]$mixedAudioTail",
         "-map", "[vout]",
         "-map", "[aout]"
       )
