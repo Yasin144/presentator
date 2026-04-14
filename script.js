@@ -2280,7 +2280,8 @@ async function saveBlobWithHandle(fileHandle, blob) {
 }
 
 function splitIntoLines(text) {
-  const smartText = String(text || "")
+  const normalizedText = String(text || "").replace(/\r\n|\r/g, "\n");
+  const smartText = normalizedText
     .replace(/(?<!\n)\n(?!\n)/g, (match, offset, string) => {
       const nextSegment = string.substring(offset + 1).trimStart();
       if (/^[•*-]\s|^#+|^[0-9]+\./.test(nextSegment)) {
