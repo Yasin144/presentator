@@ -16,6 +16,9 @@ const placeValueToolStatus = document.getElementById("placeValueToolStatus");
 const workflowStepButtons = Array.from(document.querySelectorAll("[data-workflow-target]"));
 const presentationTemplateInputs = Array.from(document.querySelectorAll('input[name="presentationTemplate"]'));
 const presentationTemplateStatus = document.getElementById("presentationTemplateStatus");
+const outcomesTitleInput = document.getElementById("outcomesTitleInput");
+const saveOutcomesTitleBtn = document.getElementById("saveOutcomesTitleBtn");
+const outcomesTitleStatus = document.getElementById("outcomesTitleStatus");
 const inputPanel = document.getElementById("inputPanel");
 const stagePanel = document.getElementById("stagePanel");
 const themeSelect = document.getElementById("themeSelect");
@@ -29,6 +32,17 @@ const caseOriginalBtn = document.getElementById("caseOriginalBtn");
 const caseLowerBtn = document.getElementById("caseLowerBtn");
 const caseTitleBtn = document.getElementById("caseTitleBtn");
 const caseUpperBtn = document.getElementById("caseUpperBtn");
+const insertSpaceBtn = document.getElementById("insertSpaceBtn");
+const insertNewLineBtn = document.getElementById("insertNewLineBtn");
+const insertTabBtn = document.getElementById("insertTabBtn");
+const insertBulletBtn = document.getElementById("insertBulletBtn");
+const insertArrowBtn = document.getElementById("insertArrowBtn");
+const insertMultiplyBtn = document.getElementById("insertMultiplyBtn");
+const insertDivideBtn = document.getElementById("insertDivideBtn");
+const insertLessEqualBtn = document.getElementById("insertLessEqualBtn");
+const insertGreaterEqualBtn = document.getElementById("insertGreaterEqualBtn");
+const insertRupeeBtn = document.getElementById("insertRupeeBtn");
+const spacingToolsStatus = document.getElementById("spacingToolsStatus");
 const selectionStyleCard = document.getElementById("selectionStyleCard");
 const selectedKeywordLabel = document.getElementById("selectedKeywordLabel");
 const selectedTextColorSelect = document.getElementById("selectedTextColorSelect");
@@ -201,6 +215,9 @@ applyHighQualityImageRendering(ctx);
 const stageLogoImage = document.getElementById("stageLogoImage");
 const THEME_STORAGE_KEY = "learning-outcomes-theme";
 const PRESENTATION_TEMPLATE_STORAGE_KEY = "learning-outcomes-presentation-template";
+const OUTCOMES_TITLE_STORAGE_KEY = "learning-outcomes-template-title";
+const VIDEO_EXPORT_HEALTH_TIMEOUT_MS = 12000;
+const VIDEO_EXPORT_HEALTH_GRACE_MS = 45000;
 const MAX_IMAGE_UPLOADS = 12;
 const SLIDE_IMAGES_PER_PAGE = 4;
 const LOGO_SOURCE_BOUNDS = {
@@ -283,10 +300,13 @@ const STAGE_IMAGE_MIN_HEIGHT_PX = 72;
 const STAGE_IMAGE_HANDLE_SIZE_PX = 16;
 const NARRATION_CHUNK_MAX_LENGTH = 560;
 const NARRATION_CHUNK_THRESHOLD = 1800;
-const ANJALI_NARRATION_CHUNK_MAX_LENGTH = 320;
-const ANJALI_NARRATION_CHUNK_THRESHOLD = 420;
+const ANJALI_NARRATION_CHUNK_MAX_LENGTH = 220;
+const ANJALI_NARRATION_CHUNK_THRESHOLD = 260;
 const DEFAULT_STAGE_PLAYBACK_RATE = 1;
-const EXPORT_RENDER_SPEED_MULTIPLIER = 10;
+const EXPORT_RENDER_SPEED_MULTIPLIER = 1;
+const MAX_EXPORT_CAPTURE_FPS = 72;
+const LONG_EXPORT_THRESHOLD_MS = 5 * 60 * 1000;
+const VERY_LONG_EXPORT_THRESHOLD_MS = 15 * 60 * 1000;
 const MUX_CHUNK_UPLOAD_THRESHOLD_BYTES = 96 * 1024 * 1024;
 const MUX_CHUNK_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
 const STRICT_INTER_WORD_PAUSE_MS = 400;
@@ -573,6 +593,7 @@ const state = {
   videoExportServerReady: false,
   text: "",
   presentationTemplate: PRESENTATION_TEMPLATE_CLASSIC,
+  outcomesTitle: "",
   lines: [],
   words: [],
   tokens: [],
@@ -697,6 +718,10 @@ const state = {
     modelLoaded: false,
     transientFailureCount: 0,
     generationActiveCount: 0
+  },
+  videoExportMonitor: {
+    lastHealthyAt: 0,
+    transientFailureCount: 0
   },
   lessonInputTimerId: 0,
   contentScrollOffset: 0,
@@ -1770,6 +1795,41 @@ function getStoredPresentationTemplate() {
   return PRESENTATION_TEMPLATE_CLASSIC;
 }
 
+function normalizeOutcomesTitle(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 72);
+}
+
+function getStoredOutcomesTitle() {
+  try {
+    return normalizeOutcomesTitle(window.localStorage.getItem(OUTCOMES_TITLE_STORAGE_KEY) || "");
+  } catch (error) {
+    console.error(error);
+    return "";
+  }
+}
+
+function updateOutcomesTitleUi() {
+  const titleValue = normalizeOutcomesTitle(state.outcomesTitle);
+  if (outcomesTitleInput && outcomesTitleInput.value !== titleValue) {
+    outcomesTitleInput.value = titleValue;
+  }
+
+  const isOutcomesTemplate = normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES;
+  if (outcomesTitleInput) {
+    outcomesTitleInput.disabled = !isOutcomesTemplate;
+  }
+  if (saveOutcomesTitleBtn) {
+    saveOutcomesTitleBtn.disabled = !isOutcomesTemplate;
+  }
+  if (outcomesTitleStatus) {
+    outcomesTitleStatus.textContent = isOutcomesTemplate
+      ? (titleValue
+        ? `Saved title: ${titleValue}`
+        : "The second template uses LEARNING OUTCOMES by default. Save a custom title to show it on screen and in export.")
+      : "Switch to Learning Outcomes if you want to save a custom title for that template.";
+  }
+}
+
 function updatePresentationTemplateUi() {
   const activeTemplate = normalizePresentationTemplate(state.presentationTemplate);
   presentationTemplateInputs.forEach((input) => {
@@ -1781,6 +1841,7 @@ function updatePresentationTemplateUi() {
       ? "Learning Outcomes template is active. Classic is still available any time."
       : "Classic stage is active by default.";
   }
+  updateOutcomesTitleUi();
 }
 
 function setPresentationTemplate(template, options = {}) {
@@ -1810,7 +1871,79 @@ function setPresentationTemplate(template, options = {}) {
 
 function initializePresentationTemplate() {
   state.presentationTemplate = getStoredPresentationTemplate();
+  state.outcomesTitle = getStoredOutcomesTitle();
   updatePresentationTemplateUi();
+}
+
+function setOutcomesTitle(title, options = {}) {
+  const normalizedTitle = normalizeOutcomesTitle(title);
+  state.outcomesTitle = normalizedTitle;
+  try {
+    if (normalizedTitle) {
+      window.localStorage.setItem(OUTCOMES_TITLE_STORAGE_KEY, normalizedTitle);
+    } else {
+      window.localStorage.removeItem(OUTCOMES_TITLE_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.error(error);
+  }
+
+  updateOutcomesTitleUi();
+  drawScene(state.mouthOpen);
+
+  if (!options.silent) {
+    setStatus(normalizedTitle
+      ? `Learning Outcomes title saved as ${normalizedTitle}.`
+      : "Learning Outcomes title cleared. The default title will be used.");
+  }
+}
+
+function setSpacingToolsStatus(message) {
+  if (spacingToolsStatus) {
+    spacingToolsStatus.textContent = String(message || "");
+  }
+}
+
+function getActiveTextInsertionTarget() {
+  const activeElement = document.activeElement;
+  const candidates = [
+    lessonInput,
+    mathsSourceInput,
+    outcomesTitleInput,
+    placeValueNumberInput
+  ].filter(Boolean);
+
+  if (
+    activeElement
+    && candidates.includes(activeElement)
+    && typeof activeElement.selectionStart === "number"
+    && typeof activeElement.selectionEnd === "number"
+  ) {
+    return activeElement;
+  }
+
+  return lessonInput || candidates[0] || null;
+}
+
+function insertTextIntoActiveField(textToInsert = "", label = "Text") {
+  const target = getActiveTextInsertionTarget();
+  if (!target) {
+    setSpacingToolsStatus("No text field is ready for insertion.");
+    return;
+  }
+
+  const safeInsertText = String(textToInsert || "");
+  const start = typeof target.selectionStart === "number" ? target.selectionStart : target.value.length;
+  const end = typeof target.selectionEnd === "number" ? target.selectionEnd : target.value.length;
+  const nextValue = `${target.value.slice(0, start)}${safeInsertText}${target.value.slice(end)}`;
+  target.value = nextValue;
+  const nextCursor = start + safeInsertText.length;
+  target.focus();
+  if (typeof target.setSelectionRange === "function") {
+    target.setSelectionRange(nextCursor, nextCursor);
+  }
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  setSpacingToolsStatus(`${label} inserted into ${target === lessonInput ? "the lesson box" : "the active text field"}.`);
 }
 
 function openWorkflowTarget(targetId = "") {
@@ -1901,6 +2034,10 @@ function getFinalExportHoldMs() {
   return STRICT_SCENE_END_BUFFER_MS;
 }
 
+function getExportCompletionTailMs() {
+  return getFinalExportHoldMs() + Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
+}
+
 function getLessonExportCaptureRate() {
   return state.stageVideo.element ? 24 : 20;
 }
@@ -1916,10 +2053,32 @@ function getExportRenderSpeedMultiplier() {
     : 1;
 }
 
+function getEffectiveExportRenderSpeedMultiplier(baseRate, targetDurationMs = 0, desiredMultiplier = getExportRenderSpeedMultiplier()) {
+  const safeBaseRate = Number.isFinite(Number(baseRate)) ? Math.max(1, Number(baseRate)) : 1;
+  const safeTargetDurationMs = Math.max(0, Math.round(Number(targetDurationMs) || 0));
+  const safeDesiredMultiplier = Number.isFinite(Number(desiredMultiplier)) && Number(desiredMultiplier) > 0
+    ? Number(desiredMultiplier)
+    : 1;
+  const captureCappedMultiplier = Math.max(1, Math.min(safeDesiredMultiplier, MAX_EXPORT_CAPTURE_FPS / safeBaseRate));
+
+  if (safeTargetDurationMs >= VERY_LONG_EXPORT_THRESHOLD_MS) {
+    return Math.max(1, Math.min(captureCappedMultiplier, 2));
+  }
+
+  if (safeTargetDurationMs >= LONG_EXPORT_THRESHOLD_MS) {
+    return Math.max(1, Math.min(captureCappedMultiplier, 3));
+  }
+
+  return captureCappedMultiplier;
+}
+
 function getAcceleratedExportCaptureRate(baseRate, renderSpeedMultiplier = getExportRenderSpeedMultiplier()) {
   const safeBaseRate = Number.isFinite(Number(baseRate)) ? Math.max(1, Number(baseRate)) : 1;
   const safeMultiplier = Number.isFinite(Number(renderSpeedMultiplier)) ? Math.max(1, Number(renderSpeedMultiplier)) : 1;
-  return Math.max(safeBaseRate, Math.round(safeBaseRate * safeMultiplier));
+  return Math.min(
+    MAX_EXPORT_CAPTURE_FPS,
+    Math.max(safeBaseRate, Math.round(safeBaseRate * safeMultiplier))
+  );
 }
 
 function setExportCaptureRate(fps) {
@@ -2157,7 +2316,7 @@ function convertThreeDigitNumberToWords(value) {
   const hundredsPart = Math.floor(safeValue / 100);
   const remainder = safeValue % 100;
   const prefix = `${SMALL_NUMBER_WORDS[hundredsPart]} hundred`;
-  return remainder ? `${prefix} ${convertTwoDigitNumberToWords(remainder)}` : prefix;
+  return remainder ? `${prefix} and ${convertTwoDigitNumberToWords(remainder)}` : prefix;
 }
 
 function convertIntegerToIndianWords(value) {
@@ -2195,7 +2354,11 @@ function convertIntegerToIndianWords(value) {
   }
 
   if (remainder > 0) {
-    parts.push(convertTwoDigitNumberToWords(remainder));
+    if (parts.length && Math.abs(safeValue) >= 100) {
+      parts.push(`and ${convertTwoDigitNumberToWords(remainder)}`);
+    } else {
+      parts.push(convertTwoDigitNumberToWords(remainder));
+    }
   }
 
   return `${signPrefix}${parts.join(" ").replace(/\s+/g, " ").trim()}`.trim();
@@ -2539,6 +2702,61 @@ function getLongNarrationRequestTimeoutMs(text) {
     LONG_NARRATION_REQUEST_BASE_TIMEOUT_MS,
     LONG_NARRATION_REQUEST_MAX_TIMEOUT_MS
   );
+}
+
+function getExpectedNarrationDurationMsForText(text = "") {
+  const narrationText = buildNarrationText(text);
+  if (!narrationText) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round(getSpeechSyncProfile(narrationText).totalDurationMs || 0));
+}
+
+function isNarrationDurationTooShortForText(text = "", durationMs = 0, voice = "anjali") {
+  if (voice !== "anjali") {
+    return false;
+  }
+
+  const narrationText = String(text || "").trim();
+  const safeDurationMs = Math.max(0, Math.round(Number(durationMs) || 0));
+  const wordCount = splitIntoWords(narrationText).length;
+  if (!narrationText || wordCount < 14 || safeDurationMs <= 0) {
+    return false;
+  }
+
+  const expectedDurationMs = Math.max(0, Math.round(getSpeechSyncProfile(narrationText).totalDurationMs || 0));
+  if (expectedDurationMs <= 0) {
+    return false;
+  }
+
+  return safeDurationMs < Math.max(3200, Math.round(expectedDurationMs * 0.55));
+}
+
+function splitNarrationChunkForRetry(narrationText = "") {
+  const safeText = String(narrationText || "").trim();
+  if (!safeText) {
+    return [];
+  }
+
+  const retryChunks = splitNarrationTextIntoChunks(
+    safeText,
+    Math.max(90, Math.min(160, Math.floor(safeText.length * 0.5)))
+  );
+  if (retryChunks.length > 1) {
+    return retryChunks;
+  }
+
+  const words = safeText.split(/\s+/).filter(Boolean);
+  if (words.length < 2) {
+    return [safeText];
+  }
+
+  const midpoint = Math.ceil(words.length / 2);
+  return [
+    words.slice(0, midpoint).join(" "),
+    words.slice(midpoint).join(" ")
+  ].filter(Boolean);
 }
 
 function estimatePauseMsFromText(text = "") {
@@ -3621,6 +3839,73 @@ function getEffectiveLessonText() {
   return lessonInput.value.trim();
 }
 
+const INTERNAL_HELPER_TEXT_SIGNATURES = [
+  {
+    key: "presentation-template-helper",
+    label: "the Presentation Template helper copy",
+    fragments: [
+      "presentation template",
+      "classic stage stays as the default until you choose another template",
+      "pick a screen look before you open the presentation",
+      "current classic blue teaching board remains active"
+    ]
+  }
+];
+
+function normalizeLessonValidationText(text = "") {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectInternalHelperLessonText(text = "") {
+  const normalizedText = normalizeLessonValidationText(text);
+  if (!normalizedText) {
+    return null;
+  }
+
+  return INTERNAL_HELPER_TEXT_SIGNATURES.find((signature) => {
+    const matchCount = signature.fragments.reduce((count, fragment) => {
+      return count + (normalizedText.includes(fragment) ? 1 : 0);
+    }, 0);
+    return matchCount >= 2;
+  }) || null;
+}
+
+function getLessonTextIssue(text = "") {
+  const safeText = String(text || "").trim();
+  if (!safeText) {
+    return {
+      kind: "empty",
+      message: "Please enter content first."
+    };
+  }
+
+  const helperMatch = detectInternalHelperLessonText(safeText);
+  if (helperMatch) {
+    return {
+      kind: helperMatch.key,
+      message: `The lesson box contains ${helperMatch.label}, not your lesson. Clear that helper text and paste only the real lesson before you continue.`
+    };
+  }
+
+  return null;
+}
+
+function ensureLessonTextIsReady(text = "", options = {}) {
+  const issue = getLessonTextIssue(text);
+  if (!issue) {
+    return true;
+  }
+
+  if (options.focusInput !== false && lessonInput) {
+    lessonInput.focus();
+  }
+  setStatus(issue.message, { error: issue.kind !== "empty" });
+  return false;
+}
+
 function commitLatestLessonText() {
   if (state.lessonInputTimerId) {
     window.clearTimeout(state.lessonInputTimerId);
@@ -3937,6 +4222,7 @@ function clearSelectedTextStyle() {
 
 function handleLessonInputChange() {
   const nextText = lessonInput.value.trim();
+  const lessonIssue = getLessonTextIssue(nextText);
 
   if (!isPdfPresentationMode()) {
     applyLessonRenderStateFromText(nextText, {
@@ -3954,6 +4240,10 @@ function handleLessonInputChange() {
 
   updateSpeechToolsUi();
   refreshSelectedPhraseFromInput();
+
+  if (lessonIssue && lessonIssue.kind !== "empty" && !state.speaking && !state.exportingVideo) {
+    setStatus(lessonIssue.message, { error: true });
+  }
 
   if (!scenePromptInput.value.trim()) {
     const previewScene = analyzeScenePrompt(nextText);
@@ -7253,11 +7543,26 @@ async function ensureTranscribeServer() {
 }
 
 async function ensureVideoExportServer() {
+  const now = Date.now();
+  const recentlyHealthy = state.videoExportMonitor.lastHealthyAt > 0
+    && (now - state.videoExportMonitor.lastHealthyAt) <= VIDEO_EXPORT_HEALTH_GRACE_MS;
   try {
-    const response = await fetchWithTimeout(`${state.videoExportServerUrl}/health`, { method: "GET" }, 5000);
+    const response = await fetchWithTimeout(
+      `${state.videoExportServerUrl}/health`,
+      { method: "GET" },
+      VIDEO_EXPORT_HEALTH_TIMEOUT_MS
+    );
     state.videoExportServerReady = response.ok;
+    if (state.videoExportServerReady) {
+      state.videoExportMonitor.lastHealthyAt = now;
+      state.videoExportMonitor.transientFailureCount = 0;
+    } else if (recentlyHealthy) {
+      state.videoExportServerReady = true;
+      state.videoExportMonitor.transientFailureCount = Math.max(1, Number(state.videoExportMonitor.transientFailureCount || 0) + 1);
+    }
   } catch (error) {
-    state.videoExportServerReady = false;
+    state.videoExportServerReady = true;
+    state.videoExportMonitor.transientFailureCount = Math.max(1, Number(state.videoExportMonitor.transientFailureCount || 0) + 1);
   }
 
   return state.videoExportServerReady;
@@ -7446,11 +7751,21 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
   const audioFileName = options.audioFileName || state.narration.fileName || "narration.wav";
   const audioSpeed = Number.isFinite(Number(options.audioSpeed)) ? Number(options.audioSpeed) : 1;
   const videoSpeed = Number.isFinite(Number(options.videoSpeed)) ? Number(options.videoSpeed) : 1;
+  const explicitTargetDurationMs = Number(options.targetDurationMs) || 0;
   const musicVolume = state.music.enabled
     ? Math.min(STRICT_BACKGROUND_MUSIC_VOLUME, Number(state.music.volume) || STRICT_BACKGROUND_MUSIC_VOLUME)
     : 0;
   const exportQuality = getEffectiveExportQuality();
   const saveHandle = options.saveHandle || null;
+  const measuredAudioDurationMs = audioBlob?.size
+    ? await measureNarrationBlobDurationMs(audioBlob)
+    : 0;
+  const targetDurationMs = Math.max(
+    explicitTargetDurationMs,
+    measuredAudioDurationMs && audioSpeed > 0
+      ? Math.round(measuredAudioDurationMs / audioSpeed)
+      : 0
+  );
   const uploadPlan = [
     { key: "video", blob: videoBlob },
     { key: "audio", blob: audioBlob }
@@ -7473,7 +7788,8 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
       audioSpeed,
       videoSpeed,
       musicVolume,
-      exportQuality
+      exportQuality,
+      targetDurationMs
     })
   });
 
@@ -8607,6 +8923,43 @@ async function measureNarrationBlobDurationMs(blob) {
   }
 }
 
+async function generateNarrationChunkWithFallback(chunkText, voice, options = {}, depth = 0) {
+  const safeChunkText = String(chunkText || "").trim();
+  const blob = await requestNarrationBlobSingle(safeChunkText, voice, {
+    ...options,
+    prebuiltNarrationText: safeChunkText
+  });
+  const durationMs = await measureNarrationBlobDurationMs(blob);
+
+  if (depth >= 4 || !isNarrationDurationTooShortForText(safeChunkText, durationMs, voice)) {
+    return {
+      chunks: [safeChunkText],
+      blobs: [blob],
+      durations: [durationMs]
+    };
+  }
+
+  const retryChunks = splitNarrationChunkForRetry(safeChunkText);
+  if (retryChunks.length <= 1) {
+    return {
+      chunks: [safeChunkText],
+      blobs: [blob],
+      durations: [durationMs]
+    };
+  }
+
+  const results = [];
+  for (const retryChunk of retryChunks) {
+    results.push(await generateNarrationChunkWithFallback(retryChunk, voice, options, depth + 1));
+  }
+
+  return {
+    chunks: results.flatMap((result) => result.chunks),
+    blobs: results.flatMap((result) => result.blobs),
+    durations: results.flatMap((result) => result.durations)
+  };
+}
+
 async function requestNarrationBlob(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
   const narrationText = buildNarrationText(text);
   if (!narrationText) {
@@ -8625,12 +8978,10 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
 
   try {
     if (chunkedText.length === 1) {
-      const blob = await requestNarrationBlobSingle(text, voice, {
-        ...options,
-        prebuiltNarrationText: chunkedText[0]
-      });
-      const chunkDurationMs = await measureNarrationBlobDurationMs(blob);
-      const syncProfile = buildSpeechSyncProfileFromChunkDurations(text, chunkedText, [chunkDurationMs]);
+      const singleChunkResult = await generateNarrationChunkWithFallback(chunkedText[0], voice, options);
+      const blob = await combineNarrationBlobs(singleChunkResult.blobs);
+      const totalDurationMs = singleChunkResult.durations.reduce((sum, value) => sum + value, 0);
+      const syncProfile = buildSpeechSyncProfileFromChunkDurations(text, singleChunkResult.chunks, singleChunkResult.durations);
       if (typeof options.onSyncProfile === "function" && syncProfile) {
         options.onSyncProfile(syncProfile);
       }
@@ -8640,6 +8991,7 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     const totalChunks = chunkedText.length;
     const blobs = [];
     const chunkDurationsMs = [];
+    const resolvedChunks = [];
 
     for (let index = 0; index < totalChunks; index += 1) {
       const chunk = chunkedText[index];
@@ -8658,13 +9010,10 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
           label: `Generating narration part ${index + 1} of ${totalChunks}`
         }
       );
-      const blob = await requestNarrationBlobSingle(chunk, voice, {
-        ...options
-      ,
-        prebuiltNarrationText: chunk
-      });
-      blobs.push(blob);
-      chunkDurationsMs.push(await measureNarrationBlobDurationMs(blob));
+      const chunkResult = await generateNarrationChunkWithFallback(chunk, voice, options);
+      blobs.push(...chunkResult.blobs);
+      chunkDurationsMs.push(...chunkResult.durations);
+      resolvedChunks.push(...chunkResult.chunks);
       if (typeof options.onProgress === "function") {
         options.onProgress({
           label: `Finished narration part ${index + 1} of ${totalChunks}.`,
@@ -8688,7 +9037,7 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     }
 
     const combinedBlob = await combineNarrationBlobs(blobs);
-    const syncProfile = buildSpeechSyncProfileFromChunkDurations(text, chunkedText, chunkDurationsMs);
+    const syncProfile = buildSpeechSyncProfileFromChunkDurations(text, resolvedChunks, chunkDurationsMs);
     if (typeof options.onSyncProfile === "function" && syncProfile) {
       options.onSyncProfile(syncProfile);
     }
@@ -8829,16 +9178,27 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
   const audioFileName = options.audioFileName || state.narration.fileName || "narration.wav";
   const audioSpeed = Number.isFinite(Number(options.audioSpeed)) ? Number(options.audioSpeed) : 1;
   const videoSpeed = Number.isFinite(Number(options.videoSpeed)) ? Number(options.videoSpeed) : 1;
+  const explicitTargetDurationMs = Number(options.targetDurationMs) || 0;
   const musicVolume = state.music.enabled
     ? Math.min(STRICT_BACKGROUND_MUSIC_VOLUME, Number(state.music.volume) || STRICT_BACKGROUND_MUSIC_VOLUME)
     : 0;
   const exportQuality = getEffectiveExportQuality();
   const saveHandle = options.saveHandle || null;
+  const measuredAudioDurationMs = audioBlob?.size
+    ? await measureNarrationBlobDurationMs(audioBlob)
+    : 0;
+  const targetDurationMs = Math.max(
+    explicitTargetDurationMs,
+    measuredAudioDurationMs && audioSpeed > 0
+      ? Math.round(measuredAudioDurationMs / audioSpeed)
+      : 0
+  );
   if (shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob)) {
     return muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, {
       audioFileName,
       audioSpeed,
       videoSpeed,
+      targetDurationMs,
       saveHandle
     });
   }
@@ -8849,7 +9209,8 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
     audioSpeed,
     videoSpeed,
     musicVolume,
-    exportQuality
+    exportQuality,
+    targetDurationMs
   });
 
   let response = null;
@@ -8879,7 +9240,8 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       audioSpeed,
       videoSpeed,
       musicVolume,
-      exportQuality
+      exportQuality,
+      targetDurationMs
     };
     if (musicBlob?.size) {
       jsonPayload.musicBase64 = await blobToBase64(musicBlob);
@@ -9360,7 +9722,7 @@ function getPresentationTemplateMetrics() {
 
 function getPresentationHeaderTitle() {
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
-    return "LEARNING OUTCOMES";
+    return normalizeOutcomesTitle(state.outcomesTitle) || "LEARNING OUTCOMES";
   }
 
   const heading = extractLessonHeading(state.text);
@@ -12584,6 +12946,8 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
   const narrationTimelineMs = Math.max(1, Math.round(safeDurationMs / safePlaybackRate));
   const startedAt = performance.now();
   const visualLagMs = Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
+  let lastDisplayedLength = 0;
+  let lastDisplayedAdvanceProgress = 0;
 
   state.displayedText = "";
   state.speaking = true;
@@ -12598,7 +12962,30 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     const syncElapsedMs = Math.max(0, elapsedMs - visualLagMs);
     const progress = clamp(elapsedMs / narrationTimelineMs, 0, 1);
     const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, narrationTimelineMs);
-    state.displayedText = syncFrame.displayedText;
+    let nextDisplayedText = syncFrame.displayedText;
+    const nextDisplayedLength = nextDisplayedText.length;
+
+    if (nextDisplayedLength > lastDisplayedLength) {
+      lastDisplayedLength = nextDisplayedLength;
+      lastDisplayedAdvanceProgress = progress;
+    } else if ((progress - lastDisplayedAdvanceProgress) >= 0.12) {
+      const recoveryProgress = clamp((progress - 0.12) / 0.88, 0, 1);
+      const recoveryText = getVisibleTextForProgress(state.text, recoveryProgress);
+      if (recoveryText.length > nextDisplayedLength) {
+        nextDisplayedText = recoveryText;
+        lastDisplayedLength = recoveryText.length;
+        lastDisplayedAdvanceProgress = progress;
+      }
+    }
+
+    const remainingNarrationMs = Math.max(0, narrationTimelineMs - elapsedMs);
+    if (remainingNarrationMs <= Math.max(240, visualLagMs)) {
+      nextDisplayedText = state.text;
+      lastDisplayedLength = state.text.length;
+      lastDisplayedAdvanceProgress = 1;
+    }
+
+    state.displayedText = nextDisplayedText;
     syncLessonPlaybackProgressUi(progress, true);
     updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
     state.mouthOpen = syncFrame.mouthActive ? getFallbackMouth(syncFrame.speechElapsedMs) : 0.12;
@@ -14708,12 +15095,16 @@ function hasFreshGeneratedAnjaliNarration(currentText = "") {
     && state.narration.blob
     && state.narration.voice === "anjali"
     && state.narration.textSource === safeText
+    && !isNarrationDurationTooShortForText(buildNarrationText(safeText), state.narration.durationMs, "anjali")
     && /generated anjali narration/i.test(state.narration.source || "")
   );
 }
 
 async function ensureNarrationReadyForSlide(options = {}) {
   const currentText = commitLatestLessonText();
+  if (!ensureLessonTextIsReady(currentText)) {
+    throw new Error("The lesson text is not ready for narration.");
+  }
   if (hasFreshGeneratedAnjaliNarration(currentText)) {
     return;
   }
@@ -14750,8 +15141,7 @@ async function playSlide() {
     return;
   }
 
-  if (!currentText) {
-    setStatus("Please enter content first.");
+  if (!ensureLessonTextIsReady(currentText)) {
     return;
   }
 
@@ -14787,8 +15177,9 @@ async function playSlide() {
 
 async function openPreviewVoiceChooser() {
   const text = getEffectiveLessonText();
-  if (!text) {
-    setSpeechToolsStatus("Enter text first, then use text to speech.");
+  const lessonIssue = getLessonTextIssue(text);
+  if (lessonIssue) {
+    setSpeechToolsStatus(lessonIssue.message);
     updateSpeechToolsUi();
     return;
   }
@@ -14801,8 +15192,9 @@ async function openPreviewVoiceChooser() {
 
 async function startTextPreview(voicePreference) {
   const text = getEffectiveLessonText();
-  if (!text) {
-    setSpeechToolsStatus("Enter text first, then use text to speech.");
+  const lessonIssue = getLessonTextIssue(text);
+  if (lessonIssue) {
+    setSpeechToolsStatus(lessonIssue.message);
     updateSpeechToolsUi();
     return;
   }
@@ -14920,7 +15312,13 @@ async function exportPdfModeVideo(renderMode = "context") {
     : "selected-pdf-context-video.mp4";
   const effectiveExportQuality = getEffectiveExportQuality();
   const exportQualityLabel = getExportQualityLabel(effectiveExportQuality);
-  const exportRenderSpeedMultiplier = getExportRenderSpeedMultiplier();
+  const pdfTimelineDurationMs = Math.max(1000, Math.round(state.pdf.totalDurationMs || 1000));
+  const pdfExportTargetDurationMs = pdfTimelineDurationMs + getExportCompletionTailMs();
+  const pdfBaseCaptureRate = getPdfExportCaptureRate(normalizedRenderMode);
+  const exportRenderSpeedMultiplier = getEffectiveExportRenderSpeedMultiplier(
+    pdfBaseCaptureRate,
+    pdfTimelineDurationMs
+  );
   const previousRenderMode = getPdfRenderMode();
   const previousPresentationMode = state.presentationMode;
 
@@ -14996,7 +15394,7 @@ async function exportPdfModeVideo(renderMode = "context") {
     drawScene(0.12);
 
     const captureRate = getAcceleratedExportCaptureRate(
-      getPdfExportCaptureRate(normalizedRenderMode),
+      pdfBaseCaptureRate,
       exportRenderSpeedMultiplier
     );
     setExportCaptureRate(captureRate);
@@ -15094,6 +15492,7 @@ async function exportPdfModeVideo(renderMode = "context") {
       audioFileName: exportAudioFileName,
       audioSpeed: getPdfPlaybackRate(),
       videoSpeed: exportRenderSpeedMultiplier,
+      targetDurationMs: pdfExportTargetDurationMs,
       saveHandle: videoSaveHandle
     });
     if (!videoSaveHandle && (!finalBlob || !finalBlob.size)) {
@@ -15175,8 +15574,7 @@ async function exportVideo() {
   }
 
   const exportText = commitLatestLessonText();
-  if (!exportText) {
-    setStatus("Please enter content first.");
+  if (!ensureLessonTextIsReady(exportText)) {
     return;
   }
 
@@ -15192,7 +15590,6 @@ async function exportVideo() {
   state.exportingVideo = true;
   const exportPlaybackRate = getLessonPlaybackRate();
   const effectiveExportQuality = getEffectiveExportQuality();
-  const exportRenderSpeedMultiplier = getExportRenderSpeedMultiplier();
   const exportQualityLabel = getExportQualityLabel(effectiveExportQuality);
   const shouldIncludeIntro = Boolean(state.introPlayback.enabled);
   const preparingVideoExportMessage = `Preparing ${exportQualityLabel} video with${shouldIncludeIntro ? " intro, " : " "}Anjali narration and typing effect. Please wait...`;
@@ -15221,6 +15618,20 @@ async function exportVideo() {
     const exportNarrationBlob = await ensureAnjaliNarrationReadyForExport({
       timeoutMs: getLongNarrationRequestTimeoutMs(state.text)
     });
+    const lessonTimelineDurationMs = Math.max(
+      1000,
+      Math.round((state.narration.durationMs || getDefaultNarrationDurationMs()) / Math.max(0.1, exportPlaybackRate))
+    );
+    const introTimelineDurationMs = shouldIncludeIntro
+      ? Math.max(0, Math.round(state.introPlayback.durationMs || 0))
+      : 0;
+    const totalExportTimelineDurationMs = lessonTimelineDurationMs + introTimelineDurationMs;
+    const exportTargetDurationMs = totalExportTimelineDurationMs + getExportCompletionTailMs();
+    const lessonBaseCaptureRate = getLessonExportCaptureRate();
+    const exportRenderSpeedMultiplier = getEffectiveExportRenderSpeedMultiplier(
+      lessonBaseCaptureRate,
+      totalExportTimelineDurationMs
+    );
     updateTaskProgressUi(0.2, true, { mirrorStage: true });
     await ensureVideoExportServer();
     await ensureCanvasReadyForExport();
@@ -15233,7 +15644,7 @@ async function exportVideo() {
     drawScene(0.12);
 
     const captureRate = getAcceleratedExportCaptureRate(
-      getLessonExportCaptureRate(),
+      lessonBaseCaptureRate,
       exportRenderSpeedMultiplier
     );
     setExportCaptureRate(captureRate);
@@ -15377,6 +15788,7 @@ async function exportVideo() {
       audioFileName,
       audioSpeed: exportPlaybackRate,
       videoSpeed: exportRenderSpeedMultiplier,
+      targetDurationMs: exportTargetDurationMs,
       saveHandle: videoSaveHandle
     });
     if (!videoSaveHandle && (!finalBlob || !finalBlob.size)) {
@@ -16055,8 +16467,9 @@ async function handleTranscribeAudioUpload() {
 async function generateNarrationDownload(voice) {
   clearNarrationWarmupTimer();
   const text = getEffectiveLessonText();
-  if (!text) {
-    setNarrationGenStatus("Enter text first, then generate Anjali narration.");
+  const lessonIssue = getLessonTextIssue(text);
+  if (lessonIssue) {
+    setNarrationGenStatus(lessonIssue.message);
     updateSpeechToolsUi();
     return;
   }
@@ -16108,8 +16521,9 @@ async function generateNarrationDownload(voice) {
 async function loadGeneratedNarrationIntoApp(voice) {
   clearNarrationWarmupTimer();
   const text = getEffectiveLessonText();
-  if (!text) {
-    setNarrationGenStatus("Enter text first, then load generated narration into the app.");
+  const lessonIssue = getLessonTextIssue(text);
+  if (lessonIssue) {
+    setNarrationGenStatus(lessonIssue.message);
     updateSpeechToolsUi();
     return;
   }
@@ -16171,9 +16585,7 @@ async function showScreen() {
   }
 
   const text = lessonInput.value.trim();
-  if (!text) {
-    setStatus("Please enter some content first.");
-    lessonInput.focus();
+  if (!ensureLessonTextIsReady(text)) {
     return;
   }
 
@@ -16389,6 +16801,49 @@ presentationTemplateInputs.forEach((input) => {
     }
   });
 });
+if (saveOutcomesTitleBtn) {
+  saveOutcomesTitleBtn.addEventListener("click", () => {
+    setOutcomesTitle(outcomesTitleInput?.value || "");
+  });
+}
+if (outcomesTitleInput) {
+  outcomesTitleInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      setOutcomesTitle(outcomesTitleInput.value);
+    }
+  });
+}
+if (insertSpaceBtn) {
+  insertSpaceBtn.addEventListener("click", () => insertTextIntoActiveField(" ", "Space"));
+}
+if (insertNewLineBtn) {
+  insertNewLineBtn.addEventListener("click", () => insertTextIntoActiveField("\n", "New line"));
+}
+if (insertTabBtn) {
+  insertTabBtn.addEventListener("click", () => insertTextIntoActiveField("    ", "Tab spacing"));
+}
+if (insertBulletBtn) {
+  insertBulletBtn.addEventListener("click", () => insertTextIntoActiveField("• ", "Bullet"));
+}
+if (insertArrowBtn) {
+  insertArrowBtn.addEventListener("click", () => insertTextIntoActiveField(" → ", "Arrow"));
+}
+if (insertMultiplyBtn) {
+  insertMultiplyBtn.addEventListener("click", () => insertTextIntoActiveField(" × ", "Multiplication sign"));
+}
+if (insertDivideBtn) {
+  insertDivideBtn.addEventListener("click", () => insertTextIntoActiveField(" ÷ ", "Division sign"));
+}
+if (insertLessEqualBtn) {
+  insertLessEqualBtn.addEventListener("click", () => insertTextIntoActiveField(" ≤ ", "Less-than-or-equal sign"));
+}
+if (insertGreaterEqualBtn) {
+  insertGreaterEqualBtn.addEventListener("click", () => insertTextIntoActiveField(" ≥ ", "Greater-than-or-equal sign"));
+}
+if (insertRupeeBtn) {
+  insertRupeeBtn.addEventListener("click", () => insertTextIntoActiveField("₹", "Rupee sign"));
+}
 textColorSelect.addEventListener("change", (event) => {
   updateDisplayStyle({ color: event.target.value });
 });
