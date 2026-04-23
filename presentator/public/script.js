@@ -12061,7 +12061,7 @@ function drawPdfContextScene() {
     if (row.bullet) {
       ctx.beginPath();
       ctx.arc(contentArea.x + contentPaddingX + 6, y + Math.round(layoutFontSize * 0.42), 6, 0, Math.PI * 2);
-      ctx.fillStyle = getAnimatedTeachingTextColor(rowText, rowIndex, 0);
+      ctx.fillStyle = getAnimatedTeachingTextColor(null, rowText, rowIndex, 0);
       ctx.fill();
     }
 
@@ -12087,7 +12087,7 @@ function drawPdfContextScene() {
           const underlineWidth = ctx.measureText(visibleUnderlineText).width;
           const underlineY = y + layoutFontSize + Math.max(2, Math.round(layoutFontSize * 0.06));
           ctx.fillStyle = isUsingDefaultStageStyle(segment.style)
-            ? getAnimatedTeachingTextColor(rowText, rowIndex, segmentIndex)
+            ? getAnimatedTeachingTextColor(null, rowText, rowIndex, segmentIndex)
             : segment.style.color;
           ctx.fillRect(x, underlineY, underlineWidth, Math.max(2, Math.round(layoutFontSize * 0.08)));
         }
@@ -12349,7 +12349,7 @@ function drawScene(mouthOpen = 0.12) {
     if (row.bullet) {
       ctx.beginPath();
       ctx.arc(contentArea.x + contentPaddingX + 6, y + Math.round(currentFontSize * 0.42), 6, 0, Math.PI * 2);
-      ctx.fillStyle = getAnimatedTeachingTextColor(rowText, rowIndex, 0);
+      ctx.fillStyle = getAnimatedTeachingTextColor(null, rowText, rowIndex, 0);
       ctx.fill();
     }
 
@@ -12375,7 +12375,7 @@ function drawScene(mouthOpen = 0.12) {
           const underlineWidth = ctx.measureText(visibleUnderlineText).width;
           const underlineY = y + currentFontSize + Math.max(2, Math.round(currentFontSize * 0.06));
           ctx.fillStyle = isUsingDefaultStageStyle(segment.style)
-            ? getAnimatedTeachingTextColor(rowText, rowIndex, segmentIndex)
+            ? getAnimatedTeachingTextColor(null, rowText, rowIndex, segmentIndex)
             : segment.style.color;
           ctx.fillRect(x, underlineY, underlineWidth, Math.max(2, Math.round(currentFontSize * 0.08)));
         }
