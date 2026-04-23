@@ -6337,7 +6337,6 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
       const baseLineStyle = (headingMatch || autoHeading)
         ? {
           ...getBaseTextStyle(),
-          color: "#facc15",
           bold: true,
           underline: true
         }
@@ -9663,7 +9662,6 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
       const baseLineStyle = (headingMatch || autoHeading)
         ? {
           ...getBaseTextStyle(),
-          color: "#facc15",
           bold: true,
           underline: true
         }
