@@ -9968,11 +9968,6 @@ function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIn
   if (segmentColor && segmentColor !== "#ffffff") {
       return segmentColor;
   }
-
-  // If no custom highlight, enforce strict branding defaults
-  if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
-      return '#050709'; // Default to Black body text for second template
-  }
   
   return getBaseTextStyle().color || "#ffffff";
 }

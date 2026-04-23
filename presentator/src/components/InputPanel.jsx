@@ -240,7 +240,7 @@ three is less than nine"></textarea>
             <div className="display-style-grid">
               <label className="style-field" htmlFor="textColorSelect">
                 <span className="style-label">Text Color</span>
-                <select id="textColorSelect" className="theme-select text-style-select" aria-label="Choose text color" disabled={activeTemplate === "learning-outcomes"}>
+                <select id="textColorSelect" className="theme-select text-style-select" aria-label="Choose text color">
                   <option value="#ffffff" selected>White</option>
                   <option value="#000000">Black</option>
                   <option value="#173e58">Deep Blue</option>
@@ -253,9 +253,6 @@ three is less than nine"></textarea>
                   <option value="#facc15">Yellow</option>
                   <option value="#7a1f1f">Maroon</option>
                 </select>
-                {activeTemplate === "learning-outcomes" && (
-                  <span style={{color: "#cc0000", fontSize: "11px", display: "block", marginTop: "4px"}}>Locked (Red/Black strictly enforced)</span>
-                )}
               </label>
               <div className="style-actions" aria-label="Text style options">
                 <button id="boldToggleBtn" className="ghost-btn toggle-btn" type="button" aria-pressed="false">Bold</button>
