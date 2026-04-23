@@ -11613,7 +11613,7 @@ function drawGenericImageScanner(rawTime) {
   const imgData = state.images[state.imageEditor?.activeIndex >= 0 ? state.imageEditor.activeIndex : 0];
   if (!imgData) return;
 
-  const progress = (rawTime * Math.max(1, state.exportPlaybackRate)) % 4; // 4 second loop
+  const progress = (rawTime * Math.max(1, state.exportPlaybackRate || 1)) % 4; // 4 second loop
   
   if (!state.imageRenderBoxes || !state.imageRenderBoxes.length) return;
   const box = state.imageRenderBoxes[0]; 
@@ -11640,7 +11640,7 @@ function drawGenericImageScanner(rawTime) {
 }
 
 function drawMultiplicationGrid(rows, cols, rawTime) {
-  const progress = (rawTime * Math.max(1, state.exportPlaybackRate)); 
+  const progress = (rawTime * Math.max(1, state.exportPlaybackRate || 1)); 
   const total = rows * cols;
   
   const boxSize = 40;
@@ -11679,7 +11679,7 @@ function drawMultiplicationGrid(rows, cols, rawTime) {
 }
 
 function drawProceduralNumberLine(startNum, jumps, endNum, rawTime) {
-  const progress = (rawTime * Math.max(1, state.exportPlaybackRate)) % (jumps * 1.5 + 2); 
+  const progress = (rawTime * Math.max(1, state.exportPlaybackRate || 1)) % (jumps * 1.5 + 2); 
   
   const lineY = canvas.height - 150;
   const lineStartX = 100;
