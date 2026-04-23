@@ -3399,14 +3399,18 @@ function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, opti
   let mouthActive = false;
   let speechElapsedMs = 0;
 
+  let exactCharCountFloat = 0;
+
   for (const unit of profile.units) {
     if (safeElapsedMs >= unit.pauseEndMs) {
       displayedText = safeText.slice(0, unit.endIndex);
+      exactCharCountFloat = unit.endIndex;
       continue;
     }
 
     if (!unit.spokenText) {
       displayedText = safeText.slice(0, unit.endIndex);
+      exactCharCountFloat = unit.endIndex;
       mouthActive = false;
       speechElapsedMs = 0;
       break;
@@ -3418,8 +3422,9 @@ function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, opti
         0,
         1
       );
-      const visibleUnitText = getVisibleChunkText(unit.displayText, speechProgress);
-      displayedText = `${safeText.slice(0, unit.startIndex)}${visibleUnitText}`;
+      
+      exactCharCountFloat = unit.startIndex + (unit.displayText.length * speechProgress);
+      displayedText = safeText.slice(0, Math.ceil(exactCharCountFloat));
       mouthActive = true;
       speechElapsedMs = safeElapsedMs - unit.speechStartMs;
       break;
@@ -3427,6 +3432,7 @@ function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, opti
 
     if (safeElapsedMs >= unit.speechEndMs && safeElapsedMs < unit.pauseEndMs) {
       displayedText = safeText.slice(0, unit.endIndex);
+      exactCharCountFloat = unit.endIndex;
       break;
     }
 
@@ -3437,12 +3443,14 @@ function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, opti
 
   if (safeElapsedMs >= profile.totalDurationMs) {
     displayedText = safeText;
+    exactCharCountFloat = safeText.length;
     mouthActive = false;
     speechElapsedMs = 0;
   }
 
   return {
     displayedText,
+    exactCharCountFloat,
     mouthActive,
     speechElapsedMs
   };
@@ -9981,11 +9989,17 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
     // Feed the segment's style color into the coloring engine to validate custom selections!
     ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
     
+    if (state.speaking && state.exactCharCountFloat !== undefined) {
+      ctx.globalAlpha = clamp(state.exactCharCountFloat - (state.drawnCharCount || 0), 0, 1);
+    }
+
     ctx.shadowColor = "rgba(8, 30, 39, 0.24)";
     ctx.shadowBlur = 6;
     ctx.shadowOffsetY = 1;
     ctx.fillText(character, cursorX, y);
 
+    ctx.globalAlpha = 1.0;
+    state.drawnCharCount = (state.drawnCharCount || 0) + 1;
     cursorX += characterWidth;
   }
 
@@ -12214,6 +12228,8 @@ function getCachedFullContent(text, pageIndex, hasImages) {
 // ---------------------------------------------------------------------------
 
 function drawScene(mouthOpen = 0.12) {
+  state.drawnCharCount = 0;
+
   if ((state.introPlayback.active || state.introPlayback.previewVisible) && state.introPlayback.element) {
     drawIntroScene();
     drawRuntimeDisplayErrorOverlay();
@@ -13480,6 +13496,7 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     }
 
     state.displayedText = nextDisplayedText;
+    state.exactCharCountFloat = syncFrame.exactCharCountFloat;
     syncLessonPlaybackProgressUi(progress, true);
     updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
     state.mouthOpen = syncFrame.mouthActive ? getFallbackMouth(syncFrame.speechElapsedMs) : 0.12;
@@ -15593,6 +15610,7 @@ function startNarrationLoop(audioElement) {
     const previousText = state.displayedText;
     const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, durationMs);
     state.displayedText = syncFrame.displayedText;
+    state.exactCharCountFloat = syncFrame.exactCharCountFloat;
     syncLessonPlaybackProgressUi(progress, true);
 
     if (state.exportingVideo) {
