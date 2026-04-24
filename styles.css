@@ -361,6 +361,10 @@ body::after {
   gap: 16px;
 }
 
+.template-toggle-check {
+  margin-top: 4px;
+}
+
 .template-card {
   position: relative;
   display: grid;
@@ -380,13 +384,7 @@ body::after {
   box-shadow: 0 20px 34px rgba(8, 33, 38, 0.12);
 }
 
-.template-radio {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.template-card:has(.template-radio:checked) {
+.template-card.is-active {
   border-color: rgba(15, 105, 119, 0.42);
   box-shadow:
     0 22px 36px rgba(15, 105, 119, 0.14),
@@ -2565,5 +2563,17 @@ button:focus-visible,
 /* Subject Mode Isolation */
 body[data-subject="english"] .maths-translator-card,
 body[data-subject="english"] .maths-helper-card {
+  display: none !important;
+}
+
+body[data-subject="maths"] .english-translator-card {
+  display: none !important;
+}
+
+body[data-subject="english"] .maths-label {
+  display: none !important;
+}
+
+body[data-subject="maths"] .english-label {
   display: none !important;
 }

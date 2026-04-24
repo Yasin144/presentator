@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import React from "react";
 import { useStore } from "../store/useStore";
 
 function InputPanel() {
   const actionLocks = useStore((state) => state.actionLocks);
-  const [activeTemplate, setActiveTemplate] = useState("classic");
   return (
     <section className="panel panel-input" id="inputPanel">
       <div className="panel-head">
@@ -105,10 +104,14 @@ function InputPanel() {
               </p>
               <p className="upload-copy" id="presentationTemplateStatus">Classic stage is active by default.</p>
             </div>
-            <div className="template-gallery" role="radiogroup" aria-label="Presentation template choices">
-              <label className="template-card" htmlFor="presentationTemplateClassic">
-                <input id="presentationTemplateClassic" className="template-radio" type="radio" name="presentationTemplate"
-                  value="classic" defaultChecked onChange={(e) => setActiveTemplate(e.target.value)} />
+            <label className="toggle-check template-toggle-check" htmlFor="presentationTemplateOutcomesToggle">
+              <input id="presentationTemplateOutcomesToggle" type="checkbox" />
+              <span>Use the second template: Learning Outcomes</span>
+            </label>
+            <p className="upload-copy">Unchecked uses the first template, <strong>Classic Stage</strong>. Checked uses the
+              second template, <strong>Learning Outcomes</strong>.</p>
+            <div className="template-gallery" role="group" aria-label="Presentation template previews">
+              <div className="template-card is-active" id="templateCardClassic" data-template="classic">
                 <span className="template-card-preview template-card-preview-classic" aria-hidden="true">
                   <span className="template-preview-classic-rings"></span>
                   <span className="template-preview-classic-card"></span>
@@ -121,11 +124,9 @@ function InputPanel() {
                   <span className="template-card-copy">Keep the current blue classroom board with the familiar layout and
                     working behavior.</span>
                 </span>
-              </label>
+              </div>
 
-              <label className="template-card" htmlFor="presentationTemplateOutcomes">
-                <input id="presentationTemplateOutcomes" className="template-radio" type="radio" name="presentationTemplate"
-                  value="learning-outcomes" onChange={(e) => setActiveTemplate(e.target.value)} />
+              <div className="template-card" id="templateCardOutcomes" data-template="learning-outcomes">
                 <span className="template-card-preview template-card-preview-outcomes" aria-hidden="true">
                   <span className="template-preview-outcomes-header">LEARNING OUTCOMES</span>
                   <span className="template-preview-outcomes-logo">Info kids</span>
@@ -138,7 +139,7 @@ function InputPanel() {
                   <span className="template-card-copy">Use a cleaner classroom poster look with a white title strip and soft
                     teaching board body.</span>
                 </span>
-              </label>
+              </div>
             </div>
             <div className="outcomes-title-row">
               <label className="field-label" htmlFor="outcomesTitleInput">Learning Outcomes Template Title</label>
@@ -181,9 +182,12 @@ what is two plus three
 find the product of six and four
 ten divided by two
 three is less than nine"></textarea>
+            <div className="upload-block" style={{"marginTop": "12px", "padding": "8px", "background": "rgba(255,255,255,0.05)", "borderRadius": "6px"}}>
+              <label className="field-label" htmlFor="mathsTextFileInput" style={{"fontSize": "12px"}}>Import From File (.txt, .md)</label>
+              <input id="mathsTextFileInput" type="file" accept=".txt,.md" style={{"fontSize": "12px", "width": "100%"}} />
+            </div>
             <div className="toolbar toolbar-compact">
               <button id="translateMathsBtn" className="primary-btn" type="button">Translate To Pure Maths</button>
-              <button id="pureEnglishTranslateBtn" className="primary-btn" type="button" style={{"background": "#5c2d91"}}>Translate To Pure English</button>
               <button id="clearMathsSourceBtn" className="ghost-btn" type="button">Clear Source</button>
             </div>
             <label className="toggle-check" htmlFor="mathsAutoTranslateToggle">
@@ -202,6 +206,27 @@ three is less than nine"></textarea>
               className="maths-translation-preview">Pure maths translation will appear here.</pre>
             <p className="upload-copy" id="mathsTranslatorStatus">Maths translator is ready. Paste plain text and the lesson
               box will receive the translated maths version.</p>
+          </div>
+          <div className="tool-card english-translator-card">
+            <div className="tool-card-head">
+              <span className="module-icon" style={{"background": "#5c2d91"}}>ENG</span>
+              <p className="tool-card-title">English Teacher Translator</p>
+            </div>
+            <p className="upload-copy">Paste your normal English text here. The app polishes the grammar and formalizes the style automatically into the lesson box.</p>
+            <label className="field-label" htmlFor="englishSourceInput">English Source Input</label>
+            <textarea id="englishSourceInput" className="lesson-input english-source-input" placeholder="Example:
+hello students today v r gonna learn about nouns.
+nouns r naming words like apple or delhi.
+plz open ur books!"></textarea>
+            <div className="upload-block" style={{"marginTop": "12px", "padding": "8px", "background": "rgba(255,255,255,0.05)", "borderRadius": "6px"}}>
+              <label className="field-label" htmlFor="englishTextFileInput" style={{"fontSize": "12px"}}>Import From File (.txt, .md)</label>
+              <input id="englishTextFileInput" type="file" accept=".txt,.md" style={{"fontSize": "12px", "width": "100%"}} />
+            </div>
+            <div className="toolbar toolbar-compact">
+              <button id="pureEnglishTranslateBtn" className="primary-btn" type="button" style={{"background": "#5c2d91"}}>Translate To Pure English</button>
+              <button id="clearEnglishSourceBtn" className="ghost-btn" type="button">Clear Source</button>
+            </div>
+            <p className="upload-copy" id="englishTranslatorStatus">English translator is ready. Paste shorthand or informal text to formalize it.</p>
           </div>
           <div className="tool-card">
             <div className="tool-card-head">
@@ -233,12 +258,32 @@ three is less than nine"></textarea>
               charts quickly without typing the full layout by hand.</p>
           </div>
           <div className="input-module-head" style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>
-            <label className="field-label" htmlFor="lessonInput">Translated Maths Lesson</label>
+            <label className="field-label maths-label" htmlFor="lessonInput">Translated Maths Lesson</label>
+            <label className="field-label english-label" htmlFor="lessonInput">English Lesson Content</label>
             <button id="autoExplainBtn" className="accent-btn" type="button" style={{"padding": "2px 8px", "fontSize": "12px"}}>Auto
               Explain</button>
           </div>
           <textarea id="lessonInput" className="lesson-input" placeholder="Type or paste your lesson here"></textarea>
-          <div className="display-style-card">
+          <div id="pureInputCard" className="display-style-card pure-input-card">
+            <div className="pure-input-head">
+              <div>
+                <p className="field-label">Pure Input</p>
+                <p className="pure-input-copy">Use this when you want the screen to show the exact text you type or paste, without auto-formatting.</p>
+              </div>
+              <label className="toggle-check pure-input-toggle" htmlFor="pureInputToggle">
+                <input id="pureInputToggle" type="checkbox" />
+                <span>Use Pure Input</span>
+              </label>
+            </div>
+            <textarea
+              id="pureInputSource"
+              className="lesson-input pure-input-source"
+              placeholder="Type or paste raw text here. The screen will show the same text without style changes or auto-formatting."
+              disabled
+            ></textarea>
+            <p className="pure-input-note" id="pureInputStatus">Turn on Pure Input to mirror this text on the screen exactly as entered.</p>
+          </div>
+          <div id="displayStyleCard" className="display-style-card">
             <p className="field-label">Display Text Style</p>
             <p className="upload-copy">Choose how the lesson text should look on the blue screen before you open it.</p>
             <div className="display-style-grid">

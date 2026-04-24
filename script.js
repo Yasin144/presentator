@@ -18,6 +18,9 @@ try {
 } catch (e) {}
 
 const lessonInput = document.getElementById("lessonInput");
+const pureInputToggle = document.getElementById("pureInputToggle");
+const pureInputSource = document.getElementById("pureInputSource");
+const pureInputStatus = document.getElementById("pureInputStatus");
 const mathsSourceInput = document.getElementById("mathsSourceInput");
 const translateMathsBtn = document.getElementById("translateMathsBtn");
 const clearMathsSourceBtn = document.getElementById("clearMathsSourceBtn");
@@ -33,7 +36,10 @@ const applyPlaceValueTableBtn = document.getElementById("applyPlaceValueTableBtn
 const showPlaceValueTableBtn = document.getElementById("showPlaceValueTableBtn");
 const placeValueToolStatus = document.getElementById("placeValueToolStatus");
 const workflowStepButtons = Array.from(document.querySelectorAll("[data-workflow-target]"));
+const presentationTemplateToggle = document.getElementById("presentationTemplateOutcomesToggle");
 const presentationTemplateInputs = Array.from(document.querySelectorAll('input[name="presentationTemplate"]'));
+const templateCardClassic = document.getElementById("templateCardClassic");
+const templateCardOutcomes = document.getElementById("templateCardOutcomes");
 const presentationTemplateStatus = document.getElementById("presentationTemplateStatus");
 const outcomesTitleInput = document.getElementById("outcomesTitleInput");
 const saveOutcomesTitleBtn = document.getElementById("saveOutcomesTitleBtn");
@@ -64,6 +70,7 @@ const insertGreaterEqualBtn = document.getElementById("insertGreaterEqualBtn");
 const insertRupeeBtn = document.getElementById("insertRupeeBtn");
 const spacingToolsStatus = document.getElementById("spacingToolsStatus");
 const selectionStyleCard = document.getElementById("selectionStyleCard");
+const displayStyleCard = document.getElementById("displayStyleCard");
 const selectedKeywordLabel = document.getElementById("selectedKeywordLabel");
 const selectedTextColorSelect = document.getElementById("selectedTextColorSelect");
 const selectedBoldToggleBtn = document.getElementById("selectedBoldToggleBtn");
@@ -345,16 +352,11 @@ const STRICT_SCENE_END_BUFFER_MS = 1500;
 const STRICT_AUTOPLAY_RECOVERY_MS = 1000;
 const STRICT_VOICE_VOLUME = 0.85;
 const STRICT_BACKGROUND_MUSIC_VOLUME = 0.2;
-
-// Export limits
-const EXPORT_MAX_VIDEO_BITRATE = 120000000; // 120 Mbps
-const EXPORT_DEFAULT_VIDEO_BITRATE = 80000000; // 80 Mbps
-
-// Rendering
-const LIVE_SCENE_RENDER_FPS = 60; // Butter-smooth 60fps live rendering
+const LIVE_SCENE_RENDER_FPS = 24;
 const EXPORT_SCENE_RENDER_FPS = 12;
 const SCENE_RENDER_MOUTH_DELTA = 0.035;
-const NARRATION_CHUNK_JOIN_GAP_MS = 0;
+const NARRATION_CHUNK_JOIN_GAP_MS = 2000;
+const GLOSSARY_KEY_VALUE_PAUSE_MS = 1000;
 const NARRATION_CHUNK_FADE_MS = 32;
 const SPEECH_SYNC_REVEAL_START = 0.0;
 const SPEECH_SYNC_REVEAL_END = 1.0;
@@ -873,6 +875,10 @@ const state = {
     italic: false,
     underline: false,
     caseMode: "original"
+  },
+  rawInput: {
+    enabled: false,
+    text: ""
   }
 };
 
@@ -1816,9 +1822,11 @@ function initializeTheme() {
 }
 
 function normalizePresentationTemplate(value) {
-  // Always query live React DOM to bypass stale vanilla JS state
-  const liveDomValue = document.querySelector('input[name="presentationTemplate"]:checked')?.value;
-  const effectiveValue = liveDomValue || value;
+  const liveToggleValue = presentationTemplateToggle
+    ? (presentationTemplateToggle.checked ? PRESENTATION_TEMPLATE_OUTCOMES : PRESENTATION_TEMPLATE_CLASSIC)
+    : null;
+  const liveInputValue = document.querySelector('input[name="presentationTemplate"]:checked')?.value;
+  const effectiveValue = liveToggleValue || liveInputValue || value;
   
   return String(effectiveValue || "").trim().toLowerCase() === PRESENTATION_TEMPLATE_OUTCOMES
     ? PRESENTATION_TEMPLATE_OUTCOMES
@@ -1879,9 +1887,18 @@ function updateOutcomesTitleUi() {
 
 function updatePresentationTemplateUi() {
   const activeTemplate = normalizePresentationTemplate(state.presentationTemplate);
+  if (presentationTemplateToggle) {
+    presentationTemplateToggle.checked = activeTemplate === PRESENTATION_TEMPLATE_OUTCOMES;
+  }
   presentationTemplateInputs.forEach((input) => {
     input.checked = normalizePresentationTemplate(input.value) === activeTemplate;
   });
+  if (templateCardClassic) {
+    templateCardClassic.classList.toggle("is-active", activeTemplate === PRESENTATION_TEMPLATE_CLASSIC);
+  }
+  if (templateCardOutcomes) {
+    templateCardOutcomes.classList.toggle("is-active", activeTemplate === PRESENTATION_TEMPLATE_OUTCOMES);
+  }
 
   if (presentationTemplateStatus) {
     presentationTemplateStatus.textContent = activeTemplate === PRESENTATION_TEMPLATE_OUTCOMES
@@ -2296,6 +2313,10 @@ async function saveBlobWithHandle(fileHandle, blob) {
 
 function splitIntoLines(text) {
   const normalizedText = String(text || "").replace(/\r\n|\r/g, "\n");
+  if (isPureInputModeEnabled()) {
+    return normalizedText.split("\n");
+  }
+
   const smartText = normalizedText
     .replace(/(?<!\n)\n(?!\n)/g, (match, offset, string) => {
       const nextSegment = string.substring(offset + 1).trimStart();
@@ -2640,19 +2661,91 @@ function buildDisplayedLines(text) {
   return splitIntoLines(text);
 }
 
-function buildNarrationText(text) {
+function buildNarrationLine(line = "") {
+  const trimmed = String(line || "").replace(/^\s*#{1,3}\s+/, "").replace(/\s+/g, " ").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const spokenLine = verbalizeMathForSpeech(trimmed);
+  return /[.!?]$/.test(spokenLine) ? spokenLine : `${spokenLine}.`;
+}
+
+function buildNarrationLines(text) {
   return splitIntoLines(text)
-    .map((line) => {
-      const trimmed = line.replace(/^\s*#{1,3}\s+/, "").replace(/\s+/g, " ").trim();
-      if (!trimmed) {
-        return "";
+    .map((line) => buildNarrationLine(line))
+    .filter(Boolean);
+}
+
+function normalizeNarrationChunkEntries(chunks = [], defaultGapAfterMs = 0) {
+  return Array.isArray(chunks)
+    ? chunks.map((chunk, index) => {
+      if (typeof chunk === "string") {
+        return {
+          text: String(chunk || "").trim(),
+          gapAfterMs: Math.max(0, Math.round(Number(defaultGapAfterMs) || 0)),
+          index
+        };
       }
 
-      const spokenLine = verbalizeMathForSpeech(trimmed);
-      return /[.!?]$/.test(spokenLine) ? spokenLine : `${spokenLine}.`;
-    })
-    .filter(Boolean)
-    .join(" ");
+      return {
+        text: String(chunk?.text || "").trim(),
+        gapAfterMs: Math.max(0, Math.round(Number(chunk?.gapAfterMs) || 0)),
+        index
+      };
+    }).filter((chunk) => chunk.text)
+    : [];
+}
+
+function getGlossaryNarrationChunks(text = "") {
+  const glossaryPairs = getPureInputStructuredGlossaryPairs(text, { minimumPairs: 2 });
+  if (!glossaryPairs?.length) {
+    return null;
+  }
+
+  const chunks = glossaryPairs
+    .map((pair) => buildNarrationLine(`${pair.term} = ${pair.definition}`))
+    .filter(Boolean);
+
+  return chunks.length >= 2 ? chunks : null;
+}
+
+function getGlossaryNarrationChunkEntries(text = "") {
+  const glossaryPairs = getPureInputStructuredGlossaryPairs(text, { minimumPairs: 2 });
+  if (!glossaryPairs?.length) {
+    return null;
+  }
+
+  const entries = [];
+
+  for (let index = 0; index < glossaryPairs.length; index += 1) {
+    const term = normalizeGlossaryChunk(glossaryPairs[index]?.term);
+    const definition = normalizeGlossaryChunk(glossaryPairs[index]?.definition);
+    if (!term || !definition) {
+      return null;
+    }
+
+    const termChunk = buildNarrationLine(`${term} =`);
+    const definitionChunk = buildNarrationLine(definition);
+    if (!termChunk || !definitionChunk) {
+      return null;
+    }
+
+    entries.push({
+      text: termChunk,
+      gapAfterMs: GLOSSARY_KEY_VALUE_PAUSE_MS
+    });
+    entries.push({
+      text: definitionChunk,
+      gapAfterMs: index < (glossaryPairs.length - 1) ? NARRATION_CHUNK_JOIN_GAP_MS : 0
+    });
+  }
+
+  return entries.length >= 4 ? entries : null;
+}
+
+function buildNarrationText(text) {
+  return buildNarrationLines(text).join(" ");
 }
 
 function buildNarrationRequestPayload(text) {
@@ -3287,21 +3380,12 @@ function scaleSpeechSyncProfile(profile, targetDurationMs = 0) {
 
 function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [], chunkDurationsMs = []) {
   const safeText = String(text || "");
-  const safeChunks = Array.isArray(narrationChunks)
-    ? narrationChunks.map((chunk) => String(chunk || "").trim()).filter(Boolean)
-    : [];
-  
+  const safeChunks = normalizeNarrationChunkEntries(narrationChunks);
   const safeDurations = Array.isArray(chunkDurationsMs)
     ? chunkDurationsMs.map((value, index, source) => {
       const baseDurationMs = Math.max(1, Math.round(Number(value) || 0));
-      if (index >= source.length - 1) return baseDurationMs;
-      
-      let baseGap = Math.max(0, Math.round(Number(NARRATION_CHUNK_JOIN_GAP_MS) || 0));
-      const chunkText = safeChunks[index];
-      if (chunkText && (/\n/.test(chunkText) || /[.!?]["')\]]*\s*$/i.test(chunkText))) {
-        baseGap += Math.max(0, Math.round(Number(STRICT_SENTENCE_PAUSE_MS) || 0));
-      }
-      return baseDurationMs + baseGap;
+      const gapAfterMs = safeChunks[index]?.gapAfterMs ?? (index < (source.length - 1) ? NARRATION_CHUNK_JOIN_GAP_MS : 0);
+      return baseDurationMs + Math.max(0, Math.round(Number(gapAfterMs) || 0));
     }).filter((value) => value > 0)
     : [];
 
@@ -3315,7 +3399,7 @@ function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [
     return null;
   }
 
-  const chunkCharacterTargets = safeChunks.map((chunk) => Math.max(1, chunk.replace(/\s+/g, "").length));
+  const chunkCharacterTargets = safeChunks.map((chunk) => Math.max(1, chunk.text.replace(/\s+/g, "").length));
   const cumulativeTargets = [];
   chunkCharacterTargets.reduce((sum, value, index) => {
     const total = sum + value;
@@ -3902,7 +3986,79 @@ function scheduleNarrationWarmup(delayMs = 700) {
 }
 
 function getEffectiveLessonText() {
-  return lessonInput.value.trim();
+  return isPureInputModeEnabled()
+    ? getPureInputText()
+    : lessonInput.value.trim();
+}
+
+function getPureInputText() {
+  return pureInputSource ? String(pureInputSource.value || "") : "";
+}
+
+function isPureInputModeEnabled() {
+  return Boolean(state.rawInput?.enabled);
+}
+
+function setPureInputStatus(message = "") {
+  if (pureInputStatus) {
+    pureInputStatus.textContent = message;
+  }
+}
+
+function setPureInputMode(enabled) {
+  state.rawInput.enabled = Boolean(enabled);
+  state.rawInput.text = getPureInputText();
+  syncPureInputModeUi();
+}
+
+function syncPureInputModeUi() {
+  const pureModeEnabled = isPureInputModeEnabled();
+  document.body.setAttribute("data-input-mode", pureModeEnabled ? "pure" : "styled");
+
+  if (pureInputToggle) {
+    pureInputToggle.checked = pureModeEnabled;
+  }
+
+  if (pureInputSource) {
+    pureInputSource.disabled = !pureModeEnabled;
+  }
+
+  if (lessonInput) {
+    lessonInput.readOnly = pureModeEnabled;
+    lessonInput.classList.toggle("is-readonly", pureModeEnabled);
+  }
+
+  [displayStyleCard, selectionStyleCard].forEach((card) => {
+    if (!card) {
+      return;
+    }
+
+    card.querySelectorAll("button, select, input").forEach((field) => {
+      field.disabled = pureModeEnabled;
+    });
+  });
+
+  if (pureModeEnabled) {
+    setPureInputStatus("Pure Input is active. The screen will show this text as typed, without heading detection, style changes, or auto-formatting.");
+  } else {
+    setPureInputStatus("Turn on Pure Input to mirror this text on the screen exactly as entered.");
+  }
+
+  refreshSelectedPhraseFromInput();
+}
+
+function syncPureInputIntoLessonInput(options = {}) {
+  if (!lessonInput || !pureInputSource) {
+    return;
+  }
+
+  state.rawInput.text = getPureInputText();
+  if (lessonInput.value === state.rawInput.text && options.force !== true) {
+    return;
+  }
+
+  lessonInput.value = state.rawInput.text;
+  lessonInput.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 const INTERNAL_HELPER_TEXT_SIGNATURES = [
@@ -4003,6 +4159,16 @@ function cloneTextStyle(style) {
 }
 
 function getBaseTextStyle() {
+  if (isPureInputModeEnabled()) {
+    return {
+      color: "#ffffff",
+      bold: false,
+      italic: false,
+      underline: false,
+      caseMode: "original"
+    };
+  }
+
   const style = cloneTextStyle(state.displayStyle);
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
     if (String(style.color).toLowerCase() === "#ffffff") {
@@ -4013,6 +4179,10 @@ function getBaseTextStyle() {
 }
 
 function looksLikeAutoHeadingLine(line = "", index = 0, totalLines = 0) {
+  if (isPureInputModeEnabled()) {
+    return false;
+  }
+
   const safeLine = String(line || "").trim();
   if (!safeLine) {
     return false;
@@ -4089,6 +4259,24 @@ function getSelectedPhraseLabel(phrase) {
 }
 
 function updateSelectedTextStyleUi() {
+  if (isPureInputModeEnabled()) {
+    selectionStyleCard.classList.remove("hidden");
+    selectedKeywordLabel.textContent = "Pure Input";
+    selectedTextColorSelect.disabled = true;
+    selectedBoldToggleBtn.disabled = true;
+    selectedItalicToggleBtn.disabled = true;
+    selectedUnderlineToggleBtn.disabled = true;
+    applySelectedStyleBtn.disabled = true;
+    clearSelectedStyleBtn.disabled = true;
+    updateToggleButtons([
+      { button: selectedBoldToggleBtn, active: false },
+      { button: selectedItalicToggleBtn, active: false },
+      { button: selectedUnderlineToggleBtn, active: false }
+    ]);
+    setSelectionStyleStatus("Selected text styling is turned off while Pure Input mode is active.");
+    return;
+  }
+
   const hasSelection = Boolean(state.selectedPhrase);
   selectionStyleCard.classList.remove("hidden");
 
@@ -4205,6 +4393,17 @@ function updateSelectionStyle(nextStyle) {
 }
 
 function getContentFont(size, style = state.displayStyle) {
+  if (isPureInputModeEnabled()) {
+    if (isPureInputGlossaryMode()) {
+      const resolvedStyle = getResolvedTextStyle(style, getBaseTextStyle());
+      const fontStyle = resolvedStyle.italic ? "italic" : "normal";
+      const fontWeight = resolvedStyle.bold ? "800" : "600";
+      return `${fontStyle} ${fontWeight} ${size}px "Nunito", "Segoe UI", sans-serif`;
+    }
+
+    return `normal 500 ${size}px Consolas, "Courier New", monospace`;
+  }
+
   const resolvedStyle = getResolvedTextStyle(style);
   const fontStyle = resolvedStyle.italic ? "italic" : "normal";
   const fontWeight = resolvedStyle.bold ? "800" : "600";
@@ -4216,6 +4415,10 @@ function toTitleCase(text) {
 }
 
 function applyDisplayCase(text, caseMode = state.displayStyle.caseMode) {
+  if (isPureInputModeEnabled()) {
+    return text;
+  }
+
   if (!text) {
     return text;
   }
@@ -4237,6 +4440,13 @@ function normalizeSelectedText(text) {
 }
 
 function refreshSelectedPhraseFromInput() {
+  if (isPureInputModeEnabled()) {
+    state.selectedPhrase = "";
+    state.selectionStyle = getBaseTextStyle();
+    updateSelectedTextStyleUi();
+    return;
+  }
+
   const start = lessonInput.selectionStart ?? 0;
   const end = lessonInput.selectionEnd ?? 0;
   const selectedText = normalizeSelectedText(lessonInput.value.slice(start, end));
@@ -4297,7 +4507,7 @@ function clearSelectedTextStyle() {
 }
 
 function handleLessonInputChange() {
-  const nextText = lessonInput.value.trim();
+  const nextText = getEffectiveLessonText();
   const lessonIssue = getLessonTextIssue(nextText);
 
   if (!isPdfPresentationMode()) {
@@ -4335,7 +4545,9 @@ function handleLessonInputChange() {
   if (!stagePanel.classList.contains("hidden") && !isPdfPresentationMode() && !state.speaking) {
     drawScene(state.mouthOpen);
     setStatus(nextText
-      ? "Screen updated automatically. Click Play Slide when you want narration to start."
+      ? (isPureInputModeEnabled()
+        ? "Pure input updated automatically. The screen is showing the same text without extra formatting."
+        : "Screen updated automatically. Click Play Slide when you want narration to start.")
       : "Type maths content and the screen will update automatically.");
   }
 
@@ -6355,6 +6567,9 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
   const safeLines = lines.length ? lines : (usePlaceholder ? ["Your content will appear here."] : []);
   const wordCount = Math.max(0, Math.round(Number(options.wordCount) || 0));
   const hasImages = Boolean(options.hasImages);
+  const preserveFormatting = isPureInputModeEnabled();
+  const pureInputText = preserveFormatting ? safeLines.join("\n") : "";
+  const glossaryPairs = preserveFormatting ? resolvePureInputGlossaryPairs(pureInputText) : null;
   let fontSize = hasImages ? 26 : 30;
 
   if (wordCount > 520) {
@@ -6367,14 +6582,31 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
     fontSize = hasImages ? 25 : 28;
   }
 
-  fontSize = clamp(Math.round(fontSize * state.fontScale), 16, 54);
+  fontSize = clamp(Math.round(fontSize * state.fontScale), preserveFormatting ? 12 : 16, preserveFormatting ? 42 : 54);
 
   const buildLayout = (size) => {
     const rows = [];
     const rowHeight = Math.max(size + 4, Math.round(size * 1.2));
     const groupGap = Math.max(6, Math.round(size * 0.24));
 
+    if (glossaryPairs?.length) {
+      rows.push(...buildPureInputGlossaryRows(ctx, glossaryPairs, maxWidth, size));
+      const totalHeight = rows.reduce((sum, row) => sum + (row.spacer ? row.height : rowHeight), 0);
+      return { rows, fontSize: size, rowHeight, totalHeight };
+    }
+
     safeLines.forEach((line, index) => {
+      if (preserveFormatting) {
+        const pureRows = buildPureInputRows(ctx, line, maxWidth, size);
+        if (!pureRows.length) {
+          rows.push({ spacer: true, height: rowHeight });
+          return;
+        }
+
+        rows.push(...pureRows);
+        return;
+      }
+
       const headingMatch = line.match(/^\s*#{1,3}\s+(.*)$/);
       const autoHeading = looksLikeAutoHeadingLine(line, index, safeLines.length);
       const sourceLine = headingMatch ? headingMatch[1] : line;
@@ -7276,7 +7508,7 @@ function getProjectFolderPath() {
       .replace(/\\index\.html$/i, "");
   }
 
-  return "d:\\presentator";
+  return "C:\\Users\\patan\\Documents\\New project";
 }
 
 function getStartAllCommand() {
@@ -7645,7 +7877,7 @@ async function ensureVideoExportServer() {
   return state.videoExportServerReady;
 }
 
-async function combineNarrationBlobs(blobs = [], chunks = []) {
+async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
   const safeBlobs = blobs.filter((blob) => blob && blob.size);
   if (!safeBlobs.length) {
     throw new Error("Narration generation returned no audio data.");
@@ -7664,6 +7896,7 @@ async function combineNarrationBlobs(blobs = [], chunks = []) {
   const audioContext = new AudioContextConstructor();
 
   try {
+    const safeChunks = normalizeNarrationChunkEntries(narrationChunks);
     const decodedBuffers = [];
     for (const blob of safeBlobs) {
       const arrayBuffer = await blob.arrayBuffer();
@@ -7673,26 +7906,12 @@ async function combineNarrationBlobs(blobs = [], chunks = []) {
 
     const sampleRate = decodedBuffers.reduce((best, buffer) => Math.max(best, buffer.sampleRate || 24000), 24000);
     const channelCount = decodedBuffers.reduce((best, buffer) => Math.max(best, buffer.numberOfChannels || 1), 1);
-    
-    // Compute gap array
-    const gapSeconds = decodedBuffers.map((_, index) => {
-      if (index >= decodedBuffers.length - 1) return 0;
-      
-      let baseGap = Math.max(0, NARRATION_CHUNK_JOIN_GAP_MS / 1000);
-      
-      // If we have chunks and this chunk ends a sentence
-      if (chunks && chunks[index]) {
-        const chunkText = chunks[index];
-        if (/\n/.test(chunkText) || /[.!?]["')\]]*\s*$/i.test(chunkText)) {
-          // Strictly add the 2-second pause!
-          baseGap += (STRICT_SENTENCE_PAUSE_MS / 1000);
-        }
-      }
-      return baseGap;
+    const joinGapSeconds = decodedBuffers.map((buffer, index) => {
+      const gapAfterMs = safeChunks[index]?.gapAfterMs ?? (index < (decodedBuffers.length - 1) ? NARRATION_CHUNK_JOIN_GAP_MS : 0);
+      return Math.max(0, Number(gapAfterMs) || 0) / 1000;
     });
-
     const totalDuration = decodedBuffers.reduce((sum, buffer, index) => (
-      sum + buffer.duration + gapSeconds[index]
+      sum + buffer.duration + (joinGapSeconds[index] || 0)
     ), 0);
     const totalFrames = Math.max(1, Math.ceil(totalDuration * sampleRate) + 1);
     const offlineContext = new OfflineAudioContextConstructor(channelCount, totalFrames, sampleRate);
@@ -7720,7 +7939,7 @@ async function combineNarrationBlobs(blobs = [], chunks = []) {
       gainNode.gain.linearRampToValueAtTime(0.0001, endTime);
 
       source.start(cursorTime);
-      cursorTime += buffer.duration + gapSeconds[index];
+      cursorTime += buffer.duration + (joinGapSeconds[index] || 0);
     });
 
     const renderedBuffer = await offlineContext.startRendering();
@@ -9065,9 +9284,17 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
   }
 
   const chunkConfig = getNarrationChunkConfig(voice);
-  const chunkedText = narrationText.length > chunkConfig.threshold
-    ? splitNarrationTextIntoChunks(narrationText, chunkConfig.maxChunkLength)
-    : [narrationText];
+  const glossaryNarrationChunks = getGlossaryNarrationChunkEntries(text);
+  const chunkEntries = glossaryNarrationChunks?.length
+    ? glossaryNarrationChunks
+    : normalizeNarrationChunkEntries(
+      narrationText.length > chunkConfig.threshold
+        ? splitNarrationTextIntoChunks(narrationText, chunkConfig.maxChunkLength).map((chunk, index, source) => ({
+          text: chunk,
+          gapAfterMs: index < (source.length - 1) ? NARRATION_CHUNK_JOIN_GAP_MS : 0
+        }))
+        : [{ text: narrationText, gapAfterMs: 0 }]
+    );
 
   const trackAnjaliGeneration = voice === "anjali";
   if (trackAnjaliGeneration) {
@@ -9075,24 +9302,32 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
   }
 
   try {
-    if (chunkedText.length === 1) {
-      const singleChunkResult = await generateNarrationChunkWithFallback(chunkedText[0], voice, options);
-      const blob = await combineNarrationBlobs(singleChunkResult.blobs, singleChunkResult.chunks);
+    if (chunkEntries.length === 1) {
+      const singleChunkResult = await generateNarrationChunkWithFallback(chunkEntries[0].text, voice, options);
+      const singleChunkEntries = normalizeNarrationChunkEntries(
+        singleChunkResult.chunks.map((chunkText, index, source) => ({
+          text: chunkText,
+          gapAfterMs: index < (source.length - 1)
+            ? NARRATION_CHUNK_JOIN_GAP_MS
+            : chunkEntries[0].gapAfterMs
+        }))
+      );
+      const blob = await combineNarrationBlobs(singleChunkResult.blobs, singleChunkEntries);
       const totalDurationMs = singleChunkResult.durations.reduce((sum, value) => sum + value, 0);
-      const syncProfile = buildSpeechSyncProfileFromChunkDurations(text, singleChunkResult.chunks, singleChunkResult.durations);
+      const syncProfile = buildSpeechSyncProfileFromChunkDurations(text, singleChunkEntries, singleChunkResult.durations);
       if (typeof options.onSyncProfile === "function" && syncProfile) {
         options.onSyncProfile(syncProfile);
       }
       return blob;
     }
 
-    const totalChunks = chunkedText.length;
+    const totalChunks = chunkEntries.length;
     const blobs = [];
     const chunkDurationsMs = [];
     const resolvedChunks = [];
 
     for (let index = 0; index < totalChunks; index += 1) {
-      const chunk = chunkedText[index];
+      const chunk = chunkEntries[index];
       const startedProgress = 0.18 + ((index / totalChunks) * 0.56);
       const completedProgress = 0.18 + (((index + 1) / totalChunks) * 0.56);
       if (typeof options.onProgress === "function") {
@@ -9108,10 +9343,17 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
           label: `Generating narration part ${index + 1} of ${totalChunks}`
         }
       );
-      const chunkResult = await generateNarrationChunkWithFallback(chunk, voice, options);
+      const chunkResult = await generateNarrationChunkWithFallback(chunk.text, voice, options);
       blobs.push(...chunkResult.blobs);
       chunkDurationsMs.push(...chunkResult.durations);
-      resolvedChunks.push(...chunkResult.chunks);
+      resolvedChunks.push(...normalizeNarrationChunkEntries(
+        chunkResult.chunks.map((chunkText, chunkIndex, source) => ({
+          text: chunkText,
+          gapAfterMs: chunkIndex < (source.length - 1)
+            ? NARRATION_CHUNK_JOIN_GAP_MS
+            : chunk.gapAfterMs
+        }))
+      ));
       if (typeof options.onProgress === "function") {
         options.onProgress({
           label: `Finished narration part ${index + 1} of ${totalChunks}.`,
@@ -9517,6 +9759,12 @@ function normalizeStyledRuns(runs, baseStyle = getBaseTextStyle()) {
 }
 
 function getStyledTextRuns(text, defaultStyle = getBaseTextStyle()) {
+  if (isPureInputModeEnabled()) {
+    return text
+      ? [{ text, style: getResolvedTextStyle(defaultStyle, getBaseTextStyle()) }]
+      : [];
+  }
+
   const rules = [...state.keywordStyles].sort((leftRule, rightRule) => rightRule.phrase.length - leftRule.phrase.length);
 
   if (!text) {
@@ -9580,7 +9828,7 @@ function measureStyledRuns(ctxRef, runs, fontSize) {
   }, 0);
 }
 
-function trimStyledRowRuns(runs) {
+function trimStyledRowRuns(runs, options = {}) {
   const trimmedRuns = runs.map((run) => ({
     text: run.text,
     style: run.style
@@ -9590,8 +9838,10 @@ function trimStyledRowRuns(runs) {
     return [];
   }
 
-  trimmedRuns[0].text = trimmedRuns[0].text.replace(/^\s+/, "");
-  trimmedRuns[trimmedRuns.length - 1].text = trimmedRuns[trimmedRuns.length - 1].text.replace(/\s+$/, "");
+  if (!options.preserveEdges) {
+    trimmedRuns[0].text = trimmedRuns[0].text.replace(/^\s+/, "");
+    trimmedRuns[trimmedRuns.length - 1].text = trimmedRuns[trimmedRuns.length - 1].text.replace(/\s+$/, "");
+  }
 
   return normalizeStyledRuns(trimmedRuns.filter((run) => run.text));
 }
@@ -9626,13 +9876,870 @@ function splitStyledToken(ctxRef, token, maxWidth, fontSize) {
   return parts;
 }
 
-function wrapStyledRuns(ctxRef, runs, maxWidth, fontSize) {
+function splitPureInputCells(line = "") {
+  return String(line).split(/\t+| {2,}/).filter((cell) => cell.length > 0);
+}
+
+function normalizeGlossaryChunk(text = "") {
+  return String(text ?? "").replace(/\s+/g, " ").trim();
+}
+
+function stripGlossaryArtifactText(text = "") {
+  const safeText = normalizeGlossaryChunk(text);
+  if (!safeText) {
+    return "";
+  }
+
+  return normalizeGlossaryChunk(
+    safeText
+      .replace(/\b(?:english|maths|mathematics|science|evs|social(?:\s+science)?|hindi|tamil|telugu|kannada|malayalam)\s*-\s*\d+\b/gi, " ")
+      .replace(/\bpage\s+\d+\b/gi, " ")
+      .replace(/(^|\s)\d+(?=[A-Za-z])/g, "$1")
+  );
+}
+
+function looksLikeGlossaryTermToken(text = "") {
+  const safeText = stripGlossaryArtifactText(text);
+  if (!safeText || /[=.,;:!?]/.test(safeText)) {
+    return false;
+  }
+
+  if (/^(?:a|an|the|of|in|on|at|by|for|to|from|with|without|into|through|around|and|or|but)$/i.test(safeText)) {
+    return false;
+  }
+
+  if (!/^[A-Za-z][A-Za-z0-9'()/-]*(?: [A-Za-z][A-Za-z0-9'()/-]*){0,2}$/.test(safeText)) {
+    return false;
+  }
+
+  const meta = getGlossaryChunkScores(safeText);
+  return meta.termScore >= meta.definitionScore;
+}
+
+function splitSequentialGlossaryTermGroup(text = "") {
+  const rawChunks = String(text ?? "")
+    .replace(/\r\n|\r/g, "\n")
+    .split(/\n+|\t+| {2,}/)
+    .map((chunk) => stripGlossaryArtifactText(chunk))
+    .filter(Boolean);
+
+  return rawChunks.flatMap((chunk) => {
+    if (looksLikeGlossaryTermToken(chunk)) {
+      return [chunk];
+    }
+
+    const words = chunk.split(" ").filter(Boolean);
+    if (
+      words.length >= 2
+      && words.length <= 6
+      && words.every((word) => looksLikeGlossaryTermToken(word))
+    ) {
+      return words;
+    }
+
+    return [];
+  });
+}
+
+function canDetachGlossaryTrailingTerm(headText = "", tailText = "") {
+  const safeHead = stripGlossaryArtifactText(headText);
+  const safeTail = stripGlossaryArtifactText(tailText);
+  if (!safeHead || !safeTail || !looksLikeGlossaryTermToken(safeTail)) {
+    return false;
+  }
+
+  const headMeta = getGlossaryChunkScores(safeHead);
+  const headWordCount = headMeta.words.length;
+  if (headWordCount <= 1) {
+    return false;
+  }
+
+  if (/[.!?]\s*$/.test(safeHead)) {
+    return false;
+  }
+
+  const headLastWord = safeHead.split(" ").filter(Boolean).at(-1)?.toLowerCase() || "";
+  if (/^(?:a|an|the|of|in|on|at|by|for|to|from|with|without|into|through|around)$/.test(headLastWord)) {
+    return false;
+  }
+
+  return headMeta.definitionScore >= headMeta.termScore
+    || /^(?:a|an|the|to|things|many|mass|large|kind|process|protection)\b/i.test(safeHead)
+    || headWordCount >= 4
+    || (headWordCount >= 2 && /\b(?:tree|number|required|overflow|supporting|substance|earth|food)\b/i.test(safeHead));
+}
+
+function getGlossaryTrailingTermScore(text = "") {
+  const safeText = stripGlossaryArtifactText(text);
+  if (!safeText || safeText.includes(" ") || !looksLikeGlossaryTermToken(safeText)) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const meta = getGlossaryChunkScores(safeText);
+  let score = meta.termScore - meta.definitionScore;
+
+  if (safeText.length >= 6) {
+    score += 2;
+  } else if (safeText.length >= 4) {
+    score += 1;
+  }
+
+  if (/^(?:kind|mass|number|numbers|tree|trees|food|earth|water|air|gas|timber|substance|process|protection|required)$/i.test(safeText)) {
+    score -= 4;
+  }
+
+  return score;
+}
+
+function getSequentialGlossaryDefinitionScore(text = "") {
+  const safeText = stripGlossaryArtifactText(text);
+  if (!safeText) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const meta = getGlossaryChunkScores(safeText);
+  let score = 0;
+
+  if (meta.definitionScore >= meta.termScore) {
+    score += 4;
+  }
+  if (/^(?:a|an|the|to|things|many|mass|large|kind|process|protection)\b/i.test(safeText)) {
+    score += 4;
+  }
+  if (meta.words.length >= 4) {
+    score += 3;
+  }
+  if (meta.words.length >= 2 && /\b(?:tree|number|required|overflow|supporting|substance|earth|food)\b/i.test(safeText)) {
+    score += 2;
+  }
+  if (/^[A-Za-z][A-Za-z'()/-]* tree$/i.test(safeText)) {
+    score += 4;
+  }
+  if (meta.words.length <= 1) {
+    score -= 2;
+  }
+
+  const lastWord = meta.words.at(-1)?.toLowerCase() || "";
+  if (looksLikeGlossaryTermToken(lastWord) && !/^(?:number|tree|food|earth|water|timber|gas|air|required|protection)$/.test(lastWord)) {
+    score -= 6;
+  }
+
+  return score;
+}
+
+function getSequentialGlossaryDefinitionCandidates(text = "", options = {}) {
+  const allowPartialDefinition = options.allowPartialDefinition === true;
+  const definitionText = stripGlossaryArtifactText(text);
+  if (!definitionText) {
+    return allowPartialDefinition
+      ? [{
+        definition: "",
+        nextTerms: [],
+        score: 0
+      }]
+      : [];
+  }
+
+  const candidates = [{
+    definition: definitionText,
+    nextTerms: [],
+    score: getSequentialGlossaryDefinitionScore(definitionText)
+  }];
+  const words = definitionText.split(" ").filter(Boolean);
+
+  for (let suffixCount = 1; suffixCount <= Math.min(8, words.length - 1); suffixCount += 1) {
+    const headText = normalizeGlossaryChunk(words.slice(0, -suffixCount).join(" "));
+    const tailWords = words
+      .slice(-suffixCount)
+      .map((word) => stripGlossaryArtifactText(word))
+      .filter(Boolean);
+
+    if (!headText || tailWords.length !== suffixCount || !canDetachGlossaryTrailingTerm(headText, tailWords[0])) {
+      continue;
+    }
+
+    const tailScores = tailWords.map((word) => getGlossaryTrailingTermScore(word));
+    if (tailScores.some((score) => score < 3)) {
+      continue;
+    }
+
+    const headScore = getSequentialGlossaryDefinitionScore(headText);
+    if (headScore < 4) {
+      continue;
+    }
+
+    const tailAverage = tailScores.reduce((sum, score) => sum + score, 0) / tailScores.length;
+    candidates.push({
+      definition: headText,
+      nextTerms: tailWords,
+      score: headScore + Math.max(...tailScores) + tailAverage
+    });
+  }
+
+  return candidates.sort((left, right) => right.score - left.score);
+}
+
+function splitSequentialGlossaryDefinition(text = "") {
+  const [bestCandidate] = getSequentialGlossaryDefinitionCandidates(text, { allowPartialDefinition: true });
+
+  return {
+    definition: bestCandidate?.definition || stripGlossaryArtifactText(text),
+    nextTerms: bestCandidate?.nextTerms || []
+  };
+}
+
+function getPureInputSequentialGlossaryPairs(text = "", options = {}) {
+  const allowPartialDefinition = options.allowPartialDefinition === true;
+  const minimumPairs = Math.max(1, Math.round(Number(options.minimumPairs) || 1));
+  const segments = String(text ?? "")
+    .replace(/\r\n|\r/g, "\n")
+    .split("=")
+    .map((segment) => String(segment ?? ""));
+
+  if (segments.length < 2) {
+    return null;
+  }
+
+  const pendingTerms = splitSequentialGlossaryTermGroup(segments.shift());
+  if (pendingTerms.length < minimumPairs) {
+    return null;
+  }
+
+  const memo = new Map();
+  const parseSequentialPairs = (segmentIndex, pendingQueue) => {
+    const memoKey = `${segmentIndex}::${pendingQueue.join("\u0001")}`;
+    if (memo.has(memoKey)) {
+      return memo.get(memoKey);
+    }
+
+    if (segmentIndex >= segments.length) {
+      const terminalResult = allowPartialDefinition || pendingQueue.length === 0
+        ? { score: 0, pairs: [] }
+        : null;
+      memo.set(memoKey, terminalResult);
+      return terminalResult;
+    }
+
+    if (!pendingQueue.length) {
+      memo.set(memoKey, null);
+      return null;
+    }
+
+    let bestResult = null;
+    const currentTerm = pendingQueue[0];
+    const remainingQueue = pendingQueue.slice(1);
+    const remainingSegments = segments.length - segmentIndex - 1;
+    const candidates = getSequentialGlossaryDefinitionCandidates(segments[segmentIndex], { allowPartialDefinition });
+
+    for (const candidate of candidates) {
+      if (!candidate.definition && !allowPartialDefinition) {
+        continue;
+      }
+
+      const nextQueue = remainingQueue.concat(candidate.nextTerms);
+      if (remainingSegments > 0 && nextQueue.length === 0) {
+        continue;
+      }
+
+      const rest = parseSequentialPairs(segmentIndex + 1, nextQueue);
+      if (!rest) {
+        continue;
+      }
+
+      const result = {
+        score: candidate.score + rest.score,
+        pairs: [{
+          term: currentTerm,
+          definition: candidate.definition,
+          showSeparator: true
+        }, ...rest.pairs]
+      };
+
+      if (!bestResult || result.score > bestResult.score) {
+        bestResult = result;
+      }
+    }
+
+    memo.set(memoKey, bestResult);
+    return bestResult;
+  };
+
+  const parsedResult = parseSequentialPairs(0, pendingTerms);
+  return parsedResult?.pairs?.length >= minimumPairs ? parsedResult.pairs : null;
+}
+
+function getPureInputStructuredGlossaryPairs(text = "", options = {}) {
+  const minimumPairs = Math.max(1, Math.round(Number(options.minimumPairs) || 2));
+  return getPureInputExplicitGlossaryPairs(text, {
+    ...options,
+    minimumPairs
+  }) || getPureInputSequentialGlossaryPairs(text, {
+    ...options,
+    minimumPairs
+  });
+}
+
+function getGlossaryChunkScores(text = "") {
+  const safeText = normalizeGlossaryChunk(text);
+  const words = safeText ? safeText.split(" ").filter(Boolean) : [];
+  const lowerText = safeText.toLowerCase();
+  let termScore = 0;
+  let definitionScore = 0;
+
+  if (!safeText) {
+    return {
+      text: "",
+      words: [],
+      termScore,
+      definitionScore
+    };
+  }
+
+  if (words.length === 1) {
+    termScore += 7;
+  } else if (words.length === 2) {
+    termScore += 2;
+  }
+
+  if (safeText.length <= 18) {
+    termScore += 2;
+  }
+
+  if (!/[.,;:!?]/.test(safeText)) {
+    termScore += 1;
+  }
+
+  if (/^[A-Za-z][A-Za-z'()/-]*(?: [A-Za-z][A-Za-z'()/-]*){0,2}$/.test(safeText)) {
+    termScore += 2;
+  }
+
+  if (/^(?:a|an|the|to|things|mass|large|kind|because|when|where|which|who|that)\b/i.test(lowerText)) {
+    definitionScore += 5;
+  }
+
+  if (words.length >= 4) {
+    definitionScore += 4;
+  }
+
+  if (/[.,;:!?]/.test(safeText)) {
+    definitionScore += 2;
+  }
+
+  if (/,/.test(safeText)) {
+    definitionScore += 2;
+  }
+
+  if (words.length === 2 && /ing$/i.test(words[0])) {
+    definitionScore += 5;
+  }
+
+  if (/\b(?:with|without|around|through|into|from|use|uses|used|using|make|makes|made|process|supporting|required|sunlight|taste|colour|smell|energy-giving|overflow)\b/i.test(lowerText)) {
+    definitionScore += 3;
+  }
+
+  return {
+    text: safeText,
+    words,
+    termScore,
+    definitionScore
+  };
+}
+
+function splitMixedGlossaryChunk(text = "") {
+  const safeText = normalizeGlossaryChunk(text);
+  const words = safeText ? safeText.split(" ").filter(Boolean) : [];
+
+  if (words.length < 6 || /[.!?]\s*$/.test(safeText)) {
+    return safeText ? [safeText] : [];
+  }
+
+  for (let suffixWordCount = 1; suffixWordCount <= 2; suffixWordCount += 1) {
+    const headWords = words.slice(0, -suffixWordCount);
+    const tailWords = words.slice(-suffixWordCount);
+    const headText = normalizeGlossaryChunk(headWords.join(" "));
+    const tailText = normalizeGlossaryChunk(tailWords.join(" "));
+    const headMeta = getGlossaryChunkScores(headText);
+    const tailMeta = getGlossaryChunkScores(tailText);
+    const headLooksSentenceLike = /\b(?:which|who|that|use|uses|used|using|make|makes|made|called|known|gives)\b/i.test(headText)
+      || (/^(?:a|an|the)\b/i.test(headText) && headWords.length >= 5);
+    const tailLooksLikeDetachedTerm = tailWords.length === 1
+      ? tailText.length >= 7
+      : tailMeta.termScore >= tailMeta.definitionScore + 3;
+
+    if (!headText || !tailText) {
+      continue;
+    }
+
+    if (!headLooksSentenceLike) {
+      continue;
+    }
+
+    if (!tailLooksLikeDetachedTerm) {
+      continue;
+    }
+
+    if (headMeta.definitionScore < headMeta.termScore + 2) {
+      continue;
+    }
+
+    if (tailMeta.termScore < tailMeta.definitionScore + 2) {
+      continue;
+    }
+
+    return [headText, tailText];
+  }
+
+  return safeText ? [safeText] : [];
+}
+
+function getPureInputGlossaryPairs(text = getPureInputText()) {
+  const sourceText = String(text ?? "");
+  if (_pureInputGlossaryCache.key === sourceText) {
+    return _pureInputGlossaryCache.pairs;
+  }
+
+  const normalizedText = sourceText.replace(/\r/g, "").trim();
+  if (!normalizedText || !/=/.test(normalizedText)) {
+    _pureInputGlossaryCache.key = sourceText;
+    _pureInputGlossaryCache.pairs = null;
+    return null;
+  }
+
+  const structuredPairs = getPureInputStructuredGlossaryPairs(normalizedText, { minimumPairs: 2 });
+  if (structuredPairs?.length) {
+    _pureInputGlossaryCache.key = sourceText;
+    _pureInputGlossaryCache.pairs = structuredPairs.map((pair) => ({
+      term: normalizeGlossaryChunk(pair?.term),
+      definition: normalizeGlossaryChunk(pair?.definition)
+    })).filter((pair) => pair.term && pair.definition);
+    return _pureInputGlossaryCache.pairs;
+  }
+
+  const chunks = normalizedText
+    .split(/=|\n+|\t+| {2,}/)
+    .flatMap((chunk) => splitMixedGlossaryChunk(chunk))
+    .map((chunk) => normalizeGlossaryChunk(chunk))
+    .filter(Boolean);
+
+  if (chunks.length < 4) {
+    _pureInputGlossaryCache.key = sourceText;
+    _pureInputGlossaryCache.pairs = null;
+    return null;
+  }
+
+  const termCandidates = [];
+  const definitionCandidates = [];
+
+  chunks.forEach((chunk, index) => {
+    const meta = {
+      index,
+      ...getGlossaryChunkScores(chunk)
+    };
+
+    if (meta.termScore > meta.definitionScore) {
+      termCandidates.push(meta);
+      return;
+    }
+
+    definitionCandidates.push(meta);
+  });
+
+  const moveWeakestCandidate = (source, target, mode) => {
+    if (!source.length) {
+      return false;
+    }
+
+    let weakestIndex = 0;
+    let weakestAdvantage = Number.POSITIVE_INFINITY;
+    source.forEach((candidate, index) => {
+      const advantage = mode === "term"
+        ? candidate.termScore - candidate.definitionScore
+        : candidate.definitionScore - candidate.termScore;
+      if (advantage < weakestAdvantage) {
+        weakestAdvantage = advantage;
+        weakestIndex = index;
+      }
+    });
+
+    target.push(source.splice(weakestIndex, 1)[0]);
+    return true;
+  };
+
+  while (termCandidates.length > definitionCandidates.length) {
+    if (!moveWeakestCandidate(termCandidates, definitionCandidates, "term")) {
+      break;
+    }
+  }
+
+  while (definitionCandidates.length > termCandidates.length) {
+    if (!moveWeakestCandidate(definitionCandidates, termCandidates, "definition")) {
+      break;
+    }
+  }
+
+  if (termCandidates.length < 2 || definitionCandidates.length !== termCandidates.length) {
+    _pureInputGlossaryCache.key = sourceText;
+    _pureInputGlossaryCache.pairs = null;
+    return null;
+  }
+
+  const orderedTerms = [...termCandidates].sort((left, right) => left.index - right.index);
+  const orderedDefinitions = [...definitionCandidates].sort((left, right) => left.index - right.index);
+  const pairs = orderedTerms.map((termMeta, index) => ({
+    term: termMeta.text,
+    definition: orderedDefinitions[index]?.text || ""
+  })).filter((pair) => pair.term && pair.definition);
+
+  _pureInputGlossaryCache.key = sourceText;
+  _pureInputGlossaryCache.pairs = pairs.length >= 2 ? pairs : null;
+  return _pureInputGlossaryCache.pairs;
+}
+
+function isPureInputGlossaryMode(text = getPureInputText()) {
+  return Boolean(isPureInputModeEnabled() && getPureInputGlossaryPairs(text)?.length);
+}
+
+function getPureInputExplicitGlossaryPairs(text = "", options = {}) {
+  const allowPartialDefinition = options.allowPartialDefinition === true;
+  const minimumPairs = Math.max(1, Math.round(Number(options.minimumPairs) || 1));
+  const lines = String(text ?? "").replace(/\r/g, "").split("\n");
+  const pairs = [];
+
+  for (const line of lines) {
+    const rawLine = String(line ?? "");
+    if (!rawLine.trim()) {
+      continue;
+    }
+
+    const match = rawLine.match(/^(.+?)\s*=\s*(.*)$/);
+    if (!match) {
+      if (!allowPartialDefinition) {
+        return null;
+      }
+
+      const partialTerm = normalizeGlossaryChunk(rawLine);
+      if (!partialTerm) {
+        continue;
+      }
+
+      pairs.push({
+        term: partialTerm,
+        definition: "",
+        showSeparator: false
+      });
+      continue;
+    }
+
+    const term = normalizeGlossaryChunk(match[1]);
+    const definition = normalizeGlossaryChunk(match[2]);
+    if (!term) {
+      return null;
+    }
+
+    if (!allowPartialDefinition && !definition) {
+      return null;
+    }
+
+    pairs.push({
+      term,
+      definition,
+      showSeparator: true
+    });
+  }
+
+  return pairs.length >= minimumPairs ? pairs : null;
+}
+
+function resolvePureInputGlossaryPairs(sourceText = "", fullText = state.text) {
+  if (!isPureInputModeEnabled()) {
+    return null;
+  }
+
+  const normalizedSourceText = String(sourceText ?? "");
+  const normalizedFullText = String(fullText ?? "");
+  const fullExplicitPairs = getPureInputExplicitGlossaryPairs(normalizedFullText, { minimumPairs: 2 });
+  if (fullExplicitPairs?.length) {
+    const visibleExplicitPairs = getPureInputExplicitGlossaryPairs(normalizedSourceText, {
+      allowPartialDefinition: true,
+      minimumPairs: 1
+    }) || [];
+
+    // Find the highest index that is visible so we can force all earlier pairs to
+    // stay "started" — prevents flicker when the parser momentarily drops a pair.
+    const lastVisibleIndex = visibleExplicitPairs.length - 1;
+
+    return fullExplicitPairs.map((pair, index) => {
+      const visiblePair = visibleExplicitPairs[index] || null;
+      // Monotonic: if any LATER pair has already appeared, this one must be visible too.
+      const started = Boolean(visiblePair) || index <= lastVisibleIndex;
+      const effectivePair = started ? (visiblePair || { term: pair.term, definition: pair.definition, showSeparator: true }) : null;
+      return {
+        term: pair.term,
+        definition: pair.definition,
+        visibleTerm: started ? (effectivePair.term || pair.term) : "",
+        visibleDefinition: started ? (effectivePair.definition ?? "") : "",
+        showSeparator: started ? Boolean(effectivePair.showSeparator) : false,
+        started
+      };
+    });
+  }
+
+  const fullSequentialPairs = getPureInputSequentialGlossaryPairs(normalizedFullText, { minimumPairs: 2 });
+  if (fullSequentialPairs?.length) {
+    const visibleSequentialPairs = getPureInputSequentialGlossaryPairs(normalizedSourceText, {
+      allowPartialDefinition: true,
+      minimumPairs: 1
+    }) || [];
+
+    // Same monotonic guard for sequential pairs.
+    const lastVisibleSeqIndex = visibleSequentialPairs.length - 1;
+
+    return fullSequentialPairs.map((pair, index) => {
+      const visiblePair = visibleSequentialPairs[index] || null;
+      const started = Boolean(visiblePair) || index <= lastVisibleSeqIndex;
+      const effectivePair = started ? (visiblePair || { term: pair.term, definition: pair.definition, showSeparator: true }) : null;
+      return {
+        term: pair.term,
+        definition: pair.definition,
+        visibleTerm: started ? (effectivePair.term || pair.term) : "",
+        visibleDefinition: started ? (effectivePair.definition ?? "") : "",
+        showSeparator: started ? Boolean(effectivePair.showSeparator) : false,
+        started
+      };
+    });
+  }
+
+  const directPairs = getPureInputGlossaryPairs(normalizedSourceText);
+  if (directPairs?.length) {
+    return directPairs.map((pair) => ({
+      ...pair,
+      visibleTerm: pair.term,
+      visibleDefinition: pair.definition,
+      showSeparator: true,
+      started: true
+    }));
+  }
+
+  if (!normalizedFullText || normalizedFullText === normalizedSourceText) {
+    return null;
+  }
+
+  const fullPairs = getPureInputGlossaryPairs(normalizedFullText);
+  return fullPairs?.length
+    ? fullPairs.map((pair) => ({
+      ...pair,
+      visibleTerm: "",
+      visibleDefinition: "",
+      showSeparator: false,
+      started: false
+    }))
+    : null;
+}
+
+function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
+  if (!Array.isArray(pairs) || !pairs.length) {
+    return [];
+  }
+
+  const isOutcomesTemplate = normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES;
+  const valueColor = isOutcomesTemplate ? "#17191f" : "#ffffff";
+  const termStyle = {
+    color: "#c81f25",
+    bold: true,
+    italic: false,
+    underline: false,
+    caseMode: "original"
+  };
+  const separatorStyle = {
+    color: valueColor,
+    bold: false,
+    italic: false,
+    underline: false,
+    caseMode: "original"
+  };
+  const definitionStyle = {
+    color: valueColor,
+    bold: false,
+    italic: false,
+    underline: false,
+    caseMode: "original"
+  };
+  const normalizedPairs = pairs
+    .map((pair) => ({
+      term: normalizeGlossaryChunk(pair?.term),
+      definition: normalizeGlossaryChunk(pair?.definition),
+      visibleTerm: normalizeGlossaryChunk(pair?.visibleTerm ?? pair?.term),
+      visibleDefinition: normalizeGlossaryChunk(pair?.visibleDefinition ?? pair?.definition),
+      showSeparator: Boolean(pair?.showSeparator),
+      started: Boolean(pair?.started)
+    }))
+    .filter((pair) => pair.term && pair.definition);
+
+  if (!normalizedPairs.length) {
+    return [];
+  }
+
+  const separatorRuns = [{ text: " = ", style: separatorStyle }];
+  const separatorWidth = measureStyledRuns(ctxRef, separatorRuns, fontSize);
+  const maxTermWidth = normalizedPairs.reduce((widest, pair) => (
+    Math.max(widest, measureStyledRuns(ctxRef, [{ text: pair.term, style: termStyle }], fontSize))
+  ), 0);
+  const preferredDefinitionStart = Math.round(maxWidth * 0.34);
+  const maxDefinitionStart = Math.round(maxWidth * 0.48);
+  const definitionStart = Math.min(
+    Math.max(maxTermWidth + separatorWidth, preferredDefinitionStart),
+    maxDefinitionStart
+  );
+  const definitionWidth = Math.max(Math.round(maxWidth - definitionStart), Math.round(fontSize * 8));
+  const rows = [];
+
+  normalizedPairs.forEach((pair) => {
+    const wrappedDefinitionRows = wrapStyledRuns(
+      ctxRef,
+      [{ text: pair.definition, style: definitionStyle }],
+      definitionWidth,
+      fontSize,
+      { preserveEdges: true }
+    );
+    const visibleDefinitionRows = pair.visibleDefinition
+      ? wrapStyledRuns(
+        ctxRef,
+        [{ text: pair.visibleDefinition, style: definitionStyle }],
+        definitionWidth,
+        fontSize,
+        { preserveEdges: true }
+      )
+      : [];
+    const rowCount = Math.max(1, wrappedDefinitionRows.length);
+    const firstRowSegments = [];
+
+    if (pair.started && pair.visibleTerm) {
+      // isGlossary=true tells the draw engine to skip the per-character alpha animation
+      // (glossary segments control their own visibility via visibleTerm/visibleDefinition)
+      firstRowSegments.push({ text: pair.visibleTerm, style: termStyle, columnOffset: 0, isGlossary: true });
+    }
+
+    if (pair.started && pair.showSeparator) {
+      firstRowSegments.push({ text: " = ", style: separatorStyle, columnOffset: maxTermWidth, isGlossary: true });
+    }
+
+    if (visibleDefinitionRows[0]?.length) {
+      firstRowSegments.push(...visibleDefinitionRows[0].map((run) => ({
+        ...run,
+        columnOffset: definitionStart,
+        isGlossary: true
+      })));
+    }
+
+    rows.push({
+      segments: firstRowSegments,
+      bullet: false,
+      isGlossary: true
+    });
+
+    for (let rowIndex = 1; rowIndex < rowCount; rowIndex += 1) {
+      const visibleRow = visibleDefinitionRows[rowIndex] || [];
+      rows.push({
+        segments: visibleRow.map((run) => ({
+          ...run,
+          columnOffset: definitionStart,
+          isGlossary: true
+        })),
+        bullet: false,
+        isGlossary: true
+      });
+    }
+  });
+
+  return rows;
+}
+
+function buildPureInputRows(ctxRef, line, maxWidth, fontSize) {
+  const rawLine = String(line ?? "");
+  const baseStyle = getBaseTextStyle();
+
+  if (!rawLine.length) {
+    return [];
+  }
+
+  if (!/\t| {2,}/.test(rawLine)) {
+    const styledRuns = getStyledTextRuns(rawLine, baseStyle).map((run) => ({
+      ...run,
+      text: run.text
+    }));
+
+    return wrapStyledRuns(ctxRef, styledRuns, maxWidth, fontSize, { preserveEdges: true }).map((row) => ({
+      segments: row,
+      bullet: false
+    }));
+  }
+
+  const cells = splitPureInputCells(rawLine);
+  if (!cells.length) {
+    return [];
+  }
+
+  const rows = [];
+  const columnGap = Math.max(24, Math.round(fontSize * 1.35));
+  let currentSegments = [];
+  let currentWidth = 0;
+
+  const commitRow = () => {
+    if (!currentSegments.length) {
+      return;
+    }
+
+    rows.push({
+      segments: currentSegments,
+      bullet: false
+    });
+    currentSegments = [];
+    currentWidth = 0;
+  };
+
+  cells.forEach((cell) => {
+    const safeCell = String(cell ?? "");
+    if (!safeCell) {
+      return;
+    }
+
+    const segmentStyle = getResolvedTextStyle(baseStyle, getBaseTextStyle());
+    const segmentWidth = measureStyledRuns(ctxRef, [{ text: safeCell, style: segmentStyle }], fontSize);
+
+    if (segmentWidth > maxWidth) {
+      commitRow();
+      wrapStyledRuns(ctxRef, [{ text: safeCell, style: segmentStyle }], maxWidth, fontSize, { preserveEdges: true }).forEach((wrappedRow) => {
+        rows.push({
+          segments: wrappedRow,
+          bullet: false
+        });
+      });
+      return;
+    }
+
+    if (currentSegments.length && currentWidth + segmentWidth > maxWidth) {
+      commitRow();
+    }
+
+    currentSegments.push({
+      text: safeCell,
+      style: segmentStyle,
+      columnOffset: currentWidth
+    });
+    currentWidth += segmentWidth + columnGap;
+  });
+
+  commitRow();
+  return rows;
+}
+
+function wrapStyledRuns(ctxRef, runs, maxWidth, fontSize, options = {}) {
   const rows = [];
   const tokens = tokenizeStyledRuns(runs);
   let currentRow = [];
 
   const commitRow = () => {
-    const normalizedRow = trimStyledRowRuns(currentRow);
+    const normalizedRow = trimStyledRowRuns(currentRow, options);
     if (normalizedRow.length) {
       rows.push(normalizedRow);
     }
@@ -9640,7 +10747,7 @@ function wrapStyledRuns(ctxRef, runs, maxWidth, fontSize) {
   };
 
   tokens.forEach((token) => {
-    const nextToken = currentRow.length
+    const nextToken = currentRow.length || options.preserveEdges
       ? token
       : {
         ...token,
@@ -9663,7 +10770,7 @@ function wrapStyledRuns(ctxRef, runs, maxWidth, fontSize) {
       return;
     }
 
-    const rowCandidate = trimStyledRowRuns([...currentRow, nextToken]);
+    const rowCandidate = trimStyledRowRuns([...currentRow, nextToken], options);
     if (measureStyledRuns(ctxRef, rowCandidate, fontSize) <= maxWidth) {
       currentRow.push(nextToken);
       return;
@@ -9671,10 +10778,12 @@ function wrapStyledRuns(ctxRef, runs, maxWidth, fontSize) {
 
     commitRow();
 
-    const trimmedToken = {
-      ...token,
-      text: token.text.replace(/^\s+/, "")
-    };
+    const trimmedToken = options.preserveEdges
+      ? token
+      : {
+        ...token,
+        text: token.text.replace(/^\s+/, "")
+      };
 
     if (!trimmedToken.text) {
       return;
@@ -9697,6 +10806,9 @@ function wrapStyledRuns(ctxRef, runs, maxWidth, fontSize) {
 function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, options = {}) {
   const safeLines = lines.length ? lines : (usePlaceholder ? ["Your content will appear here."] : []);
   const hasImages = options.hasImages === true || (options.hasImages !== false && state.images.length > 0);
+  const preserveFormatting = isPureInputModeEnabled();
+  const pureInputText = preserveFormatting ? safeLines.join("\n") : "";
+  const glossaryPairs = preserveFormatting ? resolvePureInputGlossaryPairs(pureInputText) : null;
   let fontSize = hasImages ? 26 : 30;
 
   if (state.words.length > 520) {
@@ -9709,14 +10821,31 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
     fontSize = hasImages ? 25 : 28;
   }
 
-  fontSize = clamp(Math.round(fontSize * state.fontScale), 16, 54);
+  fontSize = clamp(Math.round(fontSize * state.fontScale), preserveFormatting ? 12 : 16, preserveFormatting ? 42 : 54);
 
   const buildLayout = (size) => {
     const rows = [];
     const rowHeight = Math.max(size + 4, Math.round(size * 1.2));
     const groupGap = Math.max(6, Math.round(size * 0.24));
 
+    if (glossaryPairs?.length) {
+      rows.push(...buildPureInputGlossaryRows(ctx, glossaryPairs, maxWidth, size));
+      const totalHeight = rows.reduce((sum, row) => sum + (row.spacer ? row.height : rowHeight), 0);
+      return { rows, fontSize: size, rowHeight, totalHeight };
+    }
+
     safeLines.forEach((line, index) => {
+      if (preserveFormatting) {
+        const pureRows = buildPureInputRows(ctx, line, maxWidth, size);
+        if (!pureRows.length) {
+          rows.push({ spacer: true, height: rowHeight });
+          return;
+        }
+
+        rows.push(...pureRows);
+        return;
+      }
+
       const headingMatch = line.match(/^\s*#{1,3}\s+(.*)$/);
       const autoHeading = looksLikeAutoHeadingLine(line, index, safeLines.length);
       const sourceLine = headingMatch ? headingMatch[1] : line;
@@ -10035,6 +11164,10 @@ function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIn
 function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIndex, fontSize) {
   const text = segment.text || "";
   let cursorX = x;
+  // Glossary segments manage their own visibility via visibleTerm/visibleDefinition.
+  // Skip the sequential char-alpha animation to prevent flickering from drawnCharCount
+  // being misaligned with column-offset-based rendering.
+  const isGlossarySegment = Boolean(segment.isGlossary);
 
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
@@ -10043,7 +11176,8 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
     // Feed the segment's style color into the coloring engine to validate custom selections!
     ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
     
-    if (state.speaking && state.exactCharCountFloat !== undefined) {
+    if (!isGlossarySegment && state.speaking && state.exactCharCountFloat !== undefined) {
+      // Only apply the per-character alpha fade for normal (non-glossary) text.
       ctx.globalAlpha = clamp(state.exactCharCountFloat - (state.drawnCharCount || 0), 0, 1);
     }
 
@@ -12139,10 +13273,11 @@ function drawPdfContextScene() {
         return;
       }
 
+      const segmentX = Number.isFinite(segment.columnOffset) ? rowStartX + segment.columnOffset : x;
       ctx.font = getContentFont(layoutFontSize, segment.style);
       const segmentWidth = drawAnimatedTeachingSegment(
         segment,
-        x,
+        segmentX,
         y,
         rowText,
         rowIndex,
@@ -12157,11 +13292,13 @@ function drawPdfContextScene() {
           ctx.fillStyle = isUsingDefaultStageStyle(segment.style)
             ? getAnimatedTeachingTextColor(null, rowText, rowIndex, segmentIndex)
             : segment.style.color;
-          ctx.fillRect(x, underlineY, underlineWidth, Math.max(2, Math.round(layoutFontSize * 0.08)));
+          ctx.fillRect(segmentX, underlineY, underlineWidth, Math.max(2, Math.round(layoutFontSize * 0.08)));
         }
       }
 
-      x += segmentWidth;
+      if (!Number.isFinite(segment.columnOffset)) {
+        x += segmentWidth;
+      }
     });
 
     y += layoutRowHeight;
@@ -12249,6 +13386,10 @@ const _drawSceneLayoutCache = {
   textOnlyResult: null,
   fullKey: "",
   fullResult: null
+};
+const _pureInputGlossaryCache = {
+  key: "",
+  pairs: null
 };
 
 function invalidateDrawSceneLayoutCache() {
@@ -12429,10 +13570,11 @@ function drawScene(mouthOpen = 0.12) {
         return;
       }
 
+      const segmentX = Number.isFinite(segment.columnOffset) ? rowStartX + segment.columnOffset : x;
       ctx.font = getContentFont(currentFontSize, segment.style);
       const segmentWidth = drawAnimatedTeachingSegment(
         segment,
-        x,
+        segmentX,
         y,
         rowText,
         rowIndex,
@@ -12447,11 +13589,13 @@ function drawScene(mouthOpen = 0.12) {
           ctx.fillStyle = isUsingDefaultStageStyle(segment.style)
             ? getAnimatedTeachingTextColor(null, rowText, rowIndex, segmentIndex)
             : segment.style.color;
-          ctx.fillRect(x, underlineY, underlineWidth, Math.max(2, Math.round(currentFontSize * 0.08)));
+          ctx.fillRect(segmentX, underlineY, underlineWidth, Math.max(2, Math.round(currentFontSize * 0.08)));
         }
       }
 
-      x += segmentWidth;
+      if (!Number.isFinite(segment.columnOffset)) {
+        x += segmentWidth;
+      }
     });
 
     y += currentRowHeight;
@@ -15678,10 +16822,15 @@ function startNarrationLoop(audioElement) {
       ? (audioMouth ?? getFallbackMouth(syncFrame.speechElapsedMs))
       : 0.12;
     state.mouthOpen = nextMouth;
-    // Always draw every frame during speaking for butter-smooth float-precision text fade-in
-    drawScene(state.mouthOpen);
-    lastRenderAt = nowMs;
-    lastRenderedMouth = state.mouthOpen;
+    if (shouldRenderAnimatedSceneFrame(nowMs, {
+      force: previousText !== state.displayedText || progress >= 0.995,
+      lastRenderAt,
+      mouthDelta: nextMouth - lastRenderedMouth
+    })) {
+      drawScene(state.mouthOpen);
+      lastRenderAt = nowMs;
+      lastRenderedMouth = state.mouthOpen;
+    }
 
     if (!audioElement.ended) {
       state.animationFrame = requestAnimationFrame(tick);
@@ -17396,7 +18545,7 @@ async function showScreen() {
     return;
   }
 
-  const text = lessonInput.value.trim();
+  const text = getEffectiveLessonText();
   if (!ensureLessonTextIsReady(text)) {
     return;
   }
@@ -17546,6 +18695,10 @@ if (showPlaceValueTableBtn) {
 }
 lessonInput.addEventListener("input", () => {
   scheduleLessonInputChange();
+  if (isPureInputModeEnabled()) {
+    return;
+  }
+
   if (!mathsSourceInput?.value.trim()) {
     scheduleMathsPreviewOnly(lessonInput.value, {
       delayMs: 180,
@@ -17562,6 +18715,33 @@ lessonInput.addEventListener("paste", (event) => {
 lessonInput.addEventListener("select", refreshSelectedPhraseFromInput);
 lessonInput.addEventListener("mouseup", refreshSelectedPhraseFromInput);
 lessonInput.addEventListener("keyup", refreshSelectedPhraseFromInput);
+if (pureInputToggle) {
+  pureInputToggle.addEventListener("change", (event) => {
+    setPureInputMode(Boolean(event.target.checked));
+    if (isPureInputModeEnabled()) {
+      if (pureInputSource && !getPureInputText() && lessonInput?.value) {
+        pureInputSource.value = lessonInput.value;
+        state.rawInput.text = pureInputSource.value;
+      }
+      syncPureInputIntoLessonInput({ force: true });
+      setStatus("Pure Input is active. Show Screen will use the raw text from the Pure Input box.");
+    } else {
+      handleLessonInputChange();
+      setStatus("Pure Input is off. The normal lesson box controls the screen again.");
+    }
+  });
+}
+if (pureInputSource) {
+  pureInputSource.addEventListener("input", () => {
+    state.rawInput.text = getPureInputText();
+    if (!isPureInputModeEnabled()) {
+      setPureInputStatus("Pure Input text is ready. Turn on Pure Input when you want to mirror it on the screen.");
+      return;
+    }
+
+    syncPureInputIntoLessonInput({ force: true });
+  });
+}
 scenePromptInput.addEventListener("input", () => {
   const previewScene = analyzeScenePrompt(scenePromptInput.value.trim() || lessonInput.value.trim());
   state.scene = {
@@ -17613,6 +18793,11 @@ workflowStepButtons.forEach((button) => {
     openWorkflowTarget(button.dataset.workflowTarget || "");
   });
 });
+if (presentationTemplateToggle) {
+  presentationTemplateToggle.addEventListener("change", (event) => {
+    setPresentationTemplate(event.target.checked ? PRESENTATION_TEMPLATE_OUTCOMES : PRESENTATION_TEMPLATE_CLASSIC);
+  });
+}
 presentationTemplateInputs.forEach((input) => {
   input.addEventListener("change", (event) => {
     if (event.target.checked) {
@@ -17620,6 +18805,16 @@ presentationTemplateInputs.forEach((input) => {
     }
   });
 });
+if (templateCardClassic) {
+  templateCardClassic.addEventListener("click", () => {
+    setPresentationTemplate(PRESENTATION_TEMPLATE_CLASSIC);
+  });
+}
+if (templateCardOutcomes) {
+  templateCardOutcomes.addEventListener("click", () => {
+    setPresentationTemplate(PRESENTATION_TEMPLATE_OUTCOMES);
+  });
+}
 if (saveOutcomesTitleBtn) {
   saveOutcomesTitleBtn.addEventListener("click", () => {
     setOutcomesTitle(outcomesTitleInput?.value || "");
@@ -17984,6 +19179,9 @@ if (resetInputsBtn) {
   resetInputsBtn.addEventListener("click", () => {
     if (window.confirm("Are you sure you want to clear all inputs and reset the workspace?")) {
         if (lessonInput) lessonInput.value = "";
+        if (pureInputSource) pureInputSource.value = "";
+        state.rawInput.text = "";
+        setPureInputMode(false);
         state.text = "";
         try { window.localStorage.removeItem(LESSON_STORAGE_KEY); } catch (e) {}
 
@@ -18399,3 +19597,5 @@ if (pureEnglishBtn) {
         }
     });
 }
+
+setPureInputMode(false);
