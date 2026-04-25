@@ -254,11 +254,11 @@ function StagePanel() {
       </div>
 
       <div className="stage-frame">
-        <canvas ref={canvasRef} id="previewCanvas" width="1280" height="720" aria-label="Maths Teacher preview" />
+        <canvas ref={canvasRef} id="previewCanvas" width="1280" height="720" aria-label="Anjali Teacher preview" />
       </div>
 
       <p className="note" id="statusText">
-        Enter maths content and play the narration. Export Video saves the animated teaching scene as an `.mp4` file.
+        Enter English content and play the narration. Export Video saves the animated teaching scene as an `.mp4` file.
       </p>
       <p className="note note-soft">
         Long lessons are split into clean pages automatically. Longer input still takes longer to download because the

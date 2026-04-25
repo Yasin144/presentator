@@ -7,10 +7,10 @@ function InputPanel() {
     <section className="panel panel-input" id="inputPanel">
       <div className="panel-head">
         <div className="panel-copy">
-          <p className="eyebrow">Maths Teacher</p>
+          <p className="eyebrow">Anjali Teacher</p>
           <h1>Presentator Workspace</h1>
           <p className="subcopy">
-            A premium, dynamic environment. Type your lesson once. The maths output, narration, and presentation update
+            A premium, dynamic environment. Type your lesson once. The narration and presentation update
             automatically with a beautiful, organized workflow.
           </p>
         </div>
@@ -626,7 +626,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
           <div className="tool-card maths-helper-card">
             <div className="tool-card-head">
               <span className="module-icon">MTH</span>
-              <p className="tool-card-title">Maths Teacher Starter</p>
+              <p className="tool-card-title">Anjali Teacher Starter</p>
             </div>
             <p className="upload-copy">Load ready-made maths lessons, practise clear pronunciation, and keep Anjali's warm
               sample voice inside the project.</p>

@@ -620,7 +620,7 @@ let pdfFaceDetector = null;
 let pdfFaceFilteringUnavailable = false;
 
 const state = {
-  subjectMode: "maths",
+  subjectMode: "english",
   narrationServerUrl: "http://127.0.0.1:8424",
   narrationServerReady: false,
   anjaliCloneServerUrl: "http://127.0.0.1:8426",
@@ -3980,9 +3980,12 @@ function scheduleNarrationWarmup(delayMs = 700) {
 }
 
 function getEffectiveLessonText() {
-  return isPureInputModeEnabled()
-    ? getPureInputText()
-    : lessonInput.value.trim();
+  const pureEnabled = isPureInputModeEnabled();
+  if (pureEnabled) return getPureInputText();
+  
+  // In English mode, if the user hasn't translated yet, we might want to warn or auto-fetch, 
+  // but for now we follow the standard lessonInput flow which is filled by the translators.
+  return lessonInput.value.trim();
 }
 
 function getPureInputText() {
@@ -4568,7 +4571,7 @@ function applyMathsLessonTemplate(text, helperMessage) {
   lessonInput.setSelectionRange(lessonInput.value.length, lessonInput.value.length);
   setMathsHelperStatus(helperMessage);
   setSpeechToolsStatus("Maths starter content was loaded into the lesson box.");
-  setStatus("Maths Teacher content is ready to preview, present, or export.");
+  setStatus("Anjali Teacher content is ready to preview, present, or export.");
 }
 
 function initializeMathsTeacherAssets() {
@@ -14612,8 +14615,11 @@ async function playIntroClipForExport(options = {}) {
       if (progress >= 1) {
         break;
       }
-      virtualElapsedMs = performance.now() - exportLoopStartMs;
-      await new Promise(requestAnimationFrame); // Perfect vsync
+      // Throttle the loop to target frame duration so MediaRecorder timestamps correctly.
+      virtualElapsedMs += (1000 / frameRate);
+      const nextFrameTargetMs = exportLoopStartMs + (virtualElapsedMs / renderSpeedMultiplier);
+      const waitMs = Math.max(0, nextFrameTargetMs - performance.now());
+      await new Promise(resolve => setTimeout(resolve, waitMs));
     }
 
     updatePlaybackProgressUi(1, true);
@@ -14707,8 +14713,11 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       break;
     }
 
-    virtualElapsedMs = performance.now() - exportLoopStartMs;
-    await new Promise(requestAnimationFrame); // Perfect vsync
+    // Deterministic Frame Stepping with Throttling for MediaRecorder timestamps.
+    virtualElapsedMs += (1000 / frameRate);
+    const nextFrameTargetMs = exportLoopStartMs + (virtualElapsedMs / renderSpeedMultiplier);
+    const waitMs = Math.max(1, nextFrameTargetMs - performance.now());
+    await new Promise(resolve => setTimeout(resolve, waitMs));
   }
 }
 
@@ -14735,11 +14744,9 @@ async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), optio
   drawScene(0.12);
 
   while (true) {
-    const elapsedMs = Math.min(
-      targetTimelineMs,
-      (performance.now() - startedAt) * timelineAdvanceRate
-    );
+    const elapsedMs = Math.min(targetTimelineMs, state.pdf.currentTimeMs);
     const progress = clamp(elapsedMs / targetTimelineMs, 0, 1);
+    
     state.pdf.currentTimeMs = elapsedMs;
     syncPdfPreviewPageFromTime(elapsedMs);
     updatePlaybackProgressUi(progress, true);
@@ -14759,8 +14766,14 @@ async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), optio
       break;
     }
 
-    await new Promise(requestAnimationFrame); // Perfect vsync
+    // Deterministic Frame Stepping with Throttling for MediaRecorder timestamps.
+    state.pdf.currentTimeMs += (1000 / frameRate);
+    const frameIndex = Math.round(state.pdf.currentTimeMs / (1000 / frameRate));
+    const nextFrameTargetMs = startedAt + (frameIndex * (1000 / frameRate) / timelineAdvanceRate);
+    const waitMs = Math.max(1, nextFrameTargetMs - performance.now());
+    await new Promise(resolve => setTimeout(resolve, waitMs));
   }
+}
 }
 
 function pauseStageVideoPlayback() {
@@ -17343,7 +17356,7 @@ async function exportPdfModeVideo(renderMode = "context") {
     if (typeof avatarVideoElement !== 'undefined' && avatarVideoElement) {
         avatarVideoElement.playbackRate = (Number(document.getElementById("avatarSpeedRange")?.value) || 1.8) * exportRenderSpeedMultiplier;
     }
-    canvasStream = canvas.captureStream(captureRate);
+    canvasStream = canvas.captureStream(0);
     const videoTracks = canvasStream.getVideoTracks();
     if (!videoTracks.length) {
       throw new Error("The browser did not provide a video track for the PDF canvas export.");
@@ -17605,11 +17618,11 @@ async function exportVideo() {
     }
 
     try {
-      canvasStream = canvas.captureStream(captureRate);
+      canvasStream = canvas.captureStream(0);
     } catch (error) {
       if (/origin-clean/i.test(error.message || "")) {
         await ensureCanvasReadyForExport();
-        canvasStream = canvas.captureStream(captureRate);
+        canvasStream = canvas.captureStream(0);
       } else {
         throw error;
       }
@@ -18565,8 +18578,11 @@ async function showScreen() {
   state.previewPageIndex = 0;
   updatePlaybackProgressUi(0, false);
   syncImageLayouts();
-  inputPanel.classList.add("hidden");
-  stagePanel.classList.remove("hidden");
+  const currentInputPanel = document.getElementById("inputPanel");
+  const currentStagePanel = document.getElementById("stagePanel");
+
+  if (currentInputPanel) currentInputPanel.classList.add("hidden");
+  if (currentStagePanel) currentStagePanel.classList.remove("hidden");
   updateStageModeUi();
   updateStageViewUi();
 
@@ -19011,6 +19027,17 @@ if (downloadPdfContextBtn) {
     void beginExportFromUi(handleAlternatePdfDownload);
   });
 }
+function hideScreen() {
+  const currentInputPanel = document.getElementById("inputPanel");
+  const currentStagePanel = document.getElementById("stagePanel");
+
+  state.presentationMode = "input";
+  if (currentStagePanel) currentStagePanel.classList.add("hidden");
+  if (currentInputPanel) currentInputPanel.classList.remove("hidden");
+  pauseStageVideoPlayback();
+  stopStagePlayback();
+  drawScene(0.12);
+}
 editBtn.addEventListener("click", () => {
   stopInputPreview(false);
   stopPlayback();
@@ -19019,8 +19046,10 @@ editBtn.addEventListener("click", () => {
   state.images = state.images.filter((item) => !isAutoPdfExampleImage(item));
   state.presentationMode = "lesson";
   updatePlaybackProgressUi(0, false);
-  stagePanel.classList.add("hidden");
-  inputPanel.classList.remove("hidden");
+  const currentInputPanel = document.getElementById("inputPanel");
+  const currentStagePanel = document.getElementById("stagePanel");
+  if (currentStagePanel) currentStagePanel.classList.add("hidden");
+  if (currentInputPanel) currentInputPanel.classList.remove("hidden");
   renderImagePreviews();
   setStatus("You can edit the content now.");
   updateStageModeUi();
@@ -19553,7 +19582,8 @@ if (floatingPalette && lessonInput) {
 const pureEnglishBtn = document.getElementById("pureEnglishTranslateBtn");
 if (pureEnglishBtn) {
     pureEnglishBtn.addEventListener('click', () => {
-        const sourceInput = document.getElementById("mathsSourceInput");
+        const isEnglish = state.subjectMode === "english";
+        const sourceInput = document.getElementById(isEnglish ? "englishSourceInput" : "mathsSourceInput");
         let text = sourceInput?.value.trim() || lessonInput.value.trim();
         if (!text) return;
         
@@ -19602,3 +19632,31 @@ if (pureEnglishBtn) {
 }
 
 setPureInputMode(false);
+
+// -- GLOBAL EVENT DELEGATION FOR VITE/REACT COMPATIBILITY --
+// This ensures that even if React re-renders components and replaces the DOM elements,
+// our legacy script can still catch the clicks based on the stable IDs.
+document.addEventListener("click", (e) => {
+    const target = e.target.closest("button");
+    if (!target || !target.id) return;
+    
+    const id = target.id;
+    
+    // Core Navigation
+    if (id === "showScreenBtn") {
+        e.preventDefault();
+        runLockedAction("showScreen", [target], showScreen);
+    } else if (id === "editBtn") {
+        e.preventDefault();
+        hideScreen(); 
+    } else if (id === "playBtn") {
+        e.preventDefault();
+        runLockedAction("play", [target, document.getElementById("stopStageBtn")], startPlayback);
+    } else if (id === "stopStageBtn") {
+        e.preventDefault();
+        stopPlayback();
+    } else if (id === "resetInputsBtn") {
+        e.preventDefault();
+        resetInputs();
+    }
+});

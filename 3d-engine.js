@@ -5,8 +5,8 @@
 
 (function () {
   const threeCanvas = document.createElement("canvas");
-  threeCanvas.width = 1080;
-  threeCanvas.height = 1920;
+  threeCanvas.width = 1280;
+  threeCanvas.height = 720;
   threeCanvas.style.display = "none";
   document.body.appendChild(threeCanvas);
 
@@ -41,13 +41,13 @@
   function init3D() {
     // Transparent layer for WebGL so the main video shows through
     renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
-    renderer.setSize(1080, 1920);
+    renderer.setSize(1280, 720);
     renderer.setClearColor(0x000000, 0);
 
     scene = new THREE.Scene();
 
-    camera = new THREE.PerspectiveCamera(45, 1080 / 1920, 0.1, 100);
-    camera.position.z = 12;
+    camera = new THREE.PerspectiveCamera(45, 1280 / 720, 0.1, 100);
+    camera.position.z = 10;
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
     scene.add(ambientLight);
@@ -193,11 +193,8 @@
     }
 
     if (activeHologram && renderer) {
-      // Force a synchronous render pass right before the canvas draw.
-      // This permanently fixes the "static image in video export" bug by
-      // ensuring the exact lip-sync morph targets are drawn immediately!
       renderer.render(scene, camera);
-      ctx.drawImage(threeCanvas, 0, 0, 1080, 1920);
+      ctx.drawImage(threeCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
     }
   };
 
