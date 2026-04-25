@@ -14673,10 +14673,10 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     let nextDisplayedText = syncFrame.displayedText;
     const nextDisplayedLength = nextDisplayedText.length;
 
-    if (nextDisplayedLength > lastDisplayedLength) {
-      lastDisplayedLength = nextDisplayedLength;
-      lastDisplayedAdvanceProgress = progress;
-    } else if ((progress - lastDisplayedAdvanceProgress) >= 0.12) {
+    // In glossary mode the pauses between term (1s) and definition (2s) are intentional.
+    // Skip the recovery override so it doesn't eat those deliberate gaps.
+    const isGlossaryMode = isPureInputModeEnabled() && Boolean(resolvePureInputGlossaryPairs(state.text));
+    if (!isGlossaryMode && nextDisplayedLength <= lastDisplayedLength && (progress - lastDisplayedAdvanceProgress) >= 0.12) {
       const recoveryProgress = clamp((progress - 0.12) / 0.88, 0, 1);
       const recoveryText = getVisibleTextForProgress(state.text, recoveryProgress);
       if (recoveryText.length > nextDisplayedLength) {
@@ -14684,6 +14684,9 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
         lastDisplayedLength = recoveryText.length;
         lastDisplayedAdvanceProgress = progress;
       }
+    } else if (!isGlossaryMode && nextDisplayedLength > lastDisplayedLength) {
+      lastDisplayedLength = nextDisplayedLength;
+      lastDisplayedAdvanceProgress = progress;
     }
 
     const remainingNarrationMs = Math.max(0, narrationTimelineMs - elapsedMs);
