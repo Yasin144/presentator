@@ -325,6 +325,7 @@ const STAGE_RIGHT_CLEAR_GAP_PX = 380;
 const STAGE_TEXT_SIDE_MARGIN_PX = 64;
 const STAGE_TEXT_TOP_MARGIN_PX = 32;
 const STAGE_TEXT_BOTTOM_MARGIN_PX = 42;
+const STAGE_TEXT_BOTTOM_RESERVED_PX = 76; // ~2cm at 96dpi; keep this area empty before paginating to the next page
 const STAGE_IMAGE_WORKSPACE_PADDING_PX = 34;
 const STAGE_IMAGE_WORKSPACE_TOP_PX = 18;
 const STAGE_IMAGE_WORKSPACE_BOTTOM_PX = 20;
@@ -339,9 +340,12 @@ const ANJALI_NARRATION_CHUNK_MAX_LENGTH = 220;
 const ANJALI_NARRATION_CHUNK_THRESHOLD = 260;
 const DEFAULT_STAGE_PLAYBACK_RATE = 1;
 const EXPORT_RENDER_SPEED_MULTIPLIER = 1;
-const MAX_EXPORT_CAPTURE_FPS = 72;
+const MAX_EXPORT_CAPTURE_FPS = 240;
+const LESSON_EXPORT_TARGET_WALL_TIME_MS = 18 * 1000;
 const LONG_EXPORT_THRESHOLD_MS = 5 * 60 * 1000;
 const VERY_LONG_EXPORT_THRESHOLD_MS = 15 * 60 * 1000;
+const SEGMENTED_EXPORT_THRESHOLD_MS = 75 * 1000;
+const EXPORT_SEGMENT_TARGET_DURATION_MS = 25 * 1000;
 const MUX_CHUNK_UPLOAD_THRESHOLD_BYTES = 96 * 1024 * 1024;
 const MUX_CHUNK_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
 const STRICT_INTER_WORD_PAUSE_MS = 400;
@@ -349,15 +353,19 @@ const STRICT_SENTENCE_PAUSE_MS = 2000;
 const STRICT_SOFT_SENTENCE_PAUSE_MS = 520;
 const STRICT_HEADING_PAUSE_MS = 2000;
 const STRICT_SCENE_END_BUFFER_MS = 1500;
+const DEFAULT_INTRO_TO_LESSON_DELAY_MS = 4500;
+const STAGE_VIDEO_START_DELAY_MS = 2000;
 const STRICT_AUTOPLAY_RECOVERY_MS = 1000;
 const STRICT_VOICE_VOLUME = 0.85;
 const STRICT_BACKGROUND_MUSIC_VOLUME = 0.2;
 const LIVE_SCENE_RENDER_FPS = 24;
 const IDLE_SCENE_RENDER_FPS = 8;  // Throttle when not speaking/exporting to reduce CPU/GPU heat
-const EXPORT_SCENE_RENDER_FPS = 12;
+const EXPORT_SCENE_RENDER_FPS = 30;
 const SCENE_RENDER_MOUTH_DELTA = 0.035;
 const NARRATION_CHUNK_JOIN_GAP_MS = 2000;
+const ENABLE_PREPARED_LESSON_EXPORT = false;
 const GLOSSARY_KEY_VALUE_PAUSE_MS = 1000;
+const GLOSSARY_ENTRY_GAP_MS = 2400;
 const NARRATION_CHUNK_FADE_MS = 32;
 const SPEECH_SYNC_REVEAL_START = 0.0;
 const SPEECH_SYNC_REVEAL_END = 1.0;
@@ -640,6 +648,7 @@ const state = {
   mouthOpen: 0.12,
   lessonPlaybackRate: DEFAULT_STAGE_PLAYBACK_RATE,
   animationFrame: null,
+  exportVisualTimerId: 0,
   typingInterval: null,
   speechUtterance: null,
   images: [],
@@ -655,6 +664,13 @@ const state = {
     url: DEFAULT_INTRO_VIDEO_FILE,
     element: null,
     durationMs: 0
+  },
+  sceneTransition: {
+    blankActive: false,
+    stageVideoVisibleAfterMs: 0,
+    stageVideoVisibleAfterElapsedMs: 0,
+    stageVideoUsesExportTimeline: false,
+    stageVideoStartTimerId: 0
   },
   narration: {
     url: "",
@@ -774,7 +790,7 @@ const state = {
     theme: "Classroom",
     vfx: "sparkles",
     musicMood: "bright",
-    exportQuality: "2k",
+    exportQuality: "hd",
     palette: ["#0e84ad", "#4eb6de", "#ffb548"],
     description: "Bright classroom style with gentle sparkles."
   },
@@ -790,6 +806,18 @@ const state = {
   },
   exportVideoTrack: null,
   exportingVideo: false,
+  preparedLessonExport: {
+    key: "",
+    blob: null,
+    promise: null,
+    status: "idle",
+    error: "",
+    startedAt: 0,
+    completedAt: 0,
+    timerId: 0,
+    suspendSchedule: false,
+    prepareAfterPlayback: false
+  },
   selectedPhrase: "",
   keywordStyles: [],
   selectionStyle: {
@@ -846,8 +874,10 @@ const state = {
   activeAudio: null,
   activeMusic: null,
   exportCapture: {
+    elapsedMs: 0,
     minFrameIntervalMs: 0,
-    lastFrameAt: 0
+    lastFrameAt: 0,
+    usesManualFrameRequests: false
   },
   actionLocks: {
     showScreen: false,
@@ -1235,12 +1265,265 @@ async function runLockedAction(lockName, buttons, task) {
   }
 }
 
-function beginExportFromUi(task) {
+function getPdfExportFileName(renderMode = getPdfRenderMode()) {
+  return renderMode === "exact"
+    ? "pdf-presentation-video.mp4"
+    : "selected-pdf-context-video.mp4";
+}
+
+function getDefaultExportFileName() {
+  return isPdfPresentationMode()
+    ? getPdfExportFileName(getPdfRenderMode())
+    : "learning-outcomes-video.mp4";
+}
+
+function clearPreparedLessonExportTimer() {
+  if (state.preparedLessonExport.timerId) {
+    window.clearTimeout(state.preparedLessonExport.timerId);
+    state.preparedLessonExport.timerId = 0;
+  }
+}
+
+function clearPreparedLessonExportCache(options = {}) {
+  const keepPromise = options.keepPromise === true;
+  clearPreparedLessonExportTimer();
+  if (!keepPromise) {
+    state.preparedLessonExport.promise = null;
+    state.preparedLessonExport.key = "";
+    state.preparedLessonExport.status = "idle";
+    state.preparedLessonExport.error = "";
+    state.preparedLessonExport.startedAt = 0;
+    state.preparedLessonExport.completedAt = 0;
+  }
+  state.preparedLessonExport.blob = null;
+  if (!options.preservePrepareAfterPlayback) {
+    state.preparedLessonExport.prepareAfterPlayback = false;
+  }
+}
+
+function getPreparedLessonExportKey(lessonExportSource = getLessonExportSource()) {
+  const source = lessonExportSource || getLessonExportSource();
+  return JSON.stringify({
+    lesson: source.snapshot,
+    lessonPlaybackRate: getLessonPlaybackRate(),
+    introEnabled: Boolean(state.introPlayback.enabled),
+    introFileName: String(state.introPlayback.fileName || ""),
+    fontScale: Number(state.fontScale || 1),
+    template: normalizePresentationTemplate(state.presentationTemplate),
+    outcomesTitle: normalizeOutcomesTitle(state.outcomesTitle),
+    keywordStyles: state.keywordStyles,
+    whiteboard: {
+      enabled: Boolean(state.whiteboard.enabled),
+      strokes: state.whiteboard.strokes
+    },
+    images: state.images.map((image) => ({
+      fileName: image?.fileName || "",
+      pageIndex: Number(image?.pageIndex || 0),
+      x: Number(image?.x || 0),
+      y: Number(image?.y || 0),
+      width: Number(image?.width || 0),
+      height: Number(image?.height || 0),
+      cutoutApplied: Boolean(image?.cutoutApplied),
+      sourceTag: image?.sourceTag || ""
+    })),
+    stageVideos: state.stageVideos.map((video) => ({
+      id: video?.id || "",
+      fileName: video?.fileName || "",
+      frameX: Number(video?.frameX || 0),
+      frameY: Number(video?.frameY || 0),
+      frameWidth: Number(video?.frameWidth || 0),
+      frameHeight: Number(video?.frameHeight || 0),
+      cutoutApplied: Boolean(video?.cutoutApplied)
+    })),
+    activeStageVideoId: state.activeStageVideoId || "",
+    scene: {
+      theme: state.scene.theme,
+      vfx: state.scene.vfx,
+      palette: state.scene.palette
+    }
+  });
+}
+
+function schedulePreparedLessonExport(options = {}) {
+  if (!ENABLE_PREPARED_LESSON_EXPORT) {
+    return;
+  }
+  if (isPdfPresentationMode() || state.preparedLessonExport.suspendSchedule) {
+    return;
+  }
+
+  const lessonExportSource = options.lessonExportSource || getLessonExportSource();
+  if (!lessonExportSource?.text || !hasLiveLessonStageState()) {
+    return;
+  }
+
+  const nextKey = options.key || getPreparedLessonExportKey(lessonExportSource);
+  if (state.preparedLessonExport.blob && state.preparedLessonExport.key === nextKey) {
+    return;
+  }
+  if (state.preparedLessonExport.promise && state.preparedLessonExport.key === nextKey) {
+    return;
+  }
+  if (state.preparedLessonExport.promise && state.preparedLessonExport.key && state.preparedLessonExport.key !== nextKey) {
+    return;
+  }
+
+  clearPreparedLessonExportTimer();
+  const delayMs = Math.max(0, Math.round(Number(options.delayMs) || 400));
+  state.preparedLessonExport.timerId = window.setTimeout(() => {
+    state.preparedLessonExport.timerId = 0;
+    void ensurePreparedLessonExport({
+      lessonExportSource,
+      key: nextKey
+    });
+  }, delayMs);
+}
+
+async function ensurePreparedLessonExport(options = {}) {
+  if (!ENABLE_PREPARED_LESSON_EXPORT) {
+    return null;
+  }
+  if (isPdfPresentationMode()) {
+    return null;
+  }
+
+  const lessonExportSource = options.lessonExportSource || getLessonExportSource();
+  if (!lessonExportSource?.text || !hasLiveLessonStageState()) {
+    return null;
+  }
+
+  const preparedKey = options.key || getPreparedLessonExportKey(lessonExportSource);
+  if (state.preparedLessonExport.blob && state.preparedLessonExport.key === preparedKey) {
+    return state.preparedLessonExport.blob;
+  }
+  if (state.preparedLessonExport.promise && state.preparedLessonExport.key === preparedKey) {
+    return state.preparedLessonExport.promise;
+  }
+  if (state.preparedLessonExport.promise && state.preparedLessonExport.key && state.preparedLessonExport.key !== preparedKey) {
+    return null;
+  }
+
+  clearPreparedLessonExportTimer();
+  state.preparedLessonExport.suspendSchedule = true;
+  state.preparedLessonExport.key = preparedKey;
+  state.preparedLessonExport.blob = null;
+  state.preparedLessonExport.status = "preparing";
+  state.preparedLessonExport.error = "";
+  state.preparedLessonExport.startedAt = Date.now();
+  state.preparedLessonExport.completedAt = 0;
+
+  const promise = (async () => {
+    try {
+      const preparedBlob = await exportVideo({
+        cacheOnly: true,
+        preparedExportKey: preparedKey,
+        lessonExportSourceOverride: lessonExportSource,
+        backgroundPrepare: true
+      });
+      return preparedBlob instanceof Blob ? preparedBlob : null;
+    } finally {
+      state.preparedLessonExport.suspendSchedule = false;
+    }
+  })();
+
+  state.preparedLessonExport.promise = promise;
+
+  try {
+    const preparedBlob = await promise;
+    if (preparedBlob && state.preparedLessonExport.key === preparedKey) {
+      state.preparedLessonExport.blob = preparedBlob;
+      state.preparedLessonExport.status = "ready";
+      state.preparedLessonExport.completedAt = Date.now();
+      return preparedBlob;
+    }
+    return preparedBlob;
+  } catch (error) {
+    if (state.preparedLessonExport.key === preparedKey) {
+      state.preparedLessonExport.status = "error";
+      state.preparedLessonExport.error = error?.message || "Prepared export failed.";
+      state.preparedLessonExport.completedAt = Date.now();
+    }
+    throw error;
+  } finally {
+    if (state.preparedLessonExport.key === preparedKey) {
+      state.preparedLessonExport.promise = null;
+    }
+    const liveKey = hasLiveLessonStageState()
+      ? getPreparedLessonExportKey(getLessonExportSource())
+      : "";
+    if (liveKey && liveKey !== preparedKey) {
+      schedulePreparedLessonExport({
+        lessonExportSource: getLessonExportSource(),
+        key: liveKey,
+        delayMs: 300
+      });
+    }
+  }
+}
+
+async function beginExportFromUi(task, options = {}) {
   const startingLabel = isPdfPresentationMode() ? "Starting PDF export..." : "Starting video export...";
   setStatus(startingLabel);
   updateTaskProgressUi(0.01, true, { label: startingLabel });
   updateStageModeUi();
-  return runLockedAction("export", [downloadBtn, downloadPdfContextBtn, playBtn], task);
+  const shouldRequestSaveHandle = options.requestSaveHandle === true;
+  const suggestedName = typeof options.suggestedName === "string" && options.suggestedName
+    ? options.suggestedName
+    : getDefaultExportFileName();
+  let videoSaveHandle = null;
+
+  if (shouldRequestSaveHandle) {
+    try {
+      videoSaveHandle = await requestVideoSaveHandle(suggestedName);
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        setStatus(isPdfPresentationMode() ? "PDF export cancelled." : "Video export cancelled.");
+        resetTaskProgressUi();
+        return;
+      }
+
+      console.error(error);
+      videoSaveHandle = null;
+    }
+  }
+
+  if (ENABLE_PREPARED_LESSON_EXPORT && !shouldRequestSaveHandle && !isPdfPresentationMode() && task === exportVideo) {
+    const lessonExportSource = getLessonExportSource();
+    const preparedKey = getPreparedLessonExportKey(lessonExportSource);
+    if (state.preparedLessonExport.blob && state.preparedLessonExport.key === preparedKey) {
+      triggerFileDownload(state.preparedLessonExport.blob, suggestedName);
+      updateTaskProgressUi(1, true, { label: "Downloading prepared video..." });
+      setStatus("Video downloaded from the prepared export.");
+      window.setTimeout(() => resetTaskProgressUi(), 120);
+      return;
+    }
+
+    if (state.preparedLessonExport.promise && state.preparedLessonExport.key === preparedKey) {
+      setStatus("Finishing the prepared video so it can download directly...");
+      updateTaskProgressUi(0.2, true, { label: "Finishing prepared video..." });
+      try {
+        const preparedBlob = await state.preparedLessonExport.promise;
+        if (preparedBlob instanceof Blob && preparedBlob.size) {
+          triggerFileDownload(preparedBlob, suggestedName);
+          updateTaskProgressUi(1, true, { label: "Downloading prepared video..." });
+          setStatus("Video downloaded from the prepared export.");
+          window.setTimeout(() => resetTaskProgressUi(), 120);
+          return;
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  }
+
+  return runLockedAction(
+    "export",
+    [downloadBtn, downloadPdfContextBtn, playBtn],
+    () => task({
+      videoSaveHandle,
+      saveHandleRequested: shouldRequestSaveHandle
+    })
+  );
 }
 
 function buildHumanTaskLabel(label = "") {
@@ -1296,15 +1579,11 @@ function buildHumanTaskLabel(label = "") {
 }
 
 function normalizeExportQuality(value) {
-  return value === "4k"
-    ? "4k"
-    : value === "2k"
-      ? "2k"
-      : "hd";
+  return "hd";
 }
 
 function getSelectedExportQuality() {
-  return normalizeExportQuality(exportQualitySelect?.value || state.scene.exportQuality || "2k");
+  return normalizeExportQuality("hd");
 }
 
 function resolveProjectAssetUrl(path) {
@@ -1487,24 +1766,85 @@ function handleCutoutControlChange() {
 }
 
 function getRequestedExportQuality() {
-  return normalizeExportQuality(state.scene.exportQuality);
+  return "2k";
 }
 
 function getEffectiveExportQuality() {
-  const requestedQuality = getRequestedExportQuality();
-  if (state.stageVideo.url && requestedQuality === "hd") {
-    return "2k";
-  }
-
-  return requestedQuality;
+  return "2k";
 }
 
 function getExportQualityLabel(quality = getEffectiveExportQuality()) {
-  return quality === "4k"
-    ? "4K"
-    : quality === "2k"
-      ? "2K"
-      : "HD";
+  return "Video";
+}
+
+function getExportCanvasSize(quality = getEffectiveExportQuality()) {
+  return {
+    width: Number(previewCanvas?.width) || 1280,
+    height: Number(previewCanvas?.height) || 720
+  };
+}
+
+function createExportCanvasSurface() {
+  return previewCanvas;
+}
+
+function getAvatarExportPlaybackRate() {
+  const requestedRate = Number(document.getElementById("avatarSpeedRange")?.value);
+  return Number.isFinite(requestedRate) && requestedRate > 0
+    ? requestedRate
+    : 1.8;
+}
+
+function freezeAvatarForExport() {
+  if (typeof avatarVideoElement === "undefined" || !avatarVideoElement) {
+    return null;
+  }
+
+  const snapshot = {
+    playbackRate: Number(avatarVideoElement.playbackRate) || 1.8,
+    wasPaused: Boolean(avatarVideoElement.paused)
+  };
+
+  try {
+    // Keep avatar motion on its own visual speed during export.
+    // Export acceleration should come from the render timeline, not from 10x avatar playback.
+    avatarVideoElement.playbackRate = getAvatarExportPlaybackRate();
+    avatarVideoElement.defaultPlaybackRate = avatarVideoElement.playbackRate;
+    avatarVideoElement.play().catch((error) => {
+      console.error(error);
+    });
+  } catch (error) {
+    console.error(error);
+  }
+
+  return snapshot;
+}
+
+async function restoreAvatarAfterExport(snapshot) {
+  if (!snapshot || typeof avatarVideoElement === "undefined" || !avatarVideoElement) {
+    return;
+  }
+
+  try {
+    avatarVideoElement.playbackRate = snapshot.playbackRate;
+    avatarVideoElement.defaultPlaybackRate = snapshot.playbackRate;
+  } catch (error) {
+    console.error(error);
+  }
+
+  if (snapshot.wasPaused) {
+    try {
+      avatarVideoElement.pause();
+    } catch (error) {
+      console.error(error);
+    }
+  } else {
+    try {
+      await avatarVideoElement.play();
+    } catch (error) {
+      console.error(error);
+    }
+  }
 }
 
 function setSceneGeneratorStatus(message) {
@@ -1823,11 +2163,15 @@ function initializeTheme() {
 }
 
 function normalizePresentationTemplate(value) {
-  const liveToggleValue = presentationTemplateToggle
-    ? (presentationTemplateToggle.checked ? PRESENTATION_TEMPLATE_OUTCOMES : PRESENTATION_TEMPLATE_CLASSIC)
-    : null;
-  const liveInputValue = document.querySelector('input[name="presentationTemplate"]:checked')?.value;
-  const effectiveValue = liveToggleValue || liveInputValue || value;
+  let effectiveValue = value;
+
+  if (effectiveValue === undefined || effectiveValue === null || effectiveValue === "") {
+    const liveToggleValue = presentationTemplateToggle
+      ? (presentationTemplateToggle.checked ? PRESENTATION_TEMPLATE_OUTCOMES : PRESENTATION_TEMPLATE_CLASSIC)
+      : null;
+    const liveInputValue = document.querySelector('input[name="presentationTemplate"]:checked')?.value;
+    effectiveValue = liveToggleValue || liveInputValue || PRESENTATION_TEMPLATE_CLASSIC;
+  }
   
   return String(effectiveValue || "").trim().toLowerCase() === PRESENTATION_TEMPLATE_OUTCOMES
     ? PRESENTATION_TEMPLATE_OUTCOMES
@@ -2029,6 +2373,10 @@ function openWorkflowTarget(targetId = "") {
   if (typeof target.focus === "function") {
     target.focus({ preventScroll: true });
   }
+
+  if (targetId === "showScreenBtn") {
+    showScreen();
+  }
 }
 
 function canExportVideo() {
@@ -2091,28 +2439,77 @@ function delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function scheduleVisualLoopTick(tick) {
+  if (state.exportingVideo) {
+    const intervalMs = Math.max(
+      8,
+      Math.round(Number(state.exportCapture.minFrameIntervalMs) || (1000 / 30))
+    );
+    state.exportVisualTimerId = window.setTimeout(() => {
+      state.exportVisualTimerId = 0;
+      tick();
+    }, intervalMs);
+    return;
+  }
+
+  state.animationFrame = requestAnimationFrame(tick);
+}
+
 function getFinalExportHoldMs() {
-  return STRICT_SCENE_END_BUFFER_MS;
+  return 0;
 }
 
 function getExportCompletionTailMs() {
-  return getFinalExportHoldMs() + Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
+  return Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
+}
+
+function getFinalExportSafetyTailMs() {
+  return 5000;
 }
 
 function getLessonExportCaptureRate() {
-  return 60; // Max smooth 60fps
+  return 24;
 }
 
 function getPdfExportCaptureRate(renderMode = "context") {
-  return 60; // Max smooth 60fps
+  return 24;
 }
 
 function getExportRenderSpeedMultiplier() {
-  return 1.0; // STRICTLY 1.0x Real-time to prevent CPU dropping frames and destroying smooth flow
+  return 10;
+}
+
+function getBalancedLessonExportRenderSpeedMultiplier(quality = getEffectiveExportQuality()) {
+  return 10;
+}
+
+function getTargetLessonExportRenderSpeedMultiplier(totalDurationMs = 0, quality = getEffectiveExportQuality()) {
+  return getBalancedLessonExportRenderSpeedMultiplier(quality);
 }
 
 function getEffectiveExportRenderSpeedMultiplier(baseRate, targetDurationMs = 0, desiredMultiplier = getExportRenderSpeedMultiplier()) {
-  return 1.0; // STRICTLY 1.0x Real-time to prevent CPU dropping frames and destroying smooth flow
+  const safeBaseRate = Number.isFinite(Number(baseRate)) ? Math.max(24, Number(baseRate)) : 60;
+  const safeTargetDurationMs = Math.max(0, Math.round(Number(targetDurationMs) || 0));
+  let safeMultiplier = Number.isFinite(Number(desiredMultiplier)) ? Number(desiredMultiplier) : 1;
+
+  if (safeTargetDurationMs >= VERY_LONG_EXPORT_THRESHOLD_MS) {
+    safeMultiplier = Math.min(safeMultiplier, 10);
+  } else if (safeTargetDurationMs >= LONG_EXPORT_THRESHOLD_MS) {
+    safeMultiplier = Math.min(safeMultiplier, 10);
+  }
+
+  const captureLimitedMultiplier = MAX_EXPORT_CAPTURE_FPS / safeBaseRate;
+  return clamp(
+    Math.min(safeMultiplier, Math.max(1, captureLimitedMultiplier)),
+    1,
+    10
+  );
 }
 
 function getAcceleratedExportCaptureRate(baseRate, renderSpeedMultiplier = getExportRenderSpeedMultiplier()) {
@@ -2126,21 +2523,24 @@ function getAcceleratedExportCaptureRate(baseRate, renderSpeedMultiplier = getEx
 
 function setExportCaptureRate(fps) {
   const safeFps = Number.isFinite(Number(fps)) ? Math.max(1, Number(fps)) : 0;
+  state.exportCapture.elapsedMs = 0;
   state.exportCapture.minFrameIntervalMs = safeFps ? (1000 / safeFps) : 0;
   state.exportCapture.lastFrameAt = 0;
 }
 
 function clearExportCaptureRate() {
+  state.exportCapture.elapsedMs = 0;
   state.exportCapture.minFrameIntervalMs = 0;
   state.exportCapture.lastFrameAt = 0;
+  state.exportCapture.usesManualFrameRequests = false;
 }
 
 function getLessonExportBitrate(quality = getEffectiveExportQuality()) {
-  return 12000000;
+  return 16000000;
 }
 
 function getPdfExportBitrate(quality = getEffectiveExportQuality(), renderMode = "context") {
-  return 12000000;
+  return renderMode === "exact" ? 16000000 : 12000000;
 }
 
 async function fetchWithTimeout(resource, options = {}, timeoutMs = 2500) {
@@ -2245,10 +2645,21 @@ function triggerFileDownload(blob, fileName) {
 }
 
 async function requestVideoSaveHandle(suggestedName = "learning-outcomes-video.mp4") {
-  // Direct browser download is more reliable than the picker path here.
-  // The picker can make a completed render look like a failed export if the
-  // browser blocks or cancels the save dialog after recording has finished.
-  return null;
+  if (typeof window.showSaveFilePicker !== "function") {
+    return null;
+  }
+
+  return window.showSaveFilePicker({
+    suggestedName,
+    types: [
+      {
+        description: "MP4 video",
+        accept: {
+          "video/mp4": [".mp4"]
+        }
+      }
+    ]
+  });
 }
 
 async function streamResponseToFileHandle(response, fileHandle) {
@@ -2257,6 +2668,7 @@ async function streamResponseToFileHandle(response, fileHandle) {
   }
 
   const writable = await fileHandle.createWritable();
+  let writtenBytes = 0;
 
   try {
     if (response.body && typeof response.body.getReader === "function") {
@@ -2270,10 +2682,17 @@ async function streamResponseToFileHandle(response, fileHandle) {
 
         if (value?.length) {
           await writable.write(value);
+          writtenBytes += value.length;
         }
       }
     } else {
-      await writable.write(await response.blob());
+      const blob = await response.blob();
+      writtenBytes += Number(blob?.size || 0);
+      await writable.write(blob);
+    }
+
+    if (!writtenBytes) {
+      throw new Error("The export server returned an empty video file.");
     }
 
     await writable.close();
@@ -2285,6 +2704,67 @@ async function streamResponseToFileHandle(response, fileHandle) {
     }
 
     throw error;
+  }
+}
+
+async function readMuxServerResponse(response) {
+  if (!response?.ok) {
+    throw new Error("The video export response was not ready.");
+  }
+
+  const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  return response.blob();
+}
+
+function getMuxOutputFileName(options = {}) {
+  return options.outputFileName || "learning-outcomes-video.mp4";
+}
+
+function getMuxVideoFileName(options = {}) {
+  return options.videoFileName || "canvas-export.webm";
+}
+
+function createExportCanvasStream(captureRate, options = {}) {
+  const safeRate = Math.max(1, Number(captureRate) || 30);
+  const preferTimedCapture = options.preferTimedCapture === true;
+  if (preferTimedCapture) {
+    state.exportCapture.usesManualFrameRequests = false;
+    return canvas.captureStream(safeRate);
+  }
+  let stream = null;
+  try {
+    stream = canvas.captureStream(0);
+    const videoTrack = stream.getVideoTracks().find((track) => track.kind === "video");
+    if (videoTrack && typeof videoTrack.requestFrame === "function") {
+      state.exportCapture.usesManualFrameRequests = true;
+      return stream;
+    }
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+  } catch (error) {
+    console.error(error);
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+  }
+
+  state.exportCapture.usesManualFrameRequests = false;
+  return canvas.captureStream(safeRate);
+}
+
+function requestExportVideoFrame() {
+  try {
+    const videoTrack = state.exportVideoTrack;
+    if (state.exportCapture.usesManualFrameRequests && videoTrack && typeof videoTrack.requestFrame === "function") {
+      videoTrack.requestFrame();
+    }
+  } catch (error) {
+    console.error(error);
   }
 }
 
@@ -2731,7 +3211,7 @@ function getGlossaryNarrationChunkEntries(text = "") {
     });
     entries.push({
       text: definitionChunk,
-      gapAfterMs: index < (glossaryPairs.length - 1) ? NARRATION_CHUNK_JOIN_GAP_MS : 0
+      gapAfterMs: index < (glossaryPairs.length - 1) ? GLOSSARY_ENTRY_GAP_MS : 0
     });
   }
 
@@ -3980,12 +4460,26 @@ function scheduleNarrationWarmup(delayMs = 700) {
 }
 
 function getEffectiveLessonText() {
-  const pureEnabled = isPureInputModeEnabled();
-  if (pureEnabled) return getPureInputText();
+  if (isPureInputModeEnabled()) return getPureInputText();
   
-  // In English mode, if the user hasn't translated yet, we might want to warn or auto-fetch, 
-  // but for now we follow the standard lessonInput flow which is filled by the translators.
-  return lessonInput.value.trim();
+  const mainInput = document.getElementById("lessonInput");
+  let text = mainInput ? mainInput.value.trim() : "";
+  
+  // Auto-recovery: if lessonInput is empty, try to get text from the active source input
+  if (!text) {
+    const isEnglish = state.subjectMode === "english";
+    const sourceInput = isEnglish 
+      ? document.getElementById("englishSourceInput") 
+      : document.getElementById("mathsSourceInput");
+    
+    if (sourceInput && sourceInput.value.trim()) {
+       text = sourceInput.value.trim();
+       // Sync it back to the main box so everything stays aligned
+       if (mainInput) mainInput.value = text;
+    }
+  }
+  
+  return text;
 }
 
 function getPureInputText() {
@@ -4506,6 +5000,7 @@ function clearSelectedTextStyle() {
 function handleLessonInputChange() {
   const nextText = getEffectiveLessonText();
   const lessonIssue = getLessonTextIssue(nextText);
+  clearPreparedLessonExportCache({ keepPromise: true });
 
   if (!isPdfPresentationMode()) {
     applyLessonRenderStateFromText(nextText, {
@@ -4986,6 +5481,78 @@ function applyLessonRenderStateFromText(text, options = {}) {
   state.contentScrollOffset = 0;
   // Invalidate layout cache whenever the source text changes
   invalidateDrawSceneLayoutCache();
+}
+
+function createLessonExportSnapshot(text = state.text) {
+  return {
+    text: typeof text === "string" ? text : "",
+    presentationTemplate: normalizePresentationTemplate(state.presentationTemplate),
+    outcomesTitle: normalizeOutcomesTitle(state.outcomesTitle),
+    rawInputEnabled: isPureInputModeEnabled(),
+    rawInputText: getPureInputText(),
+    renderedPageCount: Math.max(1, Math.round(Number(state.renderedPageCount) || 1))
+  };
+}
+
+function hasLiveLessonStageState() {
+  return Boolean(
+    state.presentationMode === "lesson"
+    && !isPdfPresentationMode()
+    && stagePanel
+    && !stagePanel.classList.contains("hidden")
+    && String(state.text || "").trim()
+  );
+}
+
+function getLessonExportSource() {
+  const inputText = String(getEffectiveLessonText() || "").trim();
+  if (hasLiveLessonStageState()) {
+    const liveText = String(state.text || "").trim();
+    const resolvedText = liveText || inputText;
+    return {
+      text: resolvedText,
+      snapshot: createLessonExportSnapshot(resolvedText),
+      source: liveText ? "live-stage" : "live-stage-input-fallback"
+    };
+  }
+
+  const text = commitLatestLessonText();
+  return {
+    text,
+    snapshot: createLessonExportSnapshot(text),
+    source: "input"
+  };
+}
+
+function applyLessonExportSnapshot(snapshot, displayedText = snapshot?.text || "") {
+  if (!snapshot) {
+    return;
+  }
+
+  state.presentationMode = "lesson";
+  state.presentationTemplate = normalizePresentationTemplate(snapshot.presentationTemplate);
+  state.outcomesTitle = normalizeOutcomesTitle(snapshot.outcomesTitle);
+  state.rawInput.enabled = Boolean(snapshot.rawInputEnabled);
+  state.rawInput.text = String(snapshot.rawInputText || "");
+
+  if (
+    state.text !== snapshot.text
+    || state.lines.length === 0
+    || state.words.length === 0
+    || state.tokens.length === 0
+  ) {
+    applyLessonRenderStateFromText(snapshot.text, {
+      displayedText,
+      previewPageIndex: 0,
+      renderedPageCount: snapshot.renderedPageCount
+    });
+    return;
+  }
+
+  state.displayedText = typeof displayedText === "string" ? displayedText : snapshot.text;
+  state.previewPageIndex = 0;
+  state.renderedPageCount = snapshot.renderedPageCount;
+  state.contentScrollOffset = 0;
 }
 
 function restoreLessonRenderStateSnapshot(snapshot) {
@@ -7032,7 +7599,7 @@ function forceExportVoiceToAnjali() {
 
 async function ensureAnjaliNarrationReadyForExport(options = {}) {
   forceExportVoiceToAnjali();
-  const exportText = commitLatestLessonText();
+  const exportText = String(options.textSource || commitLatestLessonText()).trim();
   const hasMatchingNarration = Boolean(
     state.narration.blob
     && state.narration.voice === EXPORT_NARRATION_VOICE
@@ -7435,7 +8002,7 @@ function handleStagePlaybackRateChange(nextRate) {
     return;
   }
 
-  const safeRate = clamp(parsedRate, 0.5, 2);
+  const safeRate = clamp(parsedRate, 0.5, 2.5);
   state.lessonPlaybackRate = safeRate;
   const currentTimeMs = isPdfPresentationMode() ? getPdfCurrentTimelinePosition() : state.pdf.currentTimeMs;
   state.pdf.playbackRate = safeRate;
@@ -8032,7 +8599,10 @@ function shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob) {
 }
 
 async function uploadBlobToMuxSession(sessionId, target, blob, onProgress = null) {
-  const safeTarget = target === "music" ? "music" : (target === "audio" ? "audio" : "video");
+  const rawTarget = String(target || "video");
+  const safeTarget = /^video-\d+$/i.test(rawTarget)
+    ? rawTarget.toLowerCase()
+    : (rawTarget === "music" ? "music" : (rawTarget === "audio" ? "audio" : "video"));
   const safeBlob = blob instanceof Blob ? blob : new Blob();
   const totalBytes = Number(safeBlob.size || 0);
 
@@ -8063,8 +8633,46 @@ async function uploadBlobToMuxSession(sessionId, target, blob, onProgress = null
   }
 }
 
+function shouldUseSegmentedLessonExport(totalDurationMs = 0, options = {}) {
+  if (Boolean(options.includeIntro)) {
+    return false;
+  }
+
+  return Math.max(0, Math.round(Number(totalDurationMs) || 0)) >= SEGMENTED_EXPORT_THRESHOLD_MS;
+}
+
+function buildExportTimelineSegments(totalDurationMs, targetSegmentDurationMs = EXPORT_SEGMENT_TARGET_DURATION_MS) {
+  const safeTotalDurationMs = Math.max(1, Math.round(Number(totalDurationMs) || 0));
+  const safeTargetSegmentDurationMs = clamp(
+    Math.round(Number(targetSegmentDurationMs) || EXPORT_SEGMENT_TARGET_DURATION_MS),
+    8000,
+    45000
+  );
+  const segments = [];
+  let startMs = 0;
+
+  while (startMs < safeTotalDurationMs) {
+    const endMs = Math.min(safeTotalDurationMs, startMs + safeTargetSegmentDurationMs);
+    segments.push({
+      index: segments.length,
+      startMs,
+      endMs,
+      durationMs: Math.max(1, endMs - startMs)
+    });
+    startMs = endMs;
+  }
+
+  return segments.length ? segments : [{
+    index: 0,
+    startMs: 0,
+    endMs: safeTotalDurationMs,
+    durationMs: safeTotalDurationMs
+  }];
+}
+
 async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options = {}) {
   const audioFileName = options.audioFileName || state.narration.fileName || "narration.wav";
+  const videoFileName = getMuxVideoFileName(options);
   const audioSpeed = Number.isFinite(Number(options.audioSpeed)) ? Number(options.audioSpeed) : 1;
   const videoSpeed = Number.isFinite(Number(options.videoSpeed)) ? Number(options.videoSpeed) : 1;
   const explicitTargetDurationMs = Number(options.targetDurationMs) || 0;
@@ -8073,6 +8681,9 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
     : 0;
   const exportQuality = getEffectiveExportQuality();
   const saveHandle = options.saveHandle || null;
+  const outputFileName = getMuxOutputFileName(options);
+  const saveToDefaultPath = Boolean(options.saveToDefaultPath);
+  const holdLastFrameMs = Math.max(0, Math.round(Number(options.holdLastFrameMs) || 0));
   const measuredAudioDurationMs = audioBlob?.size
     ? await measureNarrationBlobDurationMs(audioBlob)
     : 0;
@@ -8106,6 +8717,9 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
       musicVolume,
       exportQuality,
       targetDurationMs,
+      holdLastFrameMs,
+      outputFileName,
+      saveToDefaultPath,
       audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
     })
   });
@@ -8152,7 +8766,119 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
     return null;
   }
 
-  return completeResponse.blob();
+  return readMuxServerResponse(completeResponse);
+}
+
+async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob, options = {}) {
+  const safeVideoBlobs = Array.isArray(videoBlobs)
+    ? videoBlobs.filter((blob) => blob instanceof Blob && Number(blob.size || 0) > 0)
+    : [];
+  if (!safeVideoBlobs.length) {
+    throw new Error("No rendered video segments were available for export.");
+  }
+
+  if (safeVideoBlobs.length === 1) {
+    return muxVideoAndAudioChunked(safeVideoBlobs[0], audioBlob, musicBlob, options);
+  }
+
+  const audioFileName = options.audioFileName || state.narration.fileName || "narration.wav";
+  const videoFileName = getMuxVideoFileName(options);
+  const audioSpeed = Number.isFinite(Number(options.audioSpeed)) ? Number(options.audioSpeed) : 1;
+  const videoSpeed = Number.isFinite(Number(options.videoSpeed)) ? Number(options.videoSpeed) : 1;
+  const explicitTargetDurationMs = Number(options.targetDurationMs) || 0;
+  const musicVolume = state.music.enabled
+    ? Math.min(STRICT_BACKGROUND_MUSIC_VOLUME, Number(state.music.volume) || STRICT_BACKGROUND_MUSIC_VOLUME)
+    : 0;
+  const exportQuality = getEffectiveExportQuality();
+  const saveHandle = options.saveHandle || null;
+  const outputFileName = getMuxOutputFileName(options);
+  const saveToDefaultPath = Boolean(options.saveToDefaultPath);
+  const holdLastFrameMs = Math.max(0, Math.round(Number(options.holdLastFrameMs) || 0));
+  const measuredAudioDurationMs = audioBlob?.size
+    ? await measureNarrationBlobDurationMs(audioBlob)
+    : 0;
+  const targetDurationMs = Math.max(
+    explicitTargetDurationMs,
+    measuredAudioDurationMs && audioSpeed > 0
+      ? Math.round(measuredAudioDurationMs / audioSpeed)
+      : 0
+  );
+  const uploadPlan = safeVideoBlobs.map((blob, index) => ({
+    key: `video-${index}`,
+    blob
+  }));
+  uploadPlan.push({ key: "audio", blob: audioBlob });
+  if (musicBlob?.size) {
+    uploadPlan.push({ key: "music", blob: musicBlob });
+  }
+
+  const totalBytes = uploadPlan.reduce((sum, item) => sum + Number(item.blob?.size || 0), 0);
+  const sessionResponse = await fetch(`${state.videoExportServerUrl}/api/mux-upload-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      videoFileName,
+      videoSegmentCount: safeVideoBlobs.length,
+      audioFileName,
+      musicFileName: musicBlob?.size ? (state.music.fileName || "background-music.wav") : "",
+      audioSpeed,
+      videoSpeed,
+      musicVolume,
+      exportQuality,
+      includeIntroSegment: Boolean(options.includeIntroSegment),
+      targetDurationMs,
+      holdLastFrameMs,
+      outputFileName,
+      saveToDefaultPath,
+      audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
+    })
+  });
+
+  if (!sessionResponse.ok) {
+    const errorPayload = await sessionResponse.json().catch(() => ({}));
+    throw new Error(errorPayload.error || "The local video export server could not start the segmented export session.");
+  }
+
+  const sessionPayload = await sessionResponse.json().catch(() => ({}));
+  const sessionId = String(sessionPayload.sessionId || "");
+  if (!sessionId) {
+    throw new Error("The local video export server did not return a segmented export session id.");
+  }
+
+  let uploadedBytes = 0;
+  for (const item of uploadPlan) {
+    await uploadBlobToMuxSession(sessionId, item.key, item.blob, (itemUploadedBytes) => {
+      const overallUploadedBytes = uploadedBytes + itemUploadedBytes;
+      const progress = totalBytes > 0 ? clamp(overallUploadedBytes / totalBytes, 0, 1) : 1;
+      updateTaskProgressUi(0.9 + (progress * 0.08), true, {
+        mirrorStage: true,
+        label: "Uploading rendered video parts to FFmpeg. Please wait..."
+      });
+    });
+    uploadedBytes += Number(item.blob?.size || 0);
+  }
+
+  const completeResponse = await fetch(`${state.videoExportServerUrl}/api/mux-upload-complete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sessionId })
+  });
+
+  if (!completeResponse.ok) {
+    const errorPayload = await completeResponse.json().catch(() => ({}));
+    throw new Error(errorPayload.error || "The local video export server could not finish the segmented export.");
+  }
+
+  if (saveHandle) {
+    await streamResponseToFileHandle(completeResponse, saveHandle);
+    return null;
+  }
+
+  return readMuxServerResponse(completeResponse);
 }
 
 function buildMuxBinaryRequestBlob(videoBlob, audioBlob, musicBlob, metadata) {
@@ -8753,7 +9479,7 @@ function updateScenePreview() {
         ? "Off"
         : (sceneState.musicMood.charAt(0).toUpperCase() + sceneState.musicMood.slice(1)))
   }`;
-  sceneExportChip.textContent = `Export: ${getExportQualityLabel(normalizeExportQuality(sceneState.exportQuality))}`;
+  sceneExportChip.textContent = "Export: Video";
 
   if (state.sceneUploads.length) {
     scenePreviewImage.src = state.sceneUploads[0].dataUrl;
@@ -8859,7 +9585,9 @@ async function generateSceneSetup(options = {}) {
       exportQuality: getSelectedExportQuality()
     };
 
-    exportQualitySelect.value = state.scene.exportQuality;
+    if (exportQualitySelect) {
+      exportQualitySelect.value = state.scene.exportQuality;
+    }
     setSceneGenerationProgress(24, "Building scene style");
 
     await ensureScenePromptArt(state.scene, promptText);
@@ -8906,7 +9634,7 @@ async function generateSceneSetup(options = {}) {
 
     setSceneGenerationProgress(100, showScreenAfter ? "Scene ready on screen" : "Scene ready");
     setSceneGeneratorStatus(
-      `Scene ready: ${state.scene.theme} style, ${state.scene.vfx} background effect, ${state.scene.exportQuality === "4k" ? "4K" : "HD"} export.${state.music.enabled ? " Music is ready too." : ""}${showScreenAfter ? " The screen is open and ready for download." : ""}`
+      `Scene ready: ${state.scene.theme} style and ${state.scene.vfx} background effect. Export is ready.${state.music.enabled ? " Music is ready too." : ""}${showScreenAfter ? " The screen is open and ready for download." : ""}`
     );
     setStatus(showScreenAfter
       ? "Prompt scene is ready on screen. Play it or download the video."
@@ -8934,7 +9662,9 @@ function clearSceneSetup() {
   sceneMusicInput.value = "";
   sceneVfxSelect.value = "auto";
   sceneMusicModeSelect.value = "auto";
-  exportQualitySelect.value = "2k";
+  if (exportQualitySelect) {
+    exportQualitySelect.value = "hd";
+  }
   state.scene = analyzeScenePrompt("");
   removeSceneGeneratedImagesFromState();
   resetBackgroundMusicState();
@@ -8964,6 +9694,10 @@ function cancelVisualLoop() {
     cancelAnimationFrame(state.animationFrame);
     state.animationFrame = null;
   }
+  if (state.exportVisualTimerId) {
+    window.clearTimeout(state.exportVisualTimerId);
+    state.exportVisualTimerId = 0;
+  }
   if (typeof cancelStageMediaLoop === "function") {
     cancelStageMediaLoop();
   }
@@ -8971,6 +9705,7 @@ function cancelVisualLoop() {
 
 function resetNarrationState() {
   audioPreview.pause();
+  clearPreparedLessonExportCache({ keepPromise: true });
 
   if (state.narration.url && state.narration.url.startsWith("blob:")) {
     URL.revokeObjectURL(state.narration.url);
@@ -9415,6 +10150,19 @@ async function getIntroExportBlob() {
     throw new Error("The intro clip is not ready for export.");
   }
 
+  const introAudioAssetUrl = resolveProjectAssetUrl("default-intro.wav");
+  try {
+    const directAudioResponse = await fetch(introAudioAssetUrl);
+    if (directAudioResponse.ok) {
+      const directAudioBlob = await directAudioResponse.blob();
+      if (directAudioBlob.size) {
+        return directAudioBlob;
+      }
+    }
+  } catch (error) {
+    console.error(error);
+  }
+
   const response = await fetch(resolveProjectAssetUrl(state.introPlayback.url || DEFAULT_INTRO_VIDEO_FILE));
   if (!response.ok) {
     throw new Error("The intro clip audio could not be read for export.");
@@ -9527,6 +10275,9 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
     : 0;
   const exportQuality = getEffectiveExportQuality();
   const saveHandle = options.saveHandle || null;
+  const outputFileName = getMuxOutputFileName(options);
+  const saveToDefaultPath = Boolean(options.saveToDefaultPath);
+  const holdLastFrameMs = Math.max(0, Math.round(Number(options.holdLastFrameMs) || 0));
   const measuredAudioDurationMs = audioBlob?.size
     ? await measureNarrationBlobDurationMs(audioBlob)
     : 0;
@@ -9542,7 +10293,9 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       audioSpeed,
       videoSpeed,
       targetDurationMs,
-      saveHandle
+      holdLastFrameMs,
+      saveHandle,
+      outputFileName
     });
   }
   const requestBody = buildMuxBinaryRequestBlob(videoBlob, audioBlob, musicBlob, {
@@ -9554,6 +10307,9 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
     musicVolume,
     exportQuality,
     targetDurationMs,
+    holdLastFrameMs,
+    outputFileName,
+    saveToDefaultPath,
     audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
   });
 
@@ -9578,7 +10334,7 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
     const jsonPayload = {
       videoBase64: await blobToBase64(videoBlob),
       audioBase64: await blobToBase64(audioBlob),
-      videoFileName: "canvas-export.webm",
+      videoFileName,
       audioFileName,
       musicFileName: musicBlob ? (state.music.fileName || "background-music.wav") : "",
       audioSpeed,
@@ -9586,6 +10342,9 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       musicVolume,
       exportQuality,
       targetDurationMs,
+      holdLastFrameMs,
+      outputFileName,
+      saveToDefaultPath,
       audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
     };
     if (musicBlob?.size) {
@@ -9615,7 +10374,26 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
     return null;
   }
 
-  return response.blob();
+  return readMuxServerResponse(response);
+}
+
+async function getIntroVideoSourceBlob() {
+  const ready = await ensureDefaultIntroClip();
+  if (!ready) {
+    throw new Error("The intro clip is not ready for export.");
+  }
+
+  const response = await fetch(resolveProjectAssetUrl(state.introPlayback.url || DEFAULT_INTRO_VIDEO_FILE));
+  if (!response.ok) {
+    throw new Error("The intro clip video could not be read for export.");
+  }
+
+  const introBlob = await response.blob();
+  if (!introBlob.size) {
+    throw new Error("The intro clip video file was empty.");
+  }
+
+  return introBlob;
 }
 
 function getDefaultNarrationDurationMs() {
@@ -10416,17 +11194,27 @@ function getPureInputExplicitGlossaryPairs(text = "", options = {}) {
 
     const match = rawLine.match(/^(.+?)\s*=\s*(.*)$/);
     if (!match) {
+      const continuation = normalizeGlossaryChunk(rawLine);
+      if (!continuation) {
+        continue;
+      }
+
+      const lastPair = pairs[pairs.length - 1] || null;
+      if (lastPair) {
+        lastPair.definition = normalizeGlossaryChunk(
+          lastPair.definition
+            ? `${lastPair.definition} ${continuation}`
+            : continuation
+        );
+        continue;
+      }
+
       if (!allowPartialDefinition) {
         return null;
       }
 
-      const partialTerm = normalizeGlossaryChunk(rawLine);
-      if (!partialTerm) {
-        continue;
-      }
-
       pairs.push({
-        term: partialTerm,
+        term: continuation,
         definition: "",
         showSeparator: false
       });
@@ -10453,28 +11241,62 @@ function getPureInputExplicitGlossaryPairs(text = "", options = {}) {
   return pairs.length >= minimumPairs ? pairs : null;
 }
 
+function stripTrailingGlossaryNextTermLeak(definition = "", nextTerm = "") {
+  const safeDefinition = normalizeGlossaryChunk(definition);
+  const safeNextTerm = normalizeGlossaryChunk(nextTerm);
+  if (!safeDefinition || !safeNextTerm) {
+    return safeDefinition;
+  }
+
+  const definitionWords = safeDefinition.split(/\s+/).filter(Boolean);
+  const minimumLeakLength = Math.min(4, safeNextTerm.length);
+  for (let suffixWordCount = Math.min(3, definitionWords.length); suffixWordCount >= 1; suffixWordCount -= 1) {
+    const suffix = normalizeGlossaryChunk(definitionWords.slice(-suffixWordCount).join(" "));
+    if (!suffix || suffix.length < minimumLeakLength) {
+      continue;
+    }
+    if (safeNextTerm.toLowerCase().startsWith(suffix.toLowerCase())) {
+      return normalizeGlossaryChunk(definitionWords.slice(0, -suffixWordCount).join(" "));
+    }
+  }
+
+  return safeDefinition;
+}
+
 function resolvePureInputGlossaryPairs(sourceText = "", fullText = state.text) {
   if (!isPureInputModeEnabled()) {
     return null;
   }
 
+  const isPairDefinitionComplete = (visiblePair, fullPair) => {
+    if (!visiblePair || !fullPair) {
+      return false;
+    }
+
+    return normalizeGlossaryChunk(visiblePair.definition) === normalizeGlossaryChunk(fullPair.definition);
+  };
+
   const normalizedSourceText = String(sourceText ?? "");
   const normalizedFullText = String(fullText ?? "");
   const fullExplicitPairs = getPureInputExplicitGlossaryPairs(normalizedFullText, { minimumPairs: 2 });
   if (fullExplicitPairs?.length) {
-    const visibleExplicitPairs = getPureInputExplicitGlossaryPairs(normalizedSourceText, {
+    const visibleExplicitPairs = (getPureInputExplicitGlossaryPairs(normalizedSourceText, {
       allowPartialDefinition: true,
       minimumPairs: 1
-    }) || [];
-
-    // Find the highest index that is visible so we can force all earlier pairs to
-    // stay "started" — prevents flicker when the parser momentarily drops a pair.
-    const lastVisibleIndex = visibleExplicitPairs.length - 1;
+    }) || []).map((pair, index, source) => ({
+      ...pair,
+      definition: stripTrailingGlossaryNextTermLeak(
+        pair?.definition,
+        fullExplicitPairs[index + 1]?.term
+      )
+    }));
 
     return fullExplicitPairs.map((pair, index) => {
       const visiblePair = visibleExplicitPairs[index] || null;
-      // Monotonic: if any LATER pair has already appeared, this one must be visible too.
-      const started = Boolean(visiblePair) || index <= lastVisibleIndex;
+      const previousPairComplete = index === 0
+        ? true
+        : isPairDefinitionComplete(visibleExplicitPairs[index - 1], fullExplicitPairs[index - 1]);
+      const started = previousPairComplete && Boolean(visiblePair);
       const effectivePair = started ? (visiblePair || { term: pair.term, definition: pair.definition, showSeparator: true }) : null;
       return {
         term: pair.term,
@@ -10489,17 +11311,23 @@ function resolvePureInputGlossaryPairs(sourceText = "", fullText = state.text) {
 
   const fullSequentialPairs = getPureInputSequentialGlossaryPairs(normalizedFullText, { minimumPairs: 2 });
   if (fullSequentialPairs?.length) {
-    const visibleSequentialPairs = getPureInputSequentialGlossaryPairs(normalizedSourceText, {
+    const visibleSequentialPairs = (getPureInputSequentialGlossaryPairs(normalizedSourceText, {
       allowPartialDefinition: true,
       minimumPairs: 1
-    }) || [];
-
-    // Same monotonic guard for sequential pairs.
-    const lastVisibleSeqIndex = visibleSequentialPairs.length - 1;
+    }) || []).map((pair, index, source) => ({
+      ...pair,
+      definition: stripTrailingGlossaryNextTermLeak(
+        pair?.definition,
+        fullSequentialPairs[index + 1]?.term
+      )
+    }));
 
     return fullSequentialPairs.map((pair, index) => {
       const visiblePair = visibleSequentialPairs[index] || null;
-      const started = Boolean(visiblePair) || index <= lastVisibleSeqIndex;
+      const previousPairComplete = index === 0
+        ? true
+        : isPairDefinitionComplete(visibleSequentialPairs[index - 1], fullSequentialPairs[index - 1]);
+      const started = previousPairComplete && Boolean(visiblePair);
       const effectivePair = started ? (visiblePair || { term: pair.term, definition: pair.definition, showSeparator: true }) : null;
       return {
         term: pair.term,
@@ -10544,8 +11372,7 @@ function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
     return [];
   }
 
-  const isOutcomesTemplate = normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES;
-  const valueColor = isOutcomesTemplate ? "#17191f" : "#ffffff";
+  const valueColor = "#17191f";
   const termStyle = {
     color: "#c81f25",
     bold: true,
@@ -10596,7 +11423,7 @@ function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
   const definitionWidth = Math.max(Math.round(maxWidth - definitionStart), Math.round(fontSize * 8));
   const rows = [];
 
-  normalizedPairs.forEach((pair) => {
+  normalizedPairs.forEach((pair, pairIndex) => {
     const wrappedDefinitionRows = wrapStyledRuns(
       ctxRef,
       [{ text: pair.definition, style: definitionStyle }],
@@ -10637,7 +11464,8 @@ function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
     rows.push({
       segments: firstRowSegments,
       bullet: false,
-      isGlossary: true
+      isGlossary: true,
+      glossaryGroupId: `glossary-${pairIndex}`
     });
 
     for (let rowIndex = 1; rowIndex < rowCount; rowIndex += 1) {
@@ -10649,7 +11477,8 @@ function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
           isGlossary: true
         })),
         bullet: false,
-        isGlossary: true
+        isGlossary: true,
+        glossaryGroupId: `glossary-${pairIndex}`
       });
     }
   });
@@ -10899,7 +11728,7 @@ function paginateLayout(layout, maxHeight) {
     currentHeight = 0;
   };
 
-  layout.rows.forEach((row) => {
+  const addRowWithDefaultPaging = (row) => {
     const rowHeight = row.spacer ? row.height : layout.rowHeight;
 
     if (!currentRows.length && row.spacer) {
@@ -10916,7 +11745,46 @@ function paginateLayout(layout, maxHeight) {
 
     currentRows.push(row);
     currentHeight += rowHeight;
-  });
+  };
+
+  for (let rowIndex = 0; rowIndex < layout.rows.length; rowIndex += 1) {
+    const row = layout.rows[rowIndex];
+    const glossaryGroupId = row?.glossaryGroupId || "";
+
+    if (!glossaryGroupId) {
+      addRowWithDefaultPaging(row);
+      continue;
+    }
+
+    const groupedRows = [row];
+    let groupHeight = row.spacer ? row.height : layout.rowHeight;
+
+    while (
+      rowIndex + 1 < layout.rows.length
+      && layout.rows[rowIndex + 1]?.glossaryGroupId === glossaryGroupId
+    ) {
+      rowIndex += 1;
+      const groupedRow = layout.rows[rowIndex];
+      groupedRows.push(groupedRow);
+      groupHeight += groupedRow.spacer ? groupedRow.height : layout.rowHeight;
+    }
+
+    if (groupHeight <= maxHeight) {
+      if (currentRows.length && currentHeight + groupHeight > maxHeight) {
+        commitPage();
+      }
+
+      groupedRows.forEach((groupedRow) => {
+        currentRows.push(groupedRow);
+      });
+      currentHeight += groupHeight;
+      continue;
+    }
+
+    groupedRows.forEach((groupedRow) => {
+      addRowWithDefaultPaging(groupedRow);
+    });
+  }
 
   if (currentRows.length || !pages.length) {
     commitPage();
@@ -10932,7 +11800,7 @@ function getPresentationTemplateMetrics() {
       contentLeftInset: 378,
       contentRightInset: 38,
       contentSideInset: 58,
-      contentBottomInset: 40,
+      contentBottomInset: 40 + STAGE_TEXT_BOTTOM_RESERVED_PX,
       imagePanelTopInset: 148,
       imagePanelBottomInset: 22,
       pdfStripTopInset: 156,
@@ -10945,7 +11813,7 @@ function getPresentationTemplateMetrics() {
     contentSideInset: STAGE_TEXT_SIDE_MARGIN_PX,
     contentLeftInset: STAGE_LEFT_CONTENT_GAP_PX,
     contentRightInset: STAGE_TEXT_SIDE_MARGIN_PX,
-    contentBottomInset: STAGE_TEXT_BOTTOM_MARGIN_PX,
+    contentBottomInset: STAGE_TEXT_BOTTOM_MARGIN_PX + STAGE_TEXT_BOTTOM_RESERVED_PX,
     imagePanelTopInset: STAGE_IMAGE_WORKSPACE_TOP_PX,
     imagePanelBottomInset: STAGE_IMAGE_WORKSPACE_BOTTOM_PX,
     pdfStripTopInset: STAGE_TEXT_TOP_MARGIN_PX,
@@ -11144,11 +12012,12 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
 
 function drawTeachingStageBackdrop(mouthOpen = 0) {
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
-    drawLearningOutcomesBackdrop();
+    drawLearningOutcomesBackdrop(mouthOpen);
     return;
   }
 
   drawClassicTeachingStageBackdrop();
+  drawPresenterFigure(mouthOpen);
 }
 
 function isUsingDefaultStageStyle(style) {
@@ -12442,8 +13311,10 @@ const sCtx = scratchCvs.getContext('2d', { willReadFrequently: true });
 
     function step() {
         if (avatarVideoElement.readyState >= 2) { // Read frame safely instantly if video is ready!
-            const w = avatarVideoElement.videoWidth || 720;
-            const h = avatarVideoElement.videoHeight || 1280;
+            const sourceWidth = avatarVideoElement.videoWidth || 720;
+            const sourceHeight = avatarVideoElement.videoHeight || 1280;
+            const w = sourceWidth;
+            const h = sourceHeight;
             
             if (w === 0) {
                setTimeout(step, 50); 
@@ -12580,7 +13451,7 @@ function drawPresenterFigure(mouthOpen = 0) {
   
   // Real-time Audio Reactive Lip Sync Projection
   let effectiveMouthOpen = mouthOpen;
-  if (state.speaking && state.displayedText !== state.text && (!mouthOpen || mouthOpen < 0.05)) {
+  if (!state.exportingVideo && state.speaking && state.displayedText !== state.text && (!mouthOpen || mouthOpen < 0.05)) {
       effectiveMouthOpen = (Math.sin(performance.now() / 45) + 1) * 0.5;
   }
   
@@ -13153,7 +14024,7 @@ function drawPdfAutoExampleImages(pageIndex = state.previewPageIndex, autoImages
 }
 
 function requestCanvasExportFrame() {
-  if (state.exportVideoTrack?.readyState === "live" && typeof state.exportVideoTrack.requestFrame === "function") {
+  if (state.exportCapture.usesManualFrameRequests && state.exportVideoTrack?.readyState === "live" && typeof state.exportVideoTrack.requestFrame === "function") {
     try {
       const minFrameIntervalMs = state.exportCapture.minFrameIntervalMs || 0;
       if (minFrameIntervalMs > 0) {
@@ -13427,6 +14298,15 @@ function getCachedFullContent(text, pageIndex, hasImages) {
 
 function drawScene(mouthOpen = 0.12) {
   state.drawnCharCount = 0;
+
+  if (state.sceneTransition.blankActive) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawRuntimeDisplayErrorOverlay();
+    requestCanvasExportFrame();
+    return;
+  }
 
   if ((state.introPlayback.active || state.introPlayback.previewVisible) && state.introPlayback.element) {
     drawIntroScene();
@@ -14431,6 +15311,9 @@ function shouldAnimateStageMedia() {
     && !isPdfPresentationMode()
     && !state.speaking
     && !state.exportingVideo
+    && !state.introPlayback.active
+    && !state.introPlayback.previewVisible
+    && !state.sceneTransition.blankActive
   );
 }
 
@@ -14494,6 +15377,115 @@ async function startStageVideoPlayback(options = {}) {
   ensureStageMediaLoop();
 }
 
+async function playPostIntroBlankTransition(durationMs = DEFAULT_INTRO_TO_LESSON_DELAY_MS, options = {}) {
+  const safeDurationMs = Math.max(0, Math.round(Number(durationMs) || 0));
+  if (!safeDurationMs) {
+    return;
+  }
+
+  const exportMode = options.exportMode === true;
+  const frameIntervalMs = Math.max(16, Math.round(1000 / 30));
+  state.sceneTransition.blankActive = true;
+  state.mouthOpen = 0.12;
+  if (!exportMode) {
+    setStatus("Waiting on a short black transition before the lesson starts.");
+  }
+  updatePlaybackProgressUi(1, true);
+  drawScene(0.12);
+  if (exportMode) {
+    requestExportVideoFrame();
+  }
+
+  const startedAt = performance.now();
+  try {
+    while ((performance.now() - startedAt) < safeDurationMs) {
+      drawScene(0.12);
+      if (exportMode) {
+        requestExportVideoFrame();
+      }
+      await waitForNextPaint();
+      await delay(frameIntervalMs);
+    }
+  } finally {
+    state.sceneTransition.blankActive = false;
+    drawScene(0.12);
+    if (exportMode) {
+      requestExportVideoFrame();
+    }
+  }
+}
+
+function armStageVideoStartDelay(delayMs = STAGE_VIDEO_START_DELAY_MS, options = {}) {
+  const safeDelayMs = Math.max(0, Math.round(Number(delayMs) || 0));
+  const useExportTimeline = options.useExportTimeline === true;
+  state.sceneTransition.stageVideoUsesExportTimeline = useExportTimeline;
+  if (useExportTimeline) {
+    state.sceneTransition.stageVideoVisibleAfterElapsedMs = safeDelayMs;
+    state.sceneTransition.stageVideoVisibleAfterMs = 0;
+    return;
+  }
+  state.sceneTransition.stageVideoVisibleAfterMs = performance.now() + safeDelayMs;
+  state.sceneTransition.stageVideoVisibleAfterElapsedMs = 0;
+}
+
+function clearStageVideoStartDelay() {
+  if (state.sceneTransition.stageVideoStartTimerId) {
+    window.clearTimeout(state.sceneTransition.stageVideoStartTimerId);
+    state.sceneTransition.stageVideoStartTimerId = 0;
+  }
+  state.sceneTransition.stageVideoVisibleAfterMs = 0;
+  state.sceneTransition.stageVideoVisibleAfterElapsedMs = 0;
+  state.sceneTransition.stageVideoUsesExportTimeline = false;
+}
+
+function isStageVideoStartDelayActive() {
+  if (state.sceneTransition.blankActive) {
+    return true;
+  }
+  if (state.sceneTransition.stageVideoUsesExportTimeline) {
+    return state.sceneTransition.stageVideoVisibleAfterElapsedMs > 0
+      && state.exportCapture.elapsedMs < state.sceneTransition.stageVideoVisibleAfterElapsedMs;
+  }
+  return state.sceneTransition.stageVideoVisibleAfterMs > 0
+    && performance.now() < state.sceneTransition.stageVideoVisibleAfterMs;
+}
+
+function scheduleStageVideoStartAfterDelay(options = {}) {
+  const delayMs = Math.max(0, Math.round(Number(options.delayMs) || 0));
+  const restart = options.restart !== false;
+  const playbackRate = Number.isFinite(Number(options.playbackRate)) && Number(options.playbackRate) > 0
+    ? Number(options.playbackRate)
+    : 1;
+
+  clearStageVideoStartDelay();
+  if (!state.stageVideo.element || isPdfPresentationMode()) {
+    return;
+  }
+
+  armStageVideoStartDelay(delayMs, { useExportTimeline: false });
+
+  try {
+    state.stageVideo.element.pause();
+    if (restart) {
+      state.stageVideo.element.currentTime = 0;
+    }
+  } catch (error) {
+    console.error(error);
+  }
+
+  if (!delayMs) {
+    void startStageVideoPlayback({ restart, playbackRate });
+    clearStageVideoStartDelay();
+    return;
+  }
+
+  state.sceneTransition.stageVideoStartTimerId = window.setTimeout(() => {
+    state.sceneTransition.stageVideoStartTimerId = 0;
+    clearStageVideoStartDelay();
+    void startStageVideoPlayback({ restart, playbackRate });
+  }, delayMs);
+}
+
 async function playIntroClipIfEnabled() {
   if (isPdfPresentationMode() || !state.introPlayback.enabled) {
     return;
@@ -14505,6 +15497,16 @@ async function playIntroClipIfEnabled() {
   }
 
   const introElement = state.introPlayback.element;
+  clearStageVideoStartDelay();
+  if (state.stageVideo.element) {
+    try {
+      state.stageVideo.element.pause();
+      state.stageVideo.element.currentTime = 0;
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  cancelStageMediaLoop();
   state.introPlayback.previewVisible = false;
   state.introPlayback.active = true;
   state.mouthOpen = 0.12;
@@ -14539,7 +15541,7 @@ async function playIntroClipIfEnabled() {
     drawScene(0.12);
 
     if (!introElement.paused && !introElement.ended) {
-      state.animationFrame = requestAnimationFrame(tick);
+      scheduleVisualLoopTick(tick);
     }
   };
 
@@ -14577,9 +15579,7 @@ async function playIntroClipForExport(options = {}) {
   }
 
   const introElement = state.introPlayback.element;
-  const playbackRate = Number.isFinite(Number(options.playbackRate)) && Number(options.playbackRate) > 0
-    ? Number(options.playbackRate)
-    : 1;
+  const holdAfterMs = Math.max(0, Math.round(Number(options.holdAfterMs) || 0));
   state.introPlayback.previewVisible = false;
   state.introPlayback.active = true;
   state.mouthOpen = 0.12;
@@ -14599,31 +15599,77 @@ async function playIntroClipForExport(options = {}) {
       return false;
     }
 
-    const renderSpeedMultiplier = playbackRate;
-    const frameRate = getAcceleratedExportCaptureRate(getLessonExportCaptureRate(), renderSpeedMultiplier);
-    const frameDurationMs = Math.max(4, Math.round(1000 / frameRate));
-    const targetDurationMs = (duration * 1000) / renderSpeedMultiplier;
-    const exportLoopStartMs = performance.now();
-    let virtualElapsedMs = 0;
-
-    while (state.introPlayback.active && virtualElapsedMs <= targetDurationMs) {
-      const progress = clamp(virtualElapsedMs / targetDurationMs, 0, 1);
-      introElement.currentTime = (virtualElapsedMs * renderSpeedMultiplier) / 1000;
+    const renderIntroFrame = () => {
+      const progress = clamp((introElement.currentTime || 0) / duration, 0, 1);
       updatePlaybackProgressUi(progress, true);
       drawScene(0.12);
+      requestExportVideoFrame();
+    };
 
-      if (progress >= 1) {
-        break;
+    let fallbackTimerId = 0;
+    let frameCallbackActive = true;
+    const stopFrameLoop = () => {
+      frameCallbackActive = false;
+      if (fallbackTimerId) {
+        window.clearTimeout(fallbackTimerId);
+        fallbackTimerId = 0;
       }
-      // Throttle the loop to target frame duration so MediaRecorder timestamps correctly.
-      virtualElapsedMs += (1000 / frameRate);
-      const nextFrameTargetMs = exportLoopStartMs + (virtualElapsedMs / renderSpeedMultiplier);
-      const waitMs = Math.max(0, nextFrameTargetMs - performance.now());
-      await new Promise(resolve => setTimeout(resolve, waitMs));
+    };
+    const scheduleFrameLoop = () => {
+      if (!frameCallbackActive) {
+        return;
+      }
+      if (typeof introElement.requestVideoFrameCallback === "function") {
+        introElement.requestVideoFrameCallback(() => {
+          if (!frameCallbackActive) {
+            return;
+          }
+          renderIntroFrame();
+          if (!introElement.paused && !introElement.ended) {
+            scheduleFrameLoop();
+          }
+        });
+        return;
+      }
+      fallbackTimerId = window.setTimeout(() => {
+        fallbackTimerId = 0;
+        if (!frameCallbackActive) {
+          return;
+        }
+        renderIntroFrame();
+        if (!introElement.paused && !introElement.ended) {
+          scheduleFrameLoop();
+        }
+      }, Math.max(8, Math.round(1000 / 30)));
+    };
+
+    const introFinished = new Promise((resolve, reject) => {
+      const handleEnded = () => resolve();
+      const handleError = () => reject(new Error("The intro clip could not be rendered during export."));
+      introElement.addEventListener("ended", handleEnded, { once: true });
+      introElement.addEventListener("error", handleError, { once: true });
+    });
+
+    const started = await playVideoWithAutoplayRecovery(introElement, { muted: true, volume: 0 });
+    if (!started) {
+      throw new Error("The intro clip could not start during export.");
+    }
+    scheduleFrameLoop();
+    await introFinished;
+    stopFrameLoop();
+    introElement.pause();
+    try {
+      introElement.currentTime = Math.max(0, duration - 0.001);
+    } catch (error) {
+      console.error(error);
     }
 
     updatePlaybackProgressUi(1, true);
     drawScene(0.12);
+    requestExportVideoFrame();
+    if (holdAfterMs > 0) {
+      await playPostIntroBlankTransition(holdAfterMs, { exportMode: true });
+    }
     await delay(80);
     return true;
   } finally {
@@ -14649,32 +15695,68 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     ? Number(options.renderSpeedMultiplier)
     : getExportRenderSpeedMultiplier();
   const frameRate = getAcceleratedExportCaptureRate(getLessonExportCaptureRate(), renderSpeedMultiplier);
-  const frameDurationMs = Math.max(4, Math.round(1000 / frameRate));
   const narrationTimelineMs = Math.max(1, Math.round(safeDurationMs / safePlaybackRate));
   const visualLagMs = Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
+  const exportSnapshot = options.exportSnapshot || null;
+  const segmentStartMs = clamp(
+    Math.round(Number(options.startElapsedMs) || 0),
+    0,
+    narrationTimelineMs
+  );
+  const requestedSegmentEndMs = Number.isFinite(Number(options.endElapsedMs))
+    ? Math.round(Number(options.endElapsedMs))
+    : narrationTimelineMs;
+  const segmentEndMs = clamp(
+    Math.max(segmentStartMs, requestedSegmentEndMs),
+    segmentStartMs,
+    narrationTimelineMs
+  );
+  const segmentDurationMs = Math.max(1, segmentEndMs - segmentStartMs);
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
   let lastDisplayedLength = 0;
   let lastDisplayedAdvanceProgress = 0;
   let virtualElapsedMs = 0;
   const exportLoopStartMs = performance.now();
 
-  state.displayedText = "";
+  if (exportSnapshot) {
+    applyLessonExportSnapshot(exportSnapshot, "");
+  } else {
+    state.displayedText = "";
+  }
   state.speaking = true;
+  if (state.stageVideo.element) {
+    armStageVideoStartDelay(STAGE_VIDEO_START_DELAY_MS, { useExportTimeline: true });
+  }
   syncLessonPlaybackProgressUi(0, true);
   drawScene(0.12);
+  requestExportVideoFrame();
 
   while (true) {
     const elapsedMs = Math.min(
-      narrationTimelineMs,
-      virtualElapsedMs * renderSpeedMultiplier
+      segmentEndMs,
+      segmentStartMs + (virtualElapsedMs * renderSpeedMultiplier)
     );
+    state.exportCapture.elapsedMs = elapsedMs;
 
-    if (state.stageVideo.element) {
-      const stageVidDuration = state.stageVideo.element.duration || 1;
-      state.stageVideo.element.currentTime = (elapsedMs / 1000) % stageVidDuration;
+    if (exportSnapshot) {
+      applyLessonExportSnapshot(exportSnapshot, state.displayedText);
     }
 
     const syncElapsedMs = Math.max(0, elapsedMs - visualLagMs);
     const progress = clamp(elapsedMs / narrationTimelineMs, 0, 1);
+    const segmentProgress = clamp((elapsedMs - segmentStartMs) / segmentDurationMs, 0, 1);
+    if (state.stageVideo.element) {
+      if (elapsedMs < STAGE_VIDEO_START_DELAY_MS) {
+        try {
+          state.stageVideo.element.currentTime = 0;
+        } catch (error) {
+          console.error(error);
+        }
+      } else {
+        const stageVidDuration = state.stageVideo.element.duration || 1;
+        state.stageVideo.element.currentTime = ((elapsedMs - STAGE_VIDEO_START_DELAY_MS) / 1000) % stageVidDuration;
+      }
+    }
     const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, narrationTimelineMs);
     let nextDisplayedText = syncFrame.displayedText;
     const nextDisplayedLength = nextDisplayedText.length;
@@ -14696,26 +15778,46 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     }
 
     const remainingNarrationMs = Math.max(0, narrationTimelineMs - elapsedMs);
-    if (remainingNarrationMs <= Math.max(240, visualLagMs)) {
+    const completionThresholdMs = isGlossaryMode
+      ? Math.max(900, visualLagMs)
+      : Math.max(240, visualLagMs);
+    if (remainingNarrationMs <= completionThresholdMs) {
       nextDisplayedText = state.text;
       lastDisplayedLength = state.text.length;
       lastDisplayedAdvanceProgress = 1;
     }
 
-    state.displayedText = nextDisplayedText;
+    if (exportSnapshot) {
+      applyLessonExportSnapshot(exportSnapshot, nextDisplayedText);
+    } else {
+      state.displayedText = nextDisplayedText;
+    }
     state.exactCharCountFloat = syncFrame.exactCharCountFloat;
     syncLessonPlaybackProgressUi(progress, true);
-    updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
+    if (onProgress) {
+      onProgress({
+        progress,
+        segmentProgress,
+        elapsedMs,
+        segmentStartMs,
+        segmentEndMs,
+        narrationTimelineMs
+      });
+    } else {
+      updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
+    }
     state.mouthOpen = syncFrame.mouthActive ? getFallbackMouth(syncFrame.speechElapsedMs) : 0.12;
     drawScene(state.mouthOpen);
+    requestExportVideoFrame();
+    await waitForNextPaint();
 
-    if (progress >= 1) {
+    if (segmentProgress >= 1 || progress >= 1) {
       break;
     }
 
     // Deterministic Frame Stepping with Throttling for MediaRecorder timestamps.
     virtualElapsedMs += (1000 / frameRate);
-    const nextFrameTargetMs = exportLoopStartMs + (virtualElapsedMs / renderSpeedMultiplier);
+    const nextFrameTargetMs = exportLoopStartMs + virtualElapsedMs;
     const waitMs = Math.max(1, nextFrameTargetMs - performance.now());
     await new Promise(resolve => setTimeout(resolve, waitMs));
   }
@@ -14731,6 +15833,7 @@ async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), optio
   const targetTimelineMs = Math.max(1, Math.round(state.pdf.totalDurationMs || 1000));
   const timelineAdvanceRate = Math.max(0.1, getPdfPlaybackRate()) * renderSpeedMultiplier;
   const startedAt = performance.now();
+  let realElapsedMs = 0;
 
   state.pdf.audioDriven = false;
   state.pdf.paused = false;
@@ -14742,9 +15845,11 @@ async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), optio
   syncPdfPreviewPageFromTime(0);
   updatePlaybackProgressUi(0, true);
   drawScene(0.12);
+  requestExportVideoFrame();
 
   while (true) {
-    const elapsedMs = Math.min(targetTimelineMs, state.pdf.currentTimeMs);
+    const elapsedMs = Math.min(targetTimelineMs, realElapsedMs * timelineAdvanceRate);
+    state.exportCapture.elapsedMs = elapsedMs;
     const progress = clamp(elapsedMs / targetTimelineMs, 0, 1);
     
     state.pdf.currentTimeMs = elapsedMs;
@@ -14761,19 +15866,19 @@ async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), optio
       ? getFallbackMouth(visibleState.speechElapsedMs)
       : 0.12;
     drawScene(state.mouthOpen);
+    requestExportVideoFrame();
+    await waitForNextPaint();
 
     if (progress >= 1) {
       break;
     }
 
     // Deterministic Frame Stepping with Throttling for MediaRecorder timestamps.
-    state.pdf.currentTimeMs += (1000 / frameRate);
-    const frameIndex = Math.round(state.pdf.currentTimeMs / (1000 / frameRate));
-    const nextFrameTargetMs = startedAt + (frameIndex * (1000 / frameRate) / timelineAdvanceRate);
+    realElapsedMs += (1000 / frameRate);
+    const nextFrameTargetMs = startedAt + realElapsedMs;
     const waitMs = Math.max(1, nextFrameTargetMs - performance.now());
     await new Promise(resolve => setTimeout(resolve, waitMs));
   }
-}
 }
 
 function pauseStageVideoPlayback() {
@@ -14878,7 +15983,7 @@ async function handleVideoSelection(event) {
     }
     drawScene(state.mouthOpen);
     setVideoStatus(`${loadedVideos.length} video${loadedVideos.length === 1 ? "" : "s"} loaded. Click any preview to make it active, then drag or resize it directly on the blue screen.`);
-    setStatus(`Stage video library updated. The active blue screen video is ${state.stageVideo.fileName}, and exports will use ${getExportQualityLabel()} quality.`);
+  setStatus(`Stage video library updated. The active blue screen video is ${state.stageVideo.fileName}, and export will use the normal stage video.`);
     updateTaskProgressUi(1, true, { label: "Stage video ready" });
   } catch (error) {
     console.error(error);
@@ -15091,7 +16196,7 @@ function getStageVideoCutoutSource(videoItem) {
 function drawStageVideoLayer() {
   const videoElement = state.stageVideo.element;
   state.stageVideoRenderBox = null;
-  if (!videoElement || videoElement.readyState < 2 || state.exportFallbackMode) {
+  if (!videoElement || videoElement.readyState < 2 || state.exportFallbackMode || isStageVideoStartDelayActive()) {
     return;
   }
 
@@ -16482,6 +17587,7 @@ function stopActiveAudio() {
 }
 
 function stopPlayback(restoreFullText = true) {
+  state.preparedLessonExport.prepareAfterPlayback = false;
   if (window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
@@ -16498,6 +17604,8 @@ function stopPlayback(restoreFullText = true) {
   }
   state.introPlayback.active = false;
   state.introPlayback.previewVisible = false;
+  state.sceneTransition.blankActive = false;
+  clearStageVideoStartDelay();
   stopActiveAudio();
   state.speechUtterance = null;
   state.speaking = false;
@@ -16539,6 +17647,12 @@ function stopPlayback(restoreFullText = true) {
 }
 
 function finishPlayback(message) {
+  const shouldPrepareAfterPlayback = Boolean(
+    state.preparedLessonExport.prepareAfterPlayback
+    && !isPdfPresentationMode()
+    && hasLiveLessonStageState()
+  );
+  state.preparedLessonExport.prepareAfterPlayback = false;
   clearTypingInterval();
   cancelVisualLoop();
   if (state.introPlayback.element) {
@@ -16551,6 +17665,8 @@ function finishPlayback(message) {
   }
   state.introPlayback.active = false;
   state.introPlayback.previewVisible = false;
+  state.sceneTransition.blankActive = false;
+  clearStageVideoStartDelay();
   stopActiveAudio();
   state.speechUtterance = null;
   state.speaking = false;
@@ -16581,6 +17697,14 @@ function finishPlayback(message) {
     ensureStageMediaLoop();
   }
   setStatus(message);
+  if (shouldPrepareAfterPlayback) {
+    const lessonExportSource = getLessonExportSource();
+    schedulePreparedLessonExport({
+      lessonExportSource,
+      key: getPreparedLessonExportKey(lessonExportSource),
+      delayMs: 180
+    });
+  }
 }
 
 function createLoadedAudio(url) {
@@ -16839,25 +17963,28 @@ function startNarrationLoop(audioElement) {
       : 0.12;
     state.mouthOpen = nextMouth;
     if (shouldRenderAnimatedSceneFrame(nowMs, {
-      force: previousText !== state.displayedText || progress >= 0.995,
+      force: state.exportingVideo || previousText !== state.displayedText || progress >= 0.995,
       lastRenderAt,
       mouthDelta: nextMouth - lastRenderedMouth
     })) {
       drawScene(state.mouthOpen);
+      requestExportVideoFrame();
       lastRenderAt = nowMs;
       lastRenderedMouth = state.mouthOpen;
     }
 
     if (!audioElement.ended) {
-      state.animationFrame = requestAnimationFrame(tick);
+      scheduleVisualLoopTick(tick);
     }
   };
 
-  state.animationFrame = requestAnimationFrame(tick);
+  scheduleVisualLoopTick(tick);
 }
 
 async function playNarrationAudio() {
+  const shouldPrepareAfterPlayback = state.preparedLessonExport.prepareAfterPlayback;
   stopPlayback(false);
+  state.preparedLessonExport.prepareAfterPlayback = shouldPrepareAfterPlayback;
   resetTaskProgressUi();
   state.displayedText = "";
   syncLessonPlaybackProgressUi(0, true);
@@ -16865,7 +17992,11 @@ async function playNarrationAudio() {
 
   try {
     if (state.stageVideo.element) {
-      await startStageVideoPlayback({ restart: true });
+      scheduleStageVideoStartAfterDelay({
+        restart: true,
+        delayMs: STAGE_VIDEO_START_DELAY_MS,
+        playbackRate: 1
+      });
     }
 
     const audioElement = await createLoadedAudio(state.narration.url);
@@ -16927,7 +18058,11 @@ function playSpeechFallback() {
     state.speaking = true;
     syncLessonPlaybackProgressUi(0, true);
     if (state.stageVideo.element) {
-      void startStageVideoPlayback({ restart: true });
+      scheduleStageVideoStartAfterDelay({
+        restart: true,
+        delayMs: STAGE_VIDEO_START_DELAY_MS,
+        playbackRate: 1
+      });
     }
     startBackgroundMusicPlayback().catch((error) => console.error(error));
     setStatus(`The slide is reading with the browser voice at ${getLessonPlaybackRate()}x because generated narration is unavailable right now.`);
@@ -17007,6 +18142,8 @@ async function ensureNarrationReadyForSlide(options = {}) {
 
 async function playSlide() {
   const currentText = commitLatestLessonText();
+  const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
+  const allowIntroOnlyPlayback = !String(currentText || "").trim() && introClipRequested;
   if (!isPdfPresentationMode() && shouldPreferPdfScreenFromInput()) {
     const ready = await loadSelectedPdf();
     if (!ready) {
@@ -17021,17 +18158,32 @@ async function playSlide() {
     return;
   }
 
-  if (!ensureLessonTextIsReady(currentText)) {
+  if (!allowIntroOnlyPlayback && !ensureLessonTextIsReady(currentText)) {
     return;
   }
 
   stopDictation(false);
   stopInputPreview(false);
+  state.introPlayback.enabled = introClipRequested;
+
+  if (!stagePanel || stagePanel.classList.contains("hidden")) {
+    await showScreen();
+  }
+
+  if (allowIntroOnlyPlayback) {
+    await playIntroClipIfEnabled();
+    finishPlayback("Playback complete. The default intro clip finished.");
+    return;
+  }
 
   const canReuseExistingNarration = hasFreshGeneratedAnjaliNarration(currentText);
+  state.preparedLessonExport.prepareAfterPlayback = ENABLE_PREPARED_LESSON_EXPORT;
 
   if (canReuseExistingNarration) {
     await playIntroClipIfEnabled();
+    if (state.introPlayback.enabled) {
+      await playPostIntroBlankTransition();
+    }
     playNarrationAudio();
     return;
   }
@@ -17044,11 +18196,15 @@ async function playSlide() {
     });
     updateTaskProgressUi(0.62, true, { mirrorStage: true, label: state.introPlayback.enabled ? "Narration ready. Playing intro clip..." : "Narration ready. Starting playback..." });
     await playIntroClipIfEnabled();
+    if (state.introPlayback.enabled) {
+      await playPostIntroBlankTransition();
+    }
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
     resetTaskProgressUi();
     playNarrationAudio();
   } catch (error) {
     console.error(error);
+    state.preparedLessonExport.prepareAfterPlayback = false;
     resetTaskProgressUi();
     setStatus("The Anjali voice server is unavailable, so playback could not start. Start the local Anjali voice server on port 8426 and try again.");
     return;
@@ -17247,7 +18403,7 @@ function allowBackgroundThrottling() {
   } catch(e) {}
 }
 
-async function exportPdfModeVideo(renderMode = "context") {
+async function exportPdfModeVideo(renderMode = "context", options = {}) {
   preventBackgroundThrottling();
   if (!getPdfSelectedPageCount()) {
     setStatus("Select at least one PDF page before downloading the PDF video.");
@@ -17262,11 +18418,8 @@ async function exportPdfModeVideo(renderMode = "context") {
 
   const normalizedRenderMode = renderMode === "exact" ? "exact" : "context";
   const modeLabel = normalizedRenderMode === "exact" ? "exact PDF" : "PDF context";
-  const outputFileName = normalizedRenderMode === "exact"
-    ? "pdf-presentation-video.mp4"
-    : "selected-pdf-context-video.mp4";
+  const outputFileName = getPdfExportFileName(normalizedRenderMode);
   const effectiveExportQuality = getEffectiveExportQuality();
-  const exportQualityLabel = getExportQualityLabel(effectiveExportQuality);
   const pdfTimelineDurationMs = Math.max(1000, Math.round(state.pdf.totalDurationMs || 1000));
   const pdfExportTargetDurationMs = pdfTimelineDurationMs + getExportCompletionTailMs();
   const pdfBaseCaptureRate = getPdfExportCaptureRate(normalizedRenderMode);
@@ -17282,7 +18435,7 @@ async function exportPdfModeVideo(renderMode = "context") {
   stopPlayback(false);
   forceExportVoiceToAnjali();
   state.exportingVideo = true;
-  const preparingPdfExportMessage = `Preparing ${exportQualityLabel} ${modeLabel} video with Anjali narration. Please wait...`;
+  const preparingPdfExportMessage = `Preparing ${modeLabel} video with Anjali narration. Please wait...`;
   setStatus(preparingPdfExportMessage);
   updateTaskProgressUi(0.06, true, { mirrorStage: true, label: preparingPdfExportMessage });
   updateStageModeUi();
@@ -17300,15 +18453,30 @@ async function exportPdfModeVideo(renderMode = "context") {
   let exportStream = null;
   let canvasStream = null;
   let exportCanvas = null;
+  let frozenAvatarSnapshot = null;
+  let videoSaveHandle = options.videoSaveHandle || null;
+  const saveHandleRequested = Boolean(options.saveHandleRequested);
 
   try {
+    if (saveHandleRequested && !videoSaveHandle) {
+      try {
+        videoSaveHandle = await requestVideoSaveHandle(outputFileName);
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          setStatus(`${modeLabel} export cancelled.`);
+          return;
+        }
+
+        console.error(error);
+        videoSaveHandle = null;
+      }
+    }
+
     state.presentationMode = "pdf";
     setPdfRenderMode(normalizedRenderMode);
 
-    // exportCanvas = document.createElement("canvas");
-    // exportCanvas.width = previewCanvas.width;
-    // exportCanvas.height = previewCanvas.height;
-    // useCanvasSurface(exportCanvas);
+    exportCanvas = createExportCanvasSurface();
+    useCanvasSurface(exportCanvas);
 
     rebuildPdfPresentationSchedule({ preserveTime: false });
     updateTaskProgressUi(0.12, true, { mirrorStage: true });
@@ -17347,16 +18515,15 @@ async function exportPdfModeVideo(renderMode = "context") {
     state.pdf.currentTimeMs = 0;
     syncPdfPreviewPageFromTime(0);
     drawScene(0.12);
+    requestExportVideoFrame();
 
     const captureRate = getAcceleratedExportCaptureRate(
       pdfBaseCaptureRate,
       exportRenderSpeedMultiplier
     );
     setExportCaptureRate(captureRate);
-    if (typeof avatarVideoElement !== 'undefined' && avatarVideoElement) {
-        avatarVideoElement.playbackRate = (Number(document.getElementById("avatarSpeedRange")?.value) || 1.8) * exportRenderSpeedMultiplier;
-    }
-    canvasStream = canvas.captureStream(0);
+    frozenAvatarSnapshot = freezeAvatarForExport();
+    canvasStream = createExportCanvasStream(captureRate, { preferTimedCapture: true });
     const videoTracks = canvasStream.getVideoTracks();
     if (!videoTracks.length) {
       throw new Error("The browser did not provide a video track for the PDF canvas export.");
@@ -17369,6 +18536,7 @@ async function exportPdfModeVideo(renderMode = "context") {
 
     state.exportVideoTrack = videoOnlyTracks[0];
     drawScene(0.12);
+    requestExportVideoFrame();
     exportStream = canvasStream;
 
     const recorder = createExportMediaRecorder(
@@ -17410,7 +18578,7 @@ async function exportPdfModeVideo(renderMode = "context") {
       };
     });
 
-    recorder.start(1500);
+    recorder.start(100);
     await renderPdfTimelineForExport(normalizedRenderMode, {
       renderSpeedMultiplier: exportRenderSpeedMultiplier
     });
@@ -17421,7 +18589,8 @@ async function exportPdfModeVideo(renderMode = "context") {
     state.pdf.currentTimeMs = state.pdf.totalDurationMs;
     syncPdfPreviewPageFromTime(state.pdf.currentTimeMs);
     drawScene(0.12);
-    await delay(Math.max(24, Math.round(getFinalExportHoldMs() / exportRenderSpeedMultiplier)));
+    requestExportVideoFrame();
+    await waitForNextPaint();
     recorder.stop();
 
     const videoBlob = await blobPromise;
@@ -17430,39 +18599,38 @@ async function exportPdfModeVideo(renderMode = "context") {
     }
 
     const finalAudioLabel = audioStatusLabel === "generated narration" ? "narration" : "a timing track";
-    let videoSaveHandle = null;
-
-    try {
-      videoSaveHandle = await requestVideoSaveHandle(outputFileName);
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        setStatus(`${modeLabel} export cancelled after rendering.`);
-        return;
-      }
-
-      console.error(error);
-    }
 
     const combiningPdfExportMessage = `Combining ${modeLabel} video${state.music.enabled ? `, ${finalAudioLabel}, and music` : ` and ${finalAudioLabel}`} with FFmpeg. Please wait...`;
     setStatus(combiningPdfExportMessage);
     updateTaskProgressUi(0.9, true, { mirrorStage: true, label: combiningPdfExportMessage });
-    const finalBlob = await muxVideoAndAudio(videoBlob, exportAudioBlob, {
+    const shouldSaveToDownloads = !videoSaveHandle;
+    const finalResult = await muxVideoAndAudio(videoBlob, exportAudioBlob, {
       audioFileName: exportAudioFileName,
       audioSpeed: getPdfPlaybackRate(),
       videoSpeed: exportRenderSpeedMultiplier,
       targetDurationMs: pdfExportTargetDurationMs,
-      saveHandle: videoSaveHandle
+      saveHandle: videoSaveHandle,
+      saveToDefaultPath: shouldSaveToDownloads,
+      outputFileName
     });
-    if (!videoSaveHandle && (!finalBlob || !finalBlob.size)) {
+    if (!videoSaveHandle && !shouldSaveToDownloads && !finalResult) {
+      throw new Error("The final PDF video file was not returned.");
+    }
+    if (!videoSaveHandle && finalResult instanceof Blob && !finalResult.size) {
       throw new Error("The final PDF video file was empty.");
+    }
+    if (!videoSaveHandle && shouldSaveToDownloads && !finalResult?.savedPath) {
+      throw new Error("The final PDF video file was not written to Downloads.");
     }
 
     if (videoSaveHandle) {
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`${modeLabel} video saved successfully.`);
+    } else if (finalResult?.savedPath) {
+      updateTaskProgressUi(1, true, { mirrorStage: true });
+      setStatus(`${modeLabel} video downloaded to Downloads.`);
     } else {
-      generateAndDownloadSrtCaptions(0);
-      triggerFileDownload(finalBlob, outputFileName);
+      triggerFileDownload(finalResult, outputFileName);
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`${modeLabel} video downloaded successfully.`);
     }
@@ -17502,9 +18670,7 @@ async function exportPdfModeVideo(renderMode = "context") {
     state.presentationMode = previousPresentationMode;
     setPdfRenderMode(previousRenderMode);
     rebuildPdfPresentationSchedule({ preserveTime: false });
-    if (typeof avatarVideoElement !== 'undefined' && avatarVideoElement) {
-        avatarVideoElement.playbackRate = Number(document.getElementById("avatarSpeedRange")?.value) || 1.8;
-    }
+    await restoreAvatarAfterExport(frozenAvatarSnapshot);
     drawScene(0.12);
     setRecordingUi(false);
     updateNarrationUi();
@@ -17522,111 +18688,37 @@ async function exportPdfModeVideo(renderMode = "context") {
   }
 }
 
-async function exportPdfVideo() {
-  await exportPdfModeVideo("exact");
+async function exportPdfVideo(options = {}) {
+  await exportPdfModeVideo("exact", options);
 }
 
-async function exportPdfContextVideo() {
-  await exportPdfModeVideo("context");
+async function exportPdfContextVideo(options = {}) {
+  await exportPdfModeVideo("context", options);
 }
 
-async function exportVideo() {
-  if (isPdfPresentationMode()) {
-    await exportPdfModeVideo(getPdfRenderMode());
-    return;
-  }
-
-  preventBackgroundThrottling();
-  const exportText = commitLatestLessonText();
-  if (!ensureLessonTextIsReady(exportText)) {
-    allowBackgroundThrottling();
-    return;
-  }
-
-  if (!canExportVideo()) {
-    setStatus("Video export is not supported in this browser. Please use the latest Chrome or Edge.");
-    return;
-  }
-
-  stopDictation(false);
-  stopInputPreview(false);
-  stopPlayback(false);
-  forceExportVoiceToAnjali();
-  state.exportingVideo = true;
-  const exportPlaybackRate = getLessonPlaybackRate();
-  const effectiveExportQuality = getEffectiveExportQuality();
-  const exportQualityLabel = getExportQualityLabel(effectiveExportQuality);
-  const shouldIncludeIntro = Boolean(state.introPlayback.enabled);
-  const preparingVideoExportMessage = `Preparing ${exportQualityLabel} video with${shouldIncludeIntro ? " intro, " : " "}Anjali narration and typing effect. Please wait...`;
-  setStatus(preparingVideoExportMessage);
-  updateTaskProgressUi(0.06, true, { mirrorStage: true, label: preparingVideoExportMessage });
-  updateStageModeUi();
-  downloadBtn.disabled = true;
-  playBtn.disabled = true;
-  stopStageBtn.disabled = true;
-  recordBtn.disabled = true;
-  stopRecordBtn.disabled = true;
-  clearAudioBtn.disabled = true;
-  audioInput.disabled = true;
-  let exportStream = null;
+async function recordLessonVideoSegmentForExport(segment, durationMs, playbackRate, options = {}) {
+  const safeSegment = segment || { startMs: 0, endMs: Math.max(1, Math.round(Number(durationMs) || 0)) };
+  const renderSpeedMultiplier = Number.isFinite(Number(options.renderSpeedMultiplier)) && Number(options.renderSpeedMultiplier) > 0
+    ? Number(options.renderSpeedMultiplier)
+    : getExportRenderSpeedMultiplier();
+  const effectiveExportQuality = options.effectiveExportQuality || getEffectiveExportQuality();
+  const exportSnapshot = options.exportSnapshot || null;
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
   let canvasStream = null;
-  let exportCanvas = null;
-  let includedIntroInExport = false;
+  let exportStream = null;
 
   try {
-    // exportCanvas = document.createElement("canvas");
-    // exportCanvas.width = previewCanvas.width;
-    // exportCanvas.height = previewCanvas.height;
-    // useCanvasSurface(exportCanvas);
-
-    updateTaskProgressUi(0.14, true, { mirrorStage: true });
-    const exportNarrationBlob = await ensureAnjaliNarrationReadyForExport({
-      timeoutMs: getLongNarrationRequestTimeoutMs(state.text)
-    });
-    const lessonTimelineDurationMs = Math.max(
-      1000,
-      Math.round((state.narration.durationMs || getDefaultNarrationDurationMs()) / Math.max(0.1, exportPlaybackRate))
-    );
-    const introTimelineDurationMs = shouldIncludeIntro
-      ? Math.max(0, Math.round(state.introPlayback.durationMs || 0))
-      : 0;
-    const totalExportTimelineDurationMs = lessonTimelineDurationMs + introTimelineDurationMs;
-    const exportTargetDurationMs = totalExportTimelineDurationMs + getExportCompletionTailMs();
-    const lessonBaseCaptureRate = getLessonExportCaptureRate();
-    const exportRenderSpeedMultiplier = getEffectiveExportRenderSpeedMultiplier(
-      lessonBaseCaptureRate,
-      totalExportTimelineDurationMs
-    );
-    updateTaskProgressUi(0.2, true, { mirrorStage: true });
-    await ensureVideoExportServer();
-    await ensureCanvasReadyForExport();
-    const renderingVideoExportMessage = shouldIncludeIntro
-      ? `Rendering video in the background at ${exportRenderSpeedMultiplier}x with the intro clip first, then natural Anjali narration and typing. Please wait...`
-      : `Rendering video in the background at ${exportRenderSpeedMultiplier}x with natural Anjali narration and typing effect. Please wait...`;
-    setStatus(renderingVideoExportMessage);
-    updateTaskProgressUi(0.24, true, { mirrorStage: true, label: renderingVideoExportMessage });
-    state.displayedText = "";
-    drawScene(0.12);
-
-    const captureRate = getAcceleratedExportCaptureRate(
-      lessonBaseCaptureRate,
-      exportRenderSpeedMultiplier
-    );
-    setExportCaptureRate(captureRate);
-    if (typeof avatarVideoElement !== 'undefined' && avatarVideoElement) {
-        avatarVideoElement.playbackRate = (Number(document.getElementById("avatarSpeedRange")?.value) || 1.8) * exportRenderSpeedMultiplier;
-    }
-
     try {
-      canvasStream = canvas.captureStream(0);
+      canvasStream = createExportCanvasStream(options.captureRate);
     } catch (error) {
       if (/origin-clean/i.test(error.message || "")) {
         await ensureCanvasReadyForExport();
-        canvasStream = canvas.captureStream(0);
+        canvasStream = createExportCanvasStream(options.captureRate);
       } else {
         throw error;
       }
     }
+
     const videoTracks = canvasStream.getVideoTracks();
     if (!videoTracks.length) {
       throw new Error("The browser did not provide a video track for the canvas export.");
@@ -17636,14 +18728,12 @@ async function exportVideo() {
     if (!videoOnlyTracks.length) {
       throw new Error("Canvas export did not produce a usable video track.");
     }
+
     state.exportVideoTrack = videoOnlyTracks[0];
     drawScene(0.12);
+    requestExportVideoFrame();
 
     exportStream = canvasStream;
-    if (!exportStream.getVideoTracks().length) {
-      throw new Error("The export stream is missing the video track.");
-    }
-
     const recorder = createExportMediaRecorder(
       exportStream,
       getLessonExportBitrate(effectiveExportQuality)
@@ -17652,6 +18742,7 @@ async function exportVideo() {
     if (recorder.mimeType && recorder.mimeType.startsWith("audio/")) {
       throw new Error("The browser tried to start an audio-only recorder instead of video export.");
     }
+
     const chunks = [];
     let recorderError = null;
 
@@ -17682,45 +18773,652 @@ async function exportVideo() {
       };
     });
 
-    recorder.start(1500);
-    const renderStartedAt = performance.now();
-    if (shouldIncludeIntro) {
-      try {
-        includedIntroInExport = await playIntroClipForExport({
-          playbackRate: exportRenderSpeedMultiplier
-        });
-      } catch (error) {
-        console.error(error);
-        includedIntroInExport = false;
-        setIntroClipStatus("The intro clip could not be rendered during export, so the export continued with the lesson only.");
-      }
-    }
-    if (state.stageVideo.element) {
-      await startStageVideoPlayback({
-        restart: true,
-        playbackRate: exportRenderSpeedMultiplier
-      });
-      state.stageVideo.element.pause(); // Controlled by virtual time loop
-    }
+    recorder.start(100);
     await renderNarrationTimelineForExport(
-      state.narration.durationMs || getDefaultNarrationDurationMs(),
-      exportPlaybackRate,
-      { renderSpeedMultiplier: exportRenderSpeedMultiplier }
+      durationMs,
+      playbackRate,
+      {
+        renderSpeedMultiplier,
+        exportSnapshot,
+        startElapsedMs: safeSegment.startMs,
+        endElapsedMs: safeSegment.endMs,
+        onProgress
+      }
     );
 
     state.speaking = false;
     cancelVisualLoop();
     state.mouthOpen = 0.12;
-    state.displayedText = state.text;
+    if (exportSnapshot) {
+      applyLessonExportSnapshot(exportSnapshot, state.displayedText);
+    }
     drawScene(0.12);
-    await delay(Math.max(24, Math.round(getFinalExportHoldMs() / exportRenderSpeedMultiplier)));
+    requestExportVideoFrame();
+    await waitForNextPaint();
     recorder.stop();
-    const renderFinishedAt = performance.now();
-    const actualRecordedDurationMs = Math.max(1, renderFinishedAt - renderStartedAt);
 
     const videoBlob = await blobPromise;
     if (!videoBlob.type.startsWith("video/")) {
       throw new Error(`The browser returned ${videoBlob.type || "an unknown file"} instead of video.`);
+    }
+
+    return videoBlob;
+  } finally {
+    if (exportStream) {
+      exportStream.getTracks().forEach((track) => track.stop());
+    }
+    if (canvasStream) {
+      canvasStream.getTracks().forEach((track) => track.stop());
+    }
+    state.exportVideoTrack = null;
+  }
+}
+
+async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, options = {}) {
+  const effectiveExportQuality = options.effectiveExportQuality || getEffectiveExportQuality();
+  const exportSnapshot = options.exportSnapshot || null;
+  const captureRate = Math.max(24, Number(options.captureRate) || 30);
+  const includeIntro = Boolean(options.includeIntro);
+  let canvasStream = null;
+  let exportStream = null;
+  let audioUrl = "";
+  let audioElement = null;
+
+  try {
+    canvasStream = createExportCanvasStream(captureRate, { preferTimedCapture: true });
+    const videoTracks = canvasStream.getVideoTracks();
+    if (!videoTracks.length) {
+      throw new Error("The browser did not provide a video track for the canvas export.");
+    }
+
+    const videoOnlyTracks = videoTracks.filter((track) => track.kind === "video");
+    if (!videoOnlyTracks.length) {
+      throw new Error("Canvas export did not produce a usable video track.");
+    }
+
+    state.exportVideoTrack = videoOnlyTracks[0];
+    exportStream = canvasStream;
+    const recorder = createExportMediaRecorder(
+      exportStream,
+      getLessonExportBitrate(effectiveExportQuality)
+    );
+    const mimeType = recorder.mimeType || getSupportedVideoMimeType(false) || "video/webm";
+    const chunks = [];
+    let recorderError = null;
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+
+    recorder.onerror = (event) => {
+      recorderError = event.error || new Error("Recording failed.");
+    };
+
+    const blobPromise = new Promise((resolve, reject) => {
+      recorder.onstop = () => {
+        if (recorderError) {
+          reject(recorderError);
+          return;
+        }
+
+        const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
+        if (!blob.size) {
+          reject(new Error("The browser finished recording, but no video data was produced."));
+          return;
+        }
+
+        resolve(blob);
+      };
+    });
+
+    if (exportSnapshot) {
+      applyLessonExportSnapshot(exportSnapshot, "");
+    } else {
+      state.displayedText = "";
+    }
+    state.exactCharCountFloat = 0;
+    state.mouthOpen = 0.12;
+    syncLessonPlaybackProgressUi(0, true);
+    drawScene(0.12);
+    await waitForNextPaint();
+
+    if (state.stageVideo.element) {
+      scheduleStageVideoStartAfterDelay({
+        restart: true,
+        delayMs: STAGE_VIDEO_START_DELAY_MS,
+        playbackRate: 1
+      });
+    }
+
+    audioUrl = URL.createObjectURL(audioBlob);
+    audioElement = await createLoadedAudio(audioUrl);
+    applyNaturalVoicePlayback(audioElement, playbackRate);
+    audioElement.muted = true;
+    audioElement.volume = 0;
+    state.activeAudio = audioElement;
+    state.speaking = true;
+    startNarrationLoop(audioElement);
+
+    const playbackPromise = new Promise((resolve, reject) => {
+      audioElement.addEventListener("ended", resolve, { once: true });
+      audioElement.addEventListener("error", () => reject(new Error("Narration playback failed during export.")), { once: true });
+    });
+
+    let introIncludedInRealtimeExport = false;
+    recorder.start(100);
+    if (includeIntro) {
+      introIncludedInRealtimeExport = await playIntroClipForExport({ playbackRate: 1 });
+      if (typeof options.onIntroRecorded === "function") {
+        options.onIntroRecorded(introIncludedInRealtimeExport);
+      }
+      drawScene(0.12);
+      await waitForNextPaint();
+    }
+    const started = await playAudioWithRecovery(audioElement, { volume: 0 });
+    if (!started) {
+      throw new Error("The narration audio could not start during export.");
+    }
+    if (state.stageVideo.element) {
+      scheduleStageVideoStartAfterDelay({
+        restart: true,
+        delayMs: STAGE_VIDEO_START_DELAY_MS,
+        playbackRate: 1
+      });
+    }
+
+    await playbackPromise;
+
+    state.speaking = false;
+    cancelVisualLoop();
+    state.mouthOpen = 0.12;
+    if (exportSnapshot) {
+      applyLessonExportSnapshot(exportSnapshot, exportSnapshot.text);
+    } else {
+      state.displayedText = state.text;
+    }
+    syncLessonPlaybackProgressUi(1, true);
+    drawScene(0.12);
+    await waitForNextPaint();
+    recorder.stop();
+
+    const videoBlob = await blobPromise;
+    if (!videoBlob.type.startsWith("video/")) {
+      throw new Error(`The browser returned ${videoBlob.type || "an unknown file"} instead of video.`);
+    }
+
+    return videoBlob;
+  } finally {
+    cancelVisualLoop();
+    stopActiveAudio();
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+    if (exportStream) {
+      exportStream.getTracks().forEach((track) => track.stop());
+    }
+    if (canvasStream) {
+      canvasStream.getTracks().forEach((track) => track.stop());
+    }
+    state.exportVideoTrack = null;
+  }
+}
+
+async function recordIntroVideoForExport(options = {}) {
+  const effectiveExportQuality = options.effectiveExportQuality || getEffectiveExportQuality();
+  const captureRate = Math.max(24, Number(options.captureRate) || 30);
+  const holdAfterMs = Math.max(0, Math.round(Number(options.holdAfterMs) || 0));
+  let canvasStream = null;
+  let exportStream = null;
+
+  try {
+    canvasStream = createExportCanvasStream(captureRate, { preferTimedCapture: true });
+    const videoTracks = canvasStream.getVideoTracks();
+    if (!videoTracks.length) {
+      throw new Error("The browser did not provide a video track for the intro export.");
+    }
+
+    const videoOnlyTracks = videoTracks.filter((track) => track.kind === "video");
+    if (!videoOnlyTracks.length) {
+      throw new Error("Intro export did not produce a usable video track.");
+    }
+
+    state.exportVideoTrack = videoOnlyTracks[0];
+    exportStream = canvasStream;
+    const recorder = createExportMediaRecorder(
+      exportStream,
+      getLessonExportBitrate(effectiveExportQuality)
+    );
+    const mimeType = recorder.mimeType || getSupportedVideoMimeType(false) || "video/webm";
+    const chunks = [];
+    let recorderError = null;
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+
+    recorder.onerror = (event) => {
+      recorderError = event.error || new Error("Recording failed.");
+    };
+
+    const blobPromise = new Promise((resolve, reject) => {
+      recorder.onstop = () => {
+        if (recorderError) {
+          reject(recorderError);
+          return;
+        }
+
+        const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
+        if (!blob.size) {
+          reject(new Error("The browser finished recording, but no intro video data was produced."));
+          return;
+        }
+
+        resolve(blob);
+      };
+    });
+
+    state.introPlayback.previewVisible = false;
+    state.introPlayback.active = true;
+    state.mouthOpen = 0.12;
+    drawIntroScene();
+    await waitForNextPaint();
+    recorder.start(100);
+    const includedIntro = await playIntroClipForExport({ playbackRate: 1, holdAfterMs });
+    if (!includedIntro) {
+      recorder.stop();
+      await blobPromise.catch(() => null);
+      return null;
+    }
+
+    drawScene(0.12);
+    await waitForNextPaint();
+    recorder.stop();
+
+    const videoBlob = await blobPromise;
+    if (!videoBlob.type.startsWith("video/")) {
+      throw new Error(`The browser returned ${videoBlob.type || "an unknown file"} instead of intro video.`);
+    }
+
+    return videoBlob;
+  } finally {
+    state.introPlayback.active = false;
+    if (exportStream) {
+      exportStream.getTracks().forEach((track) => track.stop());
+    }
+    if (canvasStream) {
+      canvasStream.getTracks().forEach((track) => track.stop());
+    }
+    state.exportVideoTrack = null;
+  }
+}
+
+async function exportVideo(options = {}) {
+  if (isPdfPresentationMode()) {
+    await exportPdfModeVideo(getPdfRenderMode(), options);
+    return;
+  }
+
+  preventBackgroundThrottling();
+  const lessonExportSource = options.lessonExportSourceOverride || getLessonExportSource();
+  const exportText = lessonExportSource.text;
+  const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
+  const hasAnyLessonText = Boolean(
+    String(exportText || "").trim()
+    || String(state.text || "").trim()
+    || String(getEffectiveLessonText() || "").trim()
+  );
+  const allowIntroOnlyExport = !hasAnyLessonText && introClipRequested;
+  if (!allowIntroOnlyExport && !ensureLessonTextIsReady(exportText)) {
+    allowBackgroundThrottling();
+    return;
+  }
+
+  if (!canExportVideo()) {
+    setStatus("Video export is not supported in this browser. Please use the latest Chrome or Edge.");
+    return;
+  }
+
+  stopDictation(false);
+  stopInputPreview(false);
+  stopPlayback(false);
+  const lessonExportSnapshot = lessonExportSource.snapshot;
+  forceExportVoiceToAnjali();
+  state.introPlayback.enabled = introClipRequested;
+  state.exportingVideo = true;
+  const cacheOnly = options.cacheOnly === true;
+  const backgroundPrepare = options.backgroundPrepare === true;
+  const preparedExportKey = typeof options.preparedExportKey === "string" ? options.preparedExportKey : "";
+  const exportPlaybackRate = getLessonPlaybackRate();
+  const effectiveExportQuality = getEffectiveExportQuality();
+  const shouldIncludeIntro = Boolean(state.introPlayback.enabled);
+  const preparingVideoExportMessage = cacheOnly
+    ? "Preparing the downloadable video in the background. Please wait..."
+    : (allowIntroOnlyExport
+      ? "Preparing video with the default intro clip. Please wait..."
+      : `Preparing video with${shouldIncludeIntro ? " intro, " : " "}Anjali narration and typing effect. Please wait...`);
+  setStatus(preparingVideoExportMessage);
+  updateTaskProgressUi(0.06, true, { mirrorStage: true, label: preparingVideoExportMessage });
+  updateStageModeUi();
+  downloadBtn.disabled = true;
+  playBtn.disabled = true;
+  stopStageBtn.disabled = true;
+  recordBtn.disabled = true;
+  stopRecordBtn.disabled = true;
+  clearAudioBtn.disabled = true;
+  audioInput.disabled = true;
+  let exportStream = null;
+  let canvasStream = null;
+  let exportCanvas = null;
+  let includedIntroInExport = false;
+  let frozenAvatarSnapshot = null;
+  let videoSaveHandle = options.videoSaveHandle || null;
+  const saveHandleRequested = Boolean(options.saveHandleRequested);
+
+  try {
+    if (saveHandleRequested && !cacheOnly && !videoSaveHandle) {
+      try {
+        videoSaveHandle = await requestVideoSaveHandle("learning-outcomes-video.mp4");
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          setStatus("Video export cancelled.");
+          return;
+        }
+
+        console.error(error);
+        videoSaveHandle = null;
+      }
+    }
+
+    exportCanvas = createExportCanvasSurface();
+    useCanvasSurface(exportCanvas);
+
+    updateTaskProgressUi(0.14, true, { mirrorStage: true });
+    let exportNarrationBlob = null;
+    let exportNarrationDurationMs = 0;
+    if (allowIntroOnlyExport) {
+      exportNarrationBlob = createSilentWavBlob(Math.max(1000, Math.round(state.introPlayback.durationMs || 1000)));
+      exportNarrationDurationMs = Math.max(
+        1000,
+        await measureNarrationBlobDurationMs(exportNarrationBlob)
+      );
+    } else {
+      exportNarrationBlob = await ensureAnjaliNarrationReadyForExport({
+        textSource: exportText,
+        timeoutMs: getLongNarrationRequestTimeoutMs(exportText),
+        skipPreparedExportSchedule: true
+      });
+      exportNarrationDurationMs = Math.max(
+        1000,
+        await measureNarrationBlobDurationMs(exportNarrationBlob)
+      );
+    }
+    const lessonTimelineDurationMs = allowIntroOnlyExport
+      ? 0
+      : Math.max(
+        1000,
+        Math.round(exportNarrationDurationMs / Math.max(0.1, exportPlaybackRate))
+      );
+    const introTimelineDurationMs = shouldIncludeIntro
+      ? Math.max(0, Math.round(state.introPlayback.durationMs || 0))
+      : 0;
+    const totalExportTimelineDurationMs = allowIntroOnlyExport
+      ? Math.max(1000, introTimelineDurationMs)
+      : lessonTimelineDurationMs + introTimelineDurationMs;
+    const exportTargetDurationMs = totalExportTimelineDurationMs + getExportCompletionTailMs();
+    const lessonBaseCaptureRate = getLessonExportCaptureRate();
+    const exportRenderSpeedMultiplier = Math.min(
+      getTargetLessonExportRenderSpeedMultiplier(
+        totalExportTimelineDurationMs,
+        effectiveExportQuality
+      ),
+      getEffectiveExportRenderSpeedMultiplier(
+        lessonBaseCaptureRate,
+        totalExportTimelineDurationMs
+      )
+    );
+    updateTaskProgressUi(0.2, true, { mirrorStage: true });
+    await ensureVideoExportServer();
+    await ensureCanvasReadyForExport();
+    const renderingVideoExportMessage = cacheOnly
+      ? "Preparing the final downloadable video in the background. Please wait..."
+      : (allowIntroOnlyExport
+      ? `Rendering the default intro clip for download at ${exportRenderSpeedMultiplier}x export speed. Please wait...`
+      : (shouldIncludeIntro
+      ? `Rendering video in the background at ${exportRenderSpeedMultiplier}x with the intro clip first, then natural Anjali narration and typing. Please wait...`
+      : `Rendering video in the background at ${exportRenderSpeedMultiplier}x with natural Anjali narration and typing effect. Please wait...`));
+    setStatus(renderingVideoExportMessage);
+    updateTaskProgressUi(0.24, true, { mirrorStage: true, label: renderingVideoExportMessage });
+    applyLessonExportSnapshot(lessonExportSnapshot, "");
+    drawScene(0.12);
+    requestExportVideoFrame();
+
+    const captureRate = getAcceleratedExportCaptureRate(
+      lessonBaseCaptureRate,
+      exportRenderSpeedMultiplier
+    );
+    setExportCaptureRate(captureRate);
+    frozenAvatarSnapshot = freezeAvatarForExport();
+    const useUnifiedRealtimeIntroLessonExport = false;
+    const useRealtimeLessonExport = !shouldIncludeIntro;
+    const useSeparatedIntroRealtimeExport = shouldIncludeIntro;
+    const shouldSegmentExport = !useRealtimeLessonExport && !useSeparatedIntroRealtimeExport && shouldUseSegmentedLessonExport(totalExportTimelineDurationMs, {
+      includeIntro: shouldIncludeIntro
+    });
+    let videoBlob = null;
+    let videoBlobs = null;
+
+    if (useUnifiedRealtimeIntroLessonExport) {
+      const unifiedRealtimeLabel = cacheOnly
+        ? "Preparing the default intro clip and lesson stage for the downloadable video. Please wait..."
+        : "Recording the default intro clip and live lesson stage together. Please wait...";
+      setStatus(unifiedRealtimeLabel);
+      updateTaskProgressUi(0.32, true, { mirrorStage: true, label: unifiedRealtimeLabel });
+      videoBlob = await recordLessonVideoRealtimeForExport(
+        exportNarrationBlob,
+        exportPlaybackRate,
+        {
+          captureRate: 30,
+          effectiveExportQuality,
+          exportSnapshot: lessonExportSnapshot,
+          includeIntro: true,
+          onIntroRecorded: (introIncluded) => {
+            includedIntroInExport = Boolean(introIncluded);
+          }
+        }
+      );
+    } else if (useSeparatedIntroRealtimeExport) {
+      const introExportLabel = cacheOnly
+        ? "Preparing the intro clip for the downloadable video. Please wait..."
+        : "Preparing the default intro clip first, then the live lesson stage. Please wait...";
+      setStatus(introExportLabel);
+      updateTaskProgressUi(0.24, true, { mirrorStage: true, label: introExportLabel });
+
+      const introVideoBlob = await getIntroVideoSourceBlob();
+      if (introVideoBlob) {
+        includedIntroInExport = true;
+        videoBlobs = [introVideoBlob];
+      } else {
+        includedIntroInExport = false;
+        videoBlobs = [];
+      }
+
+      if (!allowIntroOnlyExport) {
+        const lessonRealtimeLabel = cacheOnly
+          ? "Preparing the lesson stage for the downloadable video. Please wait..."
+          : "Recording the live lesson stage with Anjali narration and typing. Please wait...";
+        setStatus(lessonRealtimeLabel);
+        updateTaskProgressUi(0.52, true, { mirrorStage: true, label: lessonRealtimeLabel });
+        const lessonVideoBlob = await recordLessonVideoRealtimeForExport(
+          exportNarrationBlob,
+          exportPlaybackRate,
+          {
+            captureRate: 30,
+            effectiveExportQuality,
+            exportSnapshot: lessonExportSnapshot
+          }
+        );
+        videoBlobs.push(lessonVideoBlob);
+      }
+      videoBlob = null;
+    } else if (useRealtimeLessonExport) {
+      const realtimeExportLabel = cacheOnly
+        ? "Preparing the final downloadable video from the live stage. Please wait..."
+        : "Recording the live stage exactly as it plays with Anjali narration and typing. Please wait...";
+      setStatus(realtimeExportLabel);
+      updateTaskProgressUi(0.24, true, { mirrorStage: true, label: realtimeExportLabel });
+      videoBlob = await recordLessonVideoRealtimeForExport(
+        exportNarrationBlob,
+        exportPlaybackRate,
+        {
+          captureRate: 30,
+          effectiveExportQuality,
+          exportSnapshot: lessonExportSnapshot
+        }
+      );
+    } else if (shouldSegmentExport) {
+      const timelineSegments = buildExportTimelineSegments(lessonTimelineDurationMs);
+      videoBlobs = [];
+      for (let index = 0; index < timelineSegments.length; index += 1) {
+        const segment = timelineSegments[index];
+        const segmentLabel = `Rendering video part ${index + 1} of ${timelineSegments.length}. Please wait...`;
+        setStatus(segmentLabel);
+        videoBlobs.push(await recordLessonVideoSegmentForExport(
+          segment,
+          exportNarrationDurationMs,
+          exportPlaybackRate,
+          {
+            captureRate,
+            renderSpeedMultiplier: exportRenderSpeedMultiplier,
+            effectiveExportQuality,
+            exportSnapshot: lessonExportSnapshot,
+            onProgress: ({ segmentProgress }) => {
+              const overallProgress = timelineSegments.length > 0
+                ? ((index + segmentProgress) / timelineSegments.length)
+                : 1;
+              updateTaskProgressUi(0.24 + (overallProgress * 0.58), true, {
+                mirrorStage: true,
+                label: segmentLabel
+              });
+            }
+          }
+        ));
+      }
+      applyLessonExportSnapshot(lessonExportSnapshot, lessonExportSnapshot.text);
+      drawScene(0.12);
+      requestExportVideoFrame();
+    } else {
+      if (state.stageVideo.element) {
+        await startStageVideoPlayback({
+          restart: true,
+          playbackRate: 1
+        });
+        state.stageVideo.element.pause();
+      }
+
+      try {
+        canvasStream = createExportCanvasStream(captureRate);
+      } catch (error) {
+        if (/origin-clean/i.test(error.message || "")) {
+          await ensureCanvasReadyForExport();
+          canvasStream = createExportCanvasStream(captureRate);
+        } else {
+          throw error;
+        }
+      }
+      const videoTracks = canvasStream.getVideoTracks();
+      if (!videoTracks.length) {
+        throw new Error("The browser did not provide a video track for the canvas export.");
+      }
+
+      const videoOnlyTracks = videoTracks.filter((track) => track.kind === "video");
+      if (!videoOnlyTracks.length) {
+        throw new Error("Canvas export did not produce a usable video track.");
+      }
+      state.exportVideoTrack = videoOnlyTracks[0];
+      drawScene(0.12);
+      requestExportVideoFrame();
+
+      exportStream = canvasStream;
+      if (!exportStream.getVideoTracks().length) {
+        throw new Error("The export stream is missing the video track.");
+      }
+
+      const recorder = createExportMediaRecorder(
+        exportStream,
+        getLessonExportBitrate(effectiveExportQuality)
+      );
+      const mimeType = recorder.mimeType || getSupportedVideoMimeType(false) || "video/webm";
+      if (recorder.mimeType && recorder.mimeType.startsWith("audio/")) {
+        throw new Error("The browser tried to start an audio-only recorder instead of video export.");
+      }
+      const chunks = [];
+      let recorderError = null;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onerror = (event) => {
+        recorderError = event.error || new Error("Recording failed.");
+      };
+
+      const blobPromise = new Promise((resolve, reject) => {
+        recorder.onstop = () => {
+          if (recorderError) {
+            reject(recorderError);
+            return;
+          }
+
+          const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
+          if (!blob.size) {
+            reject(new Error("The browser finished recording, but no video data was produced."));
+            return;
+          }
+
+          resolve(blob);
+        };
+      });
+
+      recorder.start(100);
+      if (shouldIncludeIntro) {
+        try {
+          includedIntroInExport = await playIntroClipForExport({
+            playbackRate: exportRenderSpeedMultiplier
+          });
+        } catch (error) {
+          console.error(error);
+          includedIntroInExport = false;
+          setIntroClipStatus("The intro clip could not be rendered during export, so the export continued with the lesson only.");
+        }
+      }
+      await renderNarrationTimelineForExport(
+        exportNarrationDurationMs,
+        exportPlaybackRate,
+        {
+          renderSpeedMultiplier: exportRenderSpeedMultiplier,
+          exportSnapshot: lessonExportSnapshot
+        }
+      );
+
+      state.speaking = false;
+      cancelVisualLoop();
+      state.mouthOpen = 0.12;
+      applyLessonExportSnapshot(lessonExportSnapshot, lessonExportSnapshot.text);
+      drawScene(0.12);
+      requestExportVideoFrame();
+      await waitForNextPaint();
+      recorder.stop();
+
+      videoBlob = await blobPromise;
+      if (!videoBlob.type.startsWith("video/")) {
+        throw new Error(`The browser returned ${videoBlob.type || "an unknown file"} instead of video.`);
+      }
     }
 
     let audioBlob = exportNarrationBlob;
@@ -17728,51 +19426,111 @@ async function exportVideo() {
     if (includedIntroInExport) {
       try {
         const introAudioBlob = await getIntroExportBlob();
-        audioBlob = await combineNarrationBlobs([introAudioBlob, exportNarrationBlob]);
-        setIntroClipStatus("The intro clip and its audio will be included before the Anjali lesson narration.");
+        audioBlob = allowIntroOnlyExport
+          ? introAudioBlob
+          : await combineNarrationBlobs(
+            [introAudioBlob, exportNarrationBlob],
+            [
+              { text: "default-intro", gapAfterMs: 0 },
+              { text: "lesson-narration", gapAfterMs: 0 }
+            ]
+          );
+        setIntroClipStatus(allowIntroOnlyExport
+          ? "The export includes the default intro clip and its audio."
+          : "The intro clip and its audio will be included before the Anjali lesson narration.");
       } catch (error) {
         console.error(error);
-        audioBlob = await combineNarrationBlobs([
-          createSilentWavBlob(state.introPlayback.durationMs || 1000),
-          exportNarrationBlob
-        ]);
-        setIntroClipStatus("The intro video exported, but its audio could not be merged cleanly, so the export used silent intro audio.");
+        audioBlob = allowIntroOnlyExport
+          ? createSilentWavBlob(state.introPlayback.durationMs || 1000)
+          : await combineNarrationBlobs(
+            [
+              createSilentWavBlob(state.introPlayback.durationMs || 1000),
+              exportNarrationBlob
+            ],
+            [
+              { text: "silent-default-intro", gapAfterMs: DEFAULT_INTRO_TO_LESSON_DELAY_MS },
+              { text: "lesson-narration", gapAfterMs: 0 }
+            ]
+          );
+        setIntroClipStatus(allowIntroOnlyExport
+          ? "The intro video exported, but its audio could not be merged cleanly, so the export used silent intro audio."
+          : "The intro video exported, but its audio could not be merged cleanly, so the export used silent intro audio.");
       }
-      audioFileName = "intro-and-lesson-audio.wav";
+      audioFileName = allowIntroOnlyExport ? "intro-audio.wav" : "intro-and-lesson-audio.wav";
     }
-    let videoSaveHandle = null;
-
-    try {
-      videoSaveHandle = await requestVideoSaveHandle("learning-outcomes-video.mp4");
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        setStatus("Video export cancelled after rendering.");
-        return;
-      }
-
-      console.error(error);
-    }
-
-    const combiningVideoExportMessage = `Combining video, ${includedIntroInExport ? "intro audio, " : ""}narration${state.music.enabled ? ", and music" : ""} with FFmpeg. Please wait...`;
+    const finalAudioSpeed = allowIntroOnlyExport ? 1 : exportPlaybackRate;
+    const exactFinalAudioDurationMs = Math.max(
+      1000,
+      await measureNarrationBlobDurationMs(audioBlob)
+    );
+    const exactExportTargetDurationMs = Math.max(
+      1000,
+      Math.round(exactFinalAudioDurationMs / Math.max(0.1, finalAudioSpeed)) + getFinalExportSafetyTailMs()
+    );
+    const combiningVideoExportMessage = cacheOnly
+      ? "Finalizing the downloadable video in the background with FFmpeg. Please wait..."
+      : `Combining video, ${includedIntroInExport ? "intro audio, " : ""}narration${state.music.enabled ? ", and music" : ""} with FFmpeg. Please wait...`;
     setStatus(combiningVideoExportMessage);
     updateTaskProgressUi(0.9, true, { mirrorStage: true, label: combiningVideoExportMessage });
-    const finalBlob = await muxVideoAndAudio(videoBlob, audioBlob, {
-      audioFileName,
-      audioSpeed: exportPlaybackRate,
-      videoSpeed: exportRenderSpeedMultiplier,
-      targetDurationMs: exportTargetDurationMs,
-      saveHandle: videoSaveHandle
-    });
-    if (!videoSaveHandle && (!finalBlob || !finalBlob.size)) {
+    const shouldSaveToDownloads = !cacheOnly && !videoSaveHandle;
+    const finalVideoSpeed = (useRealtimeLessonExport || useUnifiedRealtimeIntroLessonExport || useSeparatedIntroRealtimeExport) ? 1 : exportRenderSpeedMultiplier;
+    const finalResult = videoBlobs?.length
+      ? await muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, state.music.enabled ? await getBackgroundMusicExportBlob() : null, {
+        audioFileName,
+        videoFileName: allowIntroOnlyExport ? (state.introPlayback.fileName || DEFAULT_INTRO_VIDEO_FILE) : undefined,
+        audioSpeed: finalAudioSpeed,
+        videoSpeed: finalVideoSpeed,
+        includeIntroSegment: includedIntroInExport && videoBlobs.length > 1,
+        targetDurationMs: exactExportTargetDurationMs,
+        holdLastFrameMs: getFinalExportSafetyTailMs(),
+        saveHandle: videoSaveHandle,
+        saveToDefaultPath: shouldSaveToDownloads,
+        outputFileName: "learning-outcomes-video.mp4"
+      })
+      : await muxVideoAndAudio(videoBlob, audioBlob, {
+        audioFileName,
+        audioSpeed: finalAudioSpeed,
+        videoSpeed: finalVideoSpeed,
+        targetDurationMs: exactExportTargetDurationMs,
+        holdLastFrameMs: getFinalExportSafetyTailMs(),
+        saveHandle: videoSaveHandle,
+        saveToDefaultPath: shouldSaveToDownloads,
+        outputFileName: "learning-outcomes-video.mp4"
+      });
+    if (cacheOnly) {
+      if (!(finalResult instanceof Blob) || !finalResult.size) {
+        throw new Error("The prepared video file was empty.");
+      }
+      if (preparedExportKey && state.preparedLessonExport.key === preparedExportKey) {
+        state.preparedLessonExport.blob = finalResult;
+        state.preparedLessonExport.status = "ready";
+        state.preparedLessonExport.error = "";
+        state.preparedLessonExport.completedAt = Date.now();
+      }
+      updateTaskProgressUi(1, true, { mirrorStage: true });
+      setStatus(backgroundPrepare
+        ? "Narration and animation are synced. The video is ready to download."
+        : "The prepared video is ready to download.");
+      return finalResult;
+    }
+    if (!videoSaveHandle && !shouldSaveToDownloads && !finalResult) {
+      throw new Error("The final video file was not returned.");
+    }
+    if (!videoSaveHandle && finalResult instanceof Blob && !finalResult.size) {
       throw new Error("The final video file was empty.");
+    }
+    if (!videoSaveHandle && shouldSaveToDownloads && !finalResult?.savedPath) {
+      throw new Error("The final video file was not written to Downloads.");
     }
 
     if (videoSaveHandle) {
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`Video saved with${includedIntroInExport ? " intro and " : " "}narration audio.`);
+    } else if (finalResult?.savedPath) {
+      updateTaskProgressUi(1, true, { mirrorStage: true });
+      setStatus(`Video downloaded to Downloads with${includedIntroInExport ? " intro and " : " "}narration audio.`);
     } else {
-      generateAndDownloadSrtCaptions(includedIntroInExport ? Math.max(0, Math.round(state.introPlayback.durationMs || 0)) : 0);
-      triggerFileDownload(finalBlob, "learning-outcomes-video.mp4");
+      triggerFileDownload(finalResult, "learning-outcomes-video.mp4");
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`Video downloaded with${includedIntroInExport ? " intro and " : " "}narration audio.`);
     }
@@ -17821,9 +19579,7 @@ async function exportVideo() {
         console.error(error);
       }
     }
-    if (typeof avatarVideoElement !== 'undefined' && avatarVideoElement) {
-        avatarVideoElement.playbackRate = Number(document.getElementById("avatarSpeedRange")?.value) || 1.8;
-    }
+    await restoreAvatarAfterExport(frozenAvatarSnapshot);
     state.displayedText = state.text;
     drawScene(0.12);
     setRecordingUi(false);
@@ -17839,12 +19595,12 @@ async function exportVideo() {
   }
 }
 
-async function handleAlternatePdfDownload() {
+async function handleAlternatePdfDownload(options = {}) {
   if (!isPdfPresentationMode()) {
     return;
   }
 
-  await exportPdfModeVideo(getPdfRenderMode() === "exact" ? "context" : "exact");
+  await exportPdfModeVideo(getPdfRenderMode() === "exact" ? "context" : "exact", options);
 }
 
 async function setNarrationFromBlob(blob, fileName, sourceLabel, textSource = "", voice = "", options = {}) {
@@ -18562,7 +20318,9 @@ async function showScreen() {
   }
 
   const text = getEffectiveLessonText();
-  if (!ensureLessonTextIsReady(text)) {
+  const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
+  const allowIntroOnlyScreen = !String(text || "").trim() && introClipRequested;
+  if (!allowIntroOnlyScreen && !ensureLessonTextIsReady(text)) {
     return;
   }
 
@@ -18580,16 +20338,17 @@ async function showScreen() {
   syncImageLayouts();
   const currentInputPanel = document.getElementById("inputPanel");
   const currentStagePanel = document.getElementById("stagePanel");
-
+  
   if (currentInputPanel) currentInputPanel.classList.add("hidden");
   if (currentStagePanel) currentStagePanel.classList.remove("hidden");
   updateStageModeUi();
   updateStageViewUi();
 
+  state.introPlayback.enabled = introClipRequested;
   if (state.introPlayback.enabled) {
     const introReady = await ensureDefaultIntroClip();
     if (introReady && state.introPlayback.element) {
-      state.introPlayback.previewVisible = true;
+      state.introPlayback.previewVisible = false;
       state.introPlayback.active = false;
       try {
         state.introPlayback.element.pause();
@@ -18598,7 +20357,7 @@ async function showScreen() {
         console.error(error);
       }
       drawScene(0.12);
-      setIntroClipStatus("Intro clip is marked and shown on the screen. Play or Export will start with it.");
+      setIntroClipStatus("Intro clip is ready. Play or Export will start with it.");
     } else {
       state.introPlayback.previewVisible = false;
       state.introPlayback.active = false;
@@ -18610,7 +20369,18 @@ async function showScreen() {
     drawScene(0.12);
   }
   if (state.stageVideo.element) {
-    void startStageVideoPlayback({ restart: true });
+    clearStageVideoStartDelay();
+    try {
+      state.stageVideo.element.pause();
+      state.stageVideo.element.currentTime = 0;
+    } catch (error) {
+      console.error(error);
+    }
+    if (!state.introPlayback.enabled) {
+      void startStageVideoPlayback({ restart: true });
+    } else {
+      cancelStageMediaLoop();
+    }
   } else {
     ensureStageMediaLoop();
   }
@@ -18623,7 +20393,9 @@ async function showScreen() {
     ? " Drag the active stage video anywhere on the blue screen and resize it from the corner handle."
     : "";
 
-  if (state.narration.url) {
+  if (allowIntroOnlyScreen) {
+    setStatus("Screen is ready. The default intro video is loaded. Add lesson content before you Play or Export.");
+  } else if (state.narration.url) {
     setStatus(state.images.length
       ? `Screen is ready. Drag images anywhere on the full slide and resize them as needed.${videoHint}${pageHint}`
       : `Screen is ready. Play uses your narration audio, and download will include it.${videoHint}${pageHint}`);
@@ -18783,10 +20555,12 @@ sceneVfxSelect.addEventListener("change", () => {
 sceneMusicModeSelect.addEventListener("change", () => {
   updateScenePreview();
 });
-exportQualitySelect.addEventListener("change", () => {
-  state.scene.exportQuality = getSelectedExportQuality();
-  updateScenePreview();
-});
+if (exportQualitySelect) {
+  exportQualitySelect.addEventListener("change", () => {
+    state.scene.exportQuality = getSelectedExportQuality();
+    updateScenePreview();
+  });
+}
 generateSceneBtn.addEventListener("click", generateSceneSetup);
 generateSceneShowBtn.addEventListener("click", () => generateSceneSetup({ showScreenAfter: true }));
 clearSceneBtn.addEventListener("click", clearSceneSetup);
@@ -18796,6 +20570,7 @@ if (themeSelect) {
   });
 }
 if (subjectSelect) {
+  subjectSelect.value = state.subjectMode;
   subjectSelect.addEventListener("change", (event) => {
     state.subjectMode = event.target.value;
     document.body.setAttribute("data-subject", state.subjectMode);
@@ -19024,19 +20799,11 @@ if (useAnjaliSampleBtn) {
 }
 if (downloadPdfContextBtn) {
   downloadPdfContextBtn.addEventListener("click", () => {
-    void beginExportFromUi(handleAlternatePdfDownload);
+    const alternateRenderMode = getPdfRenderMode() === "exact" ? "context" : "exact";
+    void beginExportFromUi(handleAlternatePdfDownload, {
+      suggestedName: getPdfExportFileName(alternateRenderMode)
+    });
   });
-}
-function hideScreen() {
-  const currentInputPanel = document.getElementById("inputPanel");
-  const currentStagePanel = document.getElementById("stagePanel");
-
-  state.presentationMode = "input";
-  if (currentStagePanel) currentStagePanel.classList.add("hidden");
-  if (currentInputPanel) currentInputPanel.classList.remove("hidden");
-  pauseStageVideoPlayback();
-  stopStagePlayback();
-  drawScene(0.12);
 }
 editBtn.addEventListener("click", () => {
   stopInputPreview(false);
@@ -19046,10 +20813,8 @@ editBtn.addEventListener("click", () => {
   state.images = state.images.filter((item) => !isAutoPdfExampleImage(item));
   state.presentationMode = "lesson";
   updatePlaybackProgressUi(0, false);
-  const currentInputPanel = document.getElementById("inputPanel");
-  const currentStagePanel = document.getElementById("stagePanel");
-  if (currentStagePanel) currentStagePanel.classList.add("hidden");
-  if (currentInputPanel) currentInputPanel.classList.remove("hidden");
+  stagePanel.classList.add("hidden");
+  inputPanel.classList.remove("hidden");
   renderImagePreviews();
   setStatus("You can edit the content now.");
   updateStageModeUi();
@@ -19186,7 +20951,9 @@ stopStageBtn.addEventListener("click", () => {
   input.addEventListener("change", handleCutoutControlChange);
 });
 downloadBtn.addEventListener("click", () => {
-  void beginExportFromUi(exportVideo);
+  void beginExportFromUi(exportVideo, {
+    suggestedName: getDefaultExportFileName()
+  });
 });
 
 document.addEventListener("keydown", (event) => {
@@ -19582,8 +21349,7 @@ if (floatingPalette && lessonInput) {
 const pureEnglishBtn = document.getElementById("pureEnglishTranslateBtn");
 if (pureEnglishBtn) {
     pureEnglishBtn.addEventListener('click', () => {
-        const isEnglish = state.subjectMode === "english";
-        const sourceInput = document.getElementById(isEnglish ? "englishSourceInput" : "mathsSourceInput");
+        const sourceInput = document.getElementById("englishSourceInput") || document.getElementById("mathsSourceInput");
         let text = sourceInput?.value.trim() || lessonInput.value.trim();
         if (!text) return;
         
@@ -19632,31 +21398,3 @@ if (pureEnglishBtn) {
 }
 
 setPureInputMode(false);
-
-// -- GLOBAL EVENT DELEGATION FOR VITE/REACT COMPATIBILITY --
-// This ensures that even if React re-renders components and replaces the DOM elements,
-// our legacy script can still catch the clicks based on the stable IDs.
-document.addEventListener("click", (e) => {
-    const target = e.target.closest("button");
-    if (!target || !target.id) return;
-    
-    const id = target.id;
-    
-    // Core Navigation
-    if (id === "showScreenBtn") {
-        e.preventDefault();
-        runLockedAction("showScreen", [target], showScreen);
-    } else if (id === "editBtn") {
-        e.preventDefault();
-        hideScreen(); 
-    } else if (id === "playBtn") {
-        e.preventDefault();
-        runLockedAction("play", [target, document.getElementById("stopStageBtn")], startPlayback);
-    } else if (id === "stopStageBtn") {
-        e.preventDefault();
-        stopPlayback();
-    } else if (id === "resetInputsBtn") {
-        e.preventDefault();
-        resetInputs();
-    }
-});

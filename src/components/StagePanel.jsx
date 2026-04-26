@@ -45,12 +45,15 @@ function StagePanel() {
               <label className="stage-speed-field stage-speed-field-inline" htmlFor="stagePlaybackSpeedSelect">
                 <span className="style-label">Screen Speed</span>
                 <select id="stagePlaybackSpeedSelect" className="theme-select text-style-select stage-speed-select"
-                  aria-label="Choose screen playback speed">
+                  aria-label="Choose screen playback speed" defaultValue="1">
                   <option value="0.5">0.5x</option>
                   <option value="0.75">0.75x</option>
                   <option value="0.85">0.85x</option>
                   <option value="0.9">0.9x</option>
-                  <option value="1" selected>1x</option>
+                  <option value="1">1x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2">2x</option>
+                  <option value="2.5">2.5x</option>
                 </select>
               </label>
               <p className="stage-speed-copy">Slows narration only. Anjali pitch stays natural.</p>
@@ -89,6 +92,27 @@ function StagePanel() {
           </div>
         </details>
 
+        <details className="stage-toolbar-group stage-toolbar-card">
+          <summary className="stage-toolbar-head stage-toolbar-summary">
+            <div>
+              <p className="stage-toolbar-label">Intro</p>
+              <p className="stage-toolbar-meta">Turn the default intro clip on or off</p>
+            </div>
+            <span className="stage-toolbar-badge">INT</span>
+          </summary>
+          <div className="stage-toolbar-body">
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "4px 8px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }} htmlFor="introClipEnabled">
+                <input id="introClipEnabled" type="checkbox" style={{ width: "16px", height: "16px" }} />
+                <span style={{ fontSize: "0.75rem", color: "#fff", fontWeight: "600" }}>Default Intro Clip</span>
+              </label>
+              <p id="introClipStatus" className="stage-toolbar-meta" style={{ margin: 0 }}>
+                The default intro clip is ready.
+              </p>
+            </div>
+          </div>
+        </details>
+
         
         <details className="stage-toolbar-group stage-toolbar-card">
           <summary className="stage-toolbar-head stage-toolbar-summary">
@@ -101,16 +125,16 @@ function StagePanel() {
           <div className="stage-toolbar-body">
             <div style={{"display": "flex", "flexDirection": "column", "gap": "8px", "padding": "4px 8px"}}>
               <label style={{"display": "flex", "alignItems": "center", "gap": "8px", "cursor": "pointer"}}>
-                <input type="checkbox" id="avatarEnableCheck" checked style={{"width": "16px", "height": "16px"}} />
+                <input type="checkbox" id="avatarEnableCheck" defaultChecked style={{"width": "16px", "height": "16px"}} />
                 <span style={{"fontSize": "0.75rem", "color": "#fff", "fontWeight": "600"}}>Show Anjali Avatar</span>
               </label>
               <label style={{"display": "flex", "alignItems": "center", "gap": "8px", "cursor": "pointer"}}>
-                <input type="checkbox" id="logoEnableCheck" checked style={{"width": "16px", "height": "16px"}} />
+                <input type="checkbox" id="logoEnableCheck" defaultChecked style={{"width": "16px", "height": "16px"}} />
                 <span style={{"fontSize": "0.75rem", "color": "#fff", "fontWeight": "600"}}>Show InfoKids Logo</span>
               </label>
               <label style={{"display": "flex", "flexDirection": "column", "gap": "4px", "marginTop": "10px"}}>
                 <span style={{"fontSize": "0.75rem", "color": "#fff", "fontWeight": "600"}}>Anjali Video Speed</span>
-                <input type="range" id="avatarSpeedRange" min="0.5" max="4.0" step="0.1" value="2.5" style={{"width": "100%"}} />
+                <input type="range" id="avatarSpeedRange" min="0.5" max="4.0" step="0.1" defaultValue="2.5" style={{"width": "100%"}} />
                 <span id="avatarSpeedLabel" style={{"fontSize": "0.75rem", "color": "#fff", "fontWeight": "600", "alignSelf": "flex-end"}}>2.5x</span>
               </label>
             </div>
@@ -122,19 +146,19 @@ function StagePanel() {
                 </label>
                 <label style={{"display": "flex", "flexDirection": "column", "gap": "4px", "marginBottom": "6px"}}>
                   <span style={{"fontSize": "0.75rem", "color": "#fff"}}>Mouth X (%)</span>
-                  <input type="range" id="avatarJawXRange" min="0" max="100" step="0.5" value="28.5" />
+                  <input type="range" id="avatarJawXRange" min="0" max="100" step="0.5" defaultValue="28.5" />
                 </label>
                 <label style={{"display": "flex", "flexDirection": "column", "gap": "4px", "marginBottom": "6px"}}>
                   <span style={{"fontSize": "0.75rem", "color": "#fff"}}>Mouth Y (%)</span>
-                  <input type="range" id="avatarJawYRange" min="0" max="100" step="0.2" value="16.5" />
+                  <input type="range" id="avatarJawYRange" min="0" max="100" step="0.2" defaultValue="16.5" />
                 </label>
                 <label style={{"display": "flex", "flexDirection": "column", "gap": "4px", "marginBottom": "6px"}}>
                   <span style={{"fontSize": "0.75rem", "color": "#fff"}}>Mouth Width (%)</span>
-                  <input type="range" id="avatarJawWidthRange" min="0" max="15" step="0.2" value="4.5" />
+                  <input type="range" id="avatarJawWidthRange" min="0" max="15" step="0.2" defaultValue="4.5" />
                 </label>
                 <label style={{"display": "flex", "flexDirection": "column", "gap": "4px"}}>
                   <span style={{"fontSize": "0.75rem", "color": "#fff"}}>Mouth Height (%)</span>
-                  <input type="range" id="avatarJawHeightRange" min="0" max="30" step="0.2" value="3.0" />
+                  <input type="range" id="avatarJawHeightRange" min="0" max="30" step="0.2" defaultValue="3.0" />
                 </label>
               </div>
           </div>
@@ -235,26 +259,29 @@ function StagePanel() {
         <div className="stage-timeline-row">
           <button id="seekBackwardBtn" className="ghost-btn" type="button" disabled>Back 5s</button>
           <span id="stageCurrentTime" className="control-indicator">00:00</span>
-          <input id="stageTimelineInput" className="stage-timeline-input" type="range" min="0" max="0" value="0" step="100"
+          <input id="stageTimelineInput" className="stage-timeline-input" type="range" min="0" max="0" defaultValue="0" step="100"
             disabled aria-label="PDF presentation timeline" />
           <span id="stageDuration" className="control-indicator">00:00</span>
           <button id="seekForwardBtn" className="ghost-btn" type="button" disabled>Forward 5s</button>
           <label className="stage-speed-field" htmlFor="playbackSpeedSelect">
             <span className="style-label">Speed</span>
             <select id="playbackSpeedSelect" className="theme-select text-style-select stage-speed-select"
-              aria-label="Choose playback speed">
+              aria-label="Choose playback speed" defaultValue="1">
               <option value="0.5">0.5x</option>
               <option value="0.75">0.75x</option>
               <option value="0.85">0.85x</option>
               <option value="0.9">0.9x</option>
-              <option value="1" selected>1x</option>
+              <option value="1">1x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+              <option value="2.5">2.5x</option>
             </select>
           </label>
         </div>
       </div>
 
       <div className="stage-frame">
-        <canvas ref={canvasRef} id="previewCanvas" width="1280" height="720" aria-label="Anjali Teacher preview" />
+            <canvas ref={canvasRef} id="previewCanvas" width="1280" height="720" aria-label="Anjali Teacher preview" />
       </div>
 
       <p className="note" id="statusText">

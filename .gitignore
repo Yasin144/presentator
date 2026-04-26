@@ -4,6 +4,8 @@ tmp-video-inspect/
 tmp_video_frames/
 tmp_reference_frames/
 tmp_downloads/
+tmp_export_frames/
+tmp_export_frames_fix/
 *.log
 *.err
 *.out

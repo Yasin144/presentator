@@ -20,8 +20,8 @@ function InputPanel() {
             <p className="hero-stage-note">Classroom board style</p>
             <div className="hero-stage-actions">
               <button id="resetInputsBtn" className="primary-btn reset-btn ghost-btn" type="button">Reset</button>
-              <select id="subjectSelect" className="theme-select text-style-select" aria-label="Choose subject" style={{ marginRight: "8px" }}>
-                <option value="maths" selected>Maths</option>
+              <select id="subjectSelect" className="theme-select text-style-select" aria-label="Choose subject" style={{ marginRight: "8px" }} defaultValue="maths">
+                <option value="maths">Maths</option>
                 <option value="english">English</option>
               </select>
               <button id="showScreenBtn" className="primary-btn input-show-screen-btn hero-show-screen-btn"
@@ -71,7 +71,7 @@ function InputPanel() {
             <span className="workflow-step-index">03</span>
             <span className="workflow-step-copy">
               <strong>Media And Voice</strong>
-              <span>Add intro, images, and Anjali narration only if needed.</span>
+              <span>Add images, stage video, and Anjali narration only if needed.</span>
             </span>
           </button>
           <button className="workflow-step workflow-step-show" type="button" data-workflow-target="showScreenBtn">
@@ -146,7 +146,7 @@ function InputPanel() {
               <p className="upload-copy">Type a custom title to show at the top of the Learning Outcomes screen. Leave blank
                 to use the default <strong>LEARNING OUTCOMES</strong> heading.</p>
               <div className="toolbar toolbar-compact">
-                <input id="outcomesTitleInput" className="text-field-input outcomes-title-input" type="text" maxlength="72"
+                <input id="outcomesTitleInput" className="text-field-input outcomes-title-input" type="text" maxLength="72"
                   placeholder="e.g. LEARNING OUTCOMES" disabled />
                 <button id="saveOutcomesTitleBtn" className="primary-btn" type="button" disabled>Save Title</button>
               </div>
@@ -182,10 +182,6 @@ what is two plus three
 find the product of six and four
 ten divided by two
 three is less than nine"></textarea>
-            <div className="upload-block" style={{"marginTop": "12px", "padding": "8px", "background": "rgba(255,255,255,0.05)", "borderRadius": "6px"}}>
-              <label className="field-label" htmlFor="mathsTextFileInput" style={{"fontSize": "12px"}}>Import From File (.txt, .md)</label>
-              <input id="mathsTextFileInput" type="file" accept=".txt,.md" style={{"fontSize": "12px", "width": "100%"}} />
-            </div>
             <div className="toolbar toolbar-compact">
               <button id="translateMathsBtn" className="primary-btn" type="button">Translate To Pure Maths</button>
               <button id="clearMathsSourceBtn" className="ghost-btn" type="button">Clear Source</button>
@@ -218,10 +214,6 @@ three is less than nine"></textarea>
 hello students today v r gonna learn about nouns.
 nouns r naming words like apple or delhi.
 plz open ur books!"></textarea>
-            <div className="upload-block" style={{"marginTop": "12px", "padding": "8px", "background": "rgba(255,255,255,0.05)", "borderRadius": "6px"}}>
-              <label className="field-label" htmlFor="englishTextFileInput" style={{"fontSize": "12px"}}>Import From File (.txt, .md)</label>
-              <input id="englishTextFileInput" type="file" accept=".txt,.md" style={{"fontSize": "12px", "width": "100%"}} />
-            </div>
             <div className="toolbar toolbar-compact">
               <button id="pureEnglishTranslateBtn" className="primary-btn" type="button" style={{"background": "#5c2d91"}}>Translate To Pure English</button>
               <button id="clearEnglishSourceBtn" className="ghost-btn" type="button">Clear Source</button>
@@ -238,8 +230,8 @@ plz open ur books!"></textarea>
             <div className="display-style-grid">
               <label className="style-field" htmlFor="placeValueNumberInput">
                 <span className="style-label">Number</span>
-                <input id="placeValueNumberInput" className="text-field-input" type="text" inputmode="numeric"
-                  maxlength="14" placeholder="Enter a number" />
+                <input id="placeValueNumberInput" className="text-field-input" type="text" inputMode="numeric"
+                  maxLength="14" placeholder="Enter a number" />
               </label>
               <label className="style-field" htmlFor="placeValueSystemSelect">
                 <span className="style-label">Table Layout</span>
@@ -260,8 +252,6 @@ plz open ur books!"></textarea>
           <div className="input-module-head" style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>
             <label className="field-label maths-label" htmlFor="lessonInput">Translated Maths Lesson</label>
             <label className="field-label english-label" htmlFor="lessonInput">English Lesson Content</label>
-            <button id="autoExplainBtn" className="accent-btn" type="button" style={{"padding": "2px 8px", "fontSize": "12px"}}>Auto
-              Explain</button>
           </div>
           <textarea id="lessonInput" className="lesson-input" placeholder="Type or paste your lesson here"></textarea>
           <div id="pureInputCard" className="display-style-card pure-input-card">
@@ -289,8 +279,8 @@ plz open ur books!"></textarea>
             <div className="display-style-grid">
               <label className="style-field" htmlFor="textColorSelect">
                 <span className="style-label">Text Color</span>
-                <select id="textColorSelect" className="theme-select text-style-select" aria-label="Choose text color">
-                  <option value="#ffffff" selected>White</option>
+                <select id="textColorSelect" className="theme-select text-style-select" aria-label="Choose text color" defaultValue="#ffffff">
+                  <option value="#ffffff">White</option>
                   <option value="#000000">Black</option>
                   <option value="#173e58">Deep Blue</option>
                   <option value="#10243a">Dark Navy</option>
@@ -327,8 +317,8 @@ plz open ur books!"></textarea>
               <label className="style-field" htmlFor="selectedTextColorSelect">
                 <span className="style-label">Selected Text Color</span>
                 <select id="selectedTextColorSelect" className="theme-select text-style-select"
-                  aria-label="Choose selected text color">
-                  <option value="#ffffff" selected>White</option>
+                  aria-label="Choose selected text color" defaultValue="#ffffff">
+                  <option value="#ffffff">White</option>
                   <option value="#000000">Black</option>
                   <option value="#173e58">Deep Blue</option>
                   <option value="#10243a">Dark Navy</option>
@@ -475,15 +465,6 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                     <option value="off">No Music</option>
                   </select>
                 </label>
-                <label className="style-field" htmlFor="exportQualitySelect">
-                  <span className="style-label">Export Quality</span>
-                  <select id="exportQualitySelect" className="theme-select text-style-select"
-                    aria-label="Choose export quality">
-                    <option value="hd">HD</option>
-                    <option value="2k" selected>2K</option>
-                    <option value="4k">4K</option>
-                  </select>
-                </label>
               </div>
               <div className="scene-upload-grid">
                 <div className="upload-block">
@@ -615,8 +596,8 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <label className="style-field" htmlFor="slideVoiceSelect">
                 <span className="style-label">Saved Slide Voice</span>
                 <select id="slideVoiceSelect" className="theme-select text-style-select"
-                  aria-label="Choose saved slide voice">
-                  <option value="anjali" selected>Anjali Narration</option>
+                  aria-label="Choose saved slide voice" defaultValue="anjali">
+                  <option value="anjali">Anjali Narration</option>
                 </select>
               </label>
               <p className="upload-copy">Play Slide and Export Video use Anjali automatically.</p>
@@ -626,7 +607,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
           <div className="tool-card maths-helper-card">
             <div className="tool-card-head">
               <span className="module-icon">MTH</span>
-              <p className="tool-card-title">Anjali Teacher Starter</p>
+              <p className="tool-card-title">Maths Teacher Starter</p>
             </div>
             <p className="upload-copy">Load ready-made maths lessons, practise clear pronunciation, and keep Anjali's warm
               sample voice inside the project.</p>
@@ -809,7 +790,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <label htmlFor="bgMusicInput" style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer"}}>🎵 Smart Audio
                     Ducking Track:</label>
                   <input type="file" id="bgMusicInput" accept="audio/*" style={{"fontSize": "0.8rem", "color": "#ccc"}} />
-                  <audio id="bgMusicAudio" loop crossorigin="anonymous"></audio>
+                  <audio id="bgMusicAudio" loop crossOrigin="anonymous"></audio>
                 </div>
                 <div style={{"display": "flex", "alignItems": "center", "gap": "8px", "marginTop": "4px"}}>
                   <input type="checkbox" id="captionWatermarkCheck" style={{"width": "18px", "height": "18px"}} defaultChecked />
@@ -823,8 +804,8 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <div style={{"display": "flex", "gap": "10px", "marginBottom": "12px"}}>
                 <div style={{"flex": "1"}}>
                   <span className="style-label" style={{"color": "#aaa"}}>Visual Master Theme</span>
-                  <select id="captionStyleSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}}>
-                    <option value="tiktok" selected>Viral Pop (Bold & Shadow)</option>
+                  <select id="captionStyleSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="tiktok">
+                    <option value="tiktok">Viral Pop (Bold & Shadow)</option>
                     <option value="classic">Classic TV (White & Black Box)</option>
                     <option value="cinematic">Cinematic Fade (Clean White)</option>
                     <option value="neon">Cyberpunk Neon (Intense Glow)</option>
@@ -836,8 +817,8 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 </div>
                 <div style={{"flex": "1"}}>
                   <span className="style-label" style={{"color": "#aaa"}}>Background Video Filter</span>
-                  <select id="captionFilterSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}}>
-                    <option value="none" selected>None (Raw Input)</option>
+                  <select id="captionFilterSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="none">
+                    <option value="none">None (Raw Input)</option>
                     <option value="darken">Darken 50% (Makes Text Pop)</option>
                     <option value="blur">Heavy Depth Blur</option>
                     <option value="grayscale">Black & White Grayscale</option>
@@ -847,8 +828,8 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 </div>
                 <div style={{"flex": "1"}}>
                   <span className="style-label" style={{"color": "#aaa"}}>Font Typography</span>
-                  <select id="captionFontSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}}>
-                    <option value="Nunito, sans-serif" selected>Modern (Nunito)</option>
+                  <select id="captionFontSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="Nunito, sans-serif">
+                    <option value="Nunito, sans-serif">Modern (Nunito)</option>
                     <option value="Impact, sans-serif">Bold Heavy (Impact)</option>
                     <option value="'Courier New', monospace">Mechanical (Courier)</option>
                     <option value="'Comic Sans MS', cursive">Playful (Comic)</option>
@@ -861,15 +842,15 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 style={{"gap": "8px", "marginBottom": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr"}}>
                 <label className="style-field">
                   <span className="style-label">Engine Text Size Scale</span>
-                  <input type="range" id="captionSizeSlider" min="30" max="150" value="80" />
+                  <input type="range" id="captionSizeSlider" min="30" max="150" defaultValue="80" />
                 </label>
                 <label className="style-field">
                   <span className="style-label">Line Spacing Gap</span>
-                  <input type="range" id="captionGapSlider" min="80" max="200" value="120" />
+                  <input type="range" id="captionGapSlider" min="80" max="200" defaultValue="120" />
                 </label>
                 <label className="style-field">
                   <span className="style-label">Max Width Bound</span>
-                  <input type="range" id="captionWidthSlider" min="30" max="95" value="85" />
+                  <input type="range" id="captionWidthSlider" min="30" max="95" defaultValue="85" />
                 </label>
                 <label className="style-field">
                   <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>
@@ -877,18 +858,18 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                     <span id="captionSyncNum"
                       style={{"color": "#ffcc00", "fontSize": "0.8rem", "fontFamily": "monospace"}}>0.0s</span>
                   </div>
-                  <input type="range" id="captionSyncSlider" min="-15000" max="15000" step="100" value="0"
+                  <input type="range" id="captionSyncSlider" min="-15000" max="15000" step="100" defaultValue="0"
                      />
                 </label>
                 <label className="style-field">
                   <span className="style-label">Stroke Thickness</span>
-                  <input type="range" id="captionStrokeSlider" min="0" max="100" value="80" />
+                  <input type="range" id="captionStrokeSlider" min="0" max="100" defaultValue="80" />
                 </label>
               </div>
 
               <div style={{"display": "flex", "gap": "10px", "alignItems": "center"}}>
                 <span className="style-label" style={{"color": "#aaa"}}>Extracted Text Color:</span>
-                <input type="color" id="captionColorPicker" value="#fde047"
+                <input type="color" id="captionColorPicker" defaultValue="#fde047"
                   style={{"border": "none", "cursor": "pointer", "background": "none", "height": "30px", "width": "40px"}} />
                 <p className="upload-copy" style={{"margin": "0", "marginLeft": "auto"}}><strong>Position:</strong> Click & drag
                   video to move captions!</p>
@@ -911,11 +892,11 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 <button id="captionPlayPauseBtn" className="ghost-btn" type="button"
                   style={{"color": "white", "borderColor": "rgba(255,255,255,0.2)"}}>⏸️ Pause</button>
                 <input type="range" id="captionSeekSlider" style={{"flexGrow": "1", "margin": "0 1rem"}} min="0" max="100"
-                  value="0" />
+                  defaultValue="0" />
                 <span id="captionTimeDisplay" style={{"color": "#ddd", "fontFamily": "monospace", "fontSize": "0.9rem"}}>00:00 /
                   00:00</span>
               </div>
-              <video id="captionSourceVideo" hidden playsinline crossorigin="anonymous"></video>
+              <video id="captionSourceVideo" hidden playsInline crossOrigin="anonymous"></video>
             </div>
           </div>
 
@@ -937,23 +918,12 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <span className="section-icon">IMG</span>
             <span className="summary-copy">
               <span className="section-title">Optional Media</span>
-              <span className="section-meta">Upload images, turn on the default intro clip, and manage multiple stage videos
+              <span className="section-meta">Upload images and manage multiple stage videos
                 for the blue screen.</span>
             </span>
           </span>
         </summary>
         <div className="section-content">
-          <div className="upload-block">
-            <label className="field-label" htmlFor="introClipEnabled">Default Intro Clip</label>
-            <p className="upload-copy">The provided intro clip can play first on the screen before the lesson starts. Leave
-              it on by default, or turn it off when you want the lesson to begin immediately.</p>
-            <label className="toggle-check" htmlFor="introClipEnabled">
-              <input id="introClipEnabled" type="checkbox" />
-              <span>Play the default intro clip before the lesson</span>
-            </label>
-            <p id="introClipStatus" className="upload-copy">The default intro clip is ready.</p>
-          </div>
-
           <div className="upload-block">
             <label className="field-label">Pro Capabilities (Automated Cinematic Overlays)</label>
             <p className="upload-copy">Enable or disable the advanced dynamic rendering features applied to your exported
@@ -988,14 +958,13 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <div className="upload-block">
               <label className="field-label" htmlFor="videoInput">Upload Stage Videos</label>
               <p className="upload-copy">Upload multiple videos for the blue screen. Each video card on this input screen
-                includes `Remove BG`, `Restore`, and `Show On Screen` actions. Video exports automatically upscale to at
-                least 2K while a stage video is active.</p>
+                includes `Remove BG`, `Restore`, and `Show On Screen` actions. Exports use the normal stage video view.</p>
               <input id="videoInput" className="image-input" type="file" accept="video/*" multiple />
               <div className="toolbar toolbar-compact">
                 <button id="clearVideoBtn" className="ghost-btn" type="button">Clear Videos</button>
               </div>
               <video id="videoPreview" className="audio-preview hidden" controls preload="metadata" muted
-                playsinline></video>
+                playsInline></video>
               <div id="videoPreviewList" className="image-preview-list hidden" aria-live="polite"></div>
               <p id="videoStatus" className="upload-copy">No stage video selected.</p>
             </div>
@@ -1011,7 +980,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <span>Tolerance</span>
                   <strong id="cutoutToleranceValue">66</strong>
                 </span>
-                <input id="cutoutToleranceInput" type="range" min="20" max="110" step="1" value="66" />
+                <input id="cutoutToleranceInput" type="range" min="20" max="110" step="1" defaultValue="66" />
                 <small>How aggressively the remover follows the background color.</small>
               </label>
               <label className="cutout-control" htmlFor="cutoutFeatherInput">
@@ -1019,7 +988,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <span>Feather</span>
                   <strong id="cutoutFeatherValue">22</strong>
                 </span>
-                <input id="cutoutFeatherInput" type="range" min="4" max="48" step="1" value="22" />
+                <input id="cutoutFeatherInput" type="range" min="4" max="48" step="1" defaultValue="22" />
                 <small>Softens the edge after removing the background.</small>
               </label>
               <label className="cutout-control" htmlFor="cutoutSpillInput">
@@ -1027,7 +996,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <span>Spill Cleanup</span>
                   <strong id="cutoutSpillValue">35</strong>
                 </span>
-                <input id="cutoutSpillInput" type="range" min="0" max="100" step="1" value="35" />
+                <input id="cutoutSpillInput" type="range" min="0" max="100" step="1" defaultValue="35" />
                 <small>Pulls green spill away from the subject edge.</small>
               </label>
               <label className="cutout-control" htmlFor="cutoutScreenBlendInput">
@@ -1035,7 +1004,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <span>Screen Match</span>
                   <strong id="cutoutScreenBlendValue">28</strong>
                 </span>
-                <input id="cutoutScreenBlendInput" type="range" min="0" max="100" step="1" value="28" />
+                <input id="cutoutScreenBlendInput" type="range" min="0" max="100" step="1" defaultValue="28" />
                 <small>Adds a soft blue-screen blend so the media matches the stage better.</small>
               </label>
             </div>

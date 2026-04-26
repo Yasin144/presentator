@@ -4,32 +4,56 @@ import StagePanel from './components/StagePanel';
 
 function App() {
   useEffect(() => {
-    // Load legacy scripts sequentially to bind all interactions correctly
-    const loadScript = (src) => {
-      return new Promise((resolve, reject) => {
+    const scriptSources = [
+      "/logo-data.js",
+      "/script.js",
+      "/caption-script.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js",
+      "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js",
+      "/3d-engine.js",
+      "/dubbing-studio.js",
+    ];
+
+    const loadScript = (src) =>
+      new Promise((resolve, reject) => {
+        const existing = document.querySelector(`script[data-presentator-src="${src}"]`);
+        if (existing) {
+          if (existing.dataset.loaded === "true") {
+            resolve();
+            return;
+          }
+
+          existing.addEventListener("load", resolve, { once: true });
+          existing.addEventListener("error", reject, { once: true });
+          return;
+        }
+
         const script = document.createElement("script");
         script.src = src;
-        script.onload = resolve;
-        script.onerror = reject;
+        script.async = false;
+        script.dataset.presentatorSrc = src;
+        script.addEventListener("load", () => {
+          script.dataset.loaded = "true";
+          resolve();
+        }, { once: true });
+        script.addEventListener("error", reject, { once: true });
         document.body.appendChild(script);
       });
-    };
 
-    const initLegacyEngine = async () => {
-      try {
-        await loadScript("/logo-data.js");
-        await loadScript("/script.js");
-        await loadScript("/caption-script.js");
-        await loadScript("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js");
-        await loadScript("https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js");
-        await loadScript("/3d-engine.js");
-        await loadScript("/dubbing-studio.js");
-      } catch (e) {
-        console.error("Failed to load legacy engine scripts:", e);
-      }
-    };
+    if (!window.__presentatorLegacyBootPromise) {
+      window.__presentatorLegacyBootPromise = (async () => {
+        for (const src of scriptSources) {
+          await loadScript(src);
+        }
+      })().catch((error) => {
+        window.__presentatorLegacyBootPromise = null;
+        throw error;
+      });
+    }
 
-    initLegacyEngine();
+    window.__presentatorLegacyBootPromise.catch((error) => {
+      console.error("Failed to load legacy engine scripts:", error);
+    });
   }, []);
 
   return (

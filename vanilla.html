@@ -89,13 +89,13 @@
               <span>Optional. Keep Classic or switch the stage look.</span>
             </span>
           </button>
-          <button class="workflow-step" type="button" data-workflow-target="mediaSection">
-            <span class="workflow-step-index">03</span>
-            <span class="workflow-step-copy">
-              <strong>Media And Voice</strong>
-              <span>Add intro, images, and Anjali narration only if needed.</span>
-            </span>
-          </button>
+              <button class="workflow-step" type="button" data-workflow-target="mediaSection">
+                <span class="workflow-step-index">03</span>
+                <span class="workflow-step-copy">
+                  <strong>Media And Voice</strong>
+                  <span>Add images, stage video, and Anjali narration only if needed.</span>
+                </span>
+              </button>
           <button class="workflow-step workflow-step-show" type="button" data-workflow-target="showScreenBtn">
             <span class="workflow-step-index">04</span>
             <span class="workflow-step-copy">
@@ -255,8 +255,6 @@ three is less than nine"></textarea>
           </div>
           <div class="input-module-head" style="display: flex; justify-content: space-between; align-items: center;">
             <label class="field-label" for="lessonInput">Translated Maths Lesson</label>
-            <button id="autoExplainBtn" class="accent-btn" type="button" style="padding: 2px 8px; font-size: 12px;">Auto
-              Explain</button>
           </div>
           <textarea id="lessonInput" class="lesson-input" placeholder="Type or paste your lesson here"></textarea>
           <div class="display-style-card">
@@ -449,15 +447,6 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                     <option value="auto">Auto Generate</option>
                     <option value="upload">Use Uploaded Music</option>
                     <option value="off">No Music</option>
-                  </select>
-                </label>
-                <label class="style-field" for="exportQualitySelect">
-                  <span class="style-label">Export Quality</span>
-                  <select id="exportQualitySelect" class="theme-select text-style-select"
-                    aria-label="Choose export quality">
-                    <option value="hd">HD</option>
-                    <option value="2k" selected>2K</option>
-                    <option value="4k">4K</option>
                   </select>
                 </label>
               </div>
@@ -913,23 +902,12 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <span class="section-icon">IMG</span>
             <span class="summary-copy">
               <span class="section-title">Optional Media</span>
-              <span class="section-meta">Upload images, turn on the default intro clip, and manage multiple stage videos
+              <span class="section-meta">Upload images and manage multiple stage videos
                 for the blue screen.</span>
             </span>
           </span>
         </summary>
         <div class="section-content">
-          <div class="upload-block">
-            <label class="field-label" for="introClipEnabled">Default Intro Clip</label>
-            <p class="upload-copy">The provided intro clip can play first on the screen before the lesson starts. Leave
-              it on by default, or turn it off when you want the lesson to begin immediately.</p>
-            <label class="toggle-check" for="introClipEnabled">
-              <input id="introClipEnabled" type="checkbox">
-              <span>Play the default intro clip before the lesson</span>
-            </label>
-            <p id="introClipStatus" class="upload-copy">The default intro clip is ready.</p>
-          </div>
-
           <div class="upload-block">
             <label class="field-label">Pro Capabilities (Automated Cinematic Overlays)</label>
             <p class="upload-copy">Enable or disable the advanced dynamic rendering features applied to your exported
@@ -964,8 +942,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <div class="upload-block">
               <label class="field-label" for="videoInput">Upload Stage Videos</label>
               <p class="upload-copy">Upload multiple videos for the blue screen. Each video card on this input screen
-                includes `Remove BG`, `Restore`, and `Show On Screen` actions. Video exports automatically upscale to at
-                least 2K while a stage video is active.</p>
+                includes `Remove BG`, `Restore`, and `Show On Screen` actions. Exports use the normal stage video view.</p>
               <input id="videoInput" class="image-input" type="file" accept="video/*" multiple>
               <div class="toolbar toolbar-compact">
                 <button id="clearVideoBtn" class="ghost-btn" type="button">Clear Videos</button>
@@ -1101,6 +1078,9 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <option value="0.85">0.85x</option>
                   <option value="0.9">0.9x</option>
                   <option value="1" selected>1x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2">2x</option>
+                  <option value="2.5">2.5x</option>
                 </select>
               </label>
               <p class="stage-speed-copy">Slows narration only. Anjali pitch stays natural.</p>
@@ -1298,13 +1278,16 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <option value="0.85">0.85x</option>
               <option value="0.9">0.9x</option>
               <option value="1" selected>1x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+              <option value="2.5">2.5x</option>
             </select>
           </label>
         </div>
       </div>
 
       <div class="stage-frame">
-        <canvas id="previewCanvas" width="1280" height="720" aria-label="Maths Teacher preview"></canvas>
+                <canvas id="previewCanvas" width="1280" height="720" aria-label="Maths Teacher preview"></canvas>
       </div>
 
       <p class="note" id="statusText">

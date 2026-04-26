@@ -6,7 +6,7 @@
     "scripts":  {
                     "start":  "electron .",
                     "build":  "electron-builder --windows",
-                    "dev":  "vite",
+                    "dev":  "vite --host 127.0.0.1 --port 5173 --strictPort",
                     "build:react":  "vite build",
                     "preview":  "vite preview"
                 },

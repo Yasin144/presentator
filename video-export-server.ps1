@@ -326,13 +326,20 @@ function New-MuxUploadSession {
   $videoExtension = Get-FileExtension -FileName ([string]$Metadata.videoFileName) -FallbackExtension ".webm"
   $audioExtension = Get-FileExtension -FileName ([string]$Metadata.audioFileName) -FallbackExtension ".wav"
   $musicExtension = Get-FileExtension -FileName ([string]$Metadata.musicFileName) -FallbackExtension ".wav"
+  $videoSegmentCount = [Math]::Max(1, [int]([double]$Metadata.videoSegmentCount))
+  $videoPaths = @()
+  for ($index = 0; $index -lt $videoSegmentCount; $index += 1) {
+    $videoPaths += (Join-Path $env:TEMP ("mux-video-" + $sessionId + "-" + $index + $videoExtension))
+  }
   $session = @{
     Id = $sessionId
     Metadata = $Metadata
-    VideoPath = Join-Path $env:TEMP ("mux-video-" + $sessionId + $videoExtension)
+    VideoPath = $videoPaths[0]
+    VideoPaths = $videoPaths
     AudioPath = Join-Path $env:TEMP ("mux-audio-" + $sessionId + $audioExtension)
     MusicPath = Join-Path $env:TEMP ("mux-music-" + $sessionId + $musicExtension)
     VideoBytes = 0
+    VideoSegmentBytes = @{}
     AudioBytes = 0
     MusicBytes = 0
   }
@@ -348,7 +355,13 @@ function Remove-MuxUploadSession {
   }
 
   $session = $script:MuxUploadSessions[$SessionId]
-  foreach ($path in @($session.VideoPath, $session.AudioPath, $session.MusicPath)) {
+  $videoPaths = @()
+  if ($session.VideoPaths) {
+    $videoPaths += @($session.VideoPaths)
+  } elseif ($session.VideoPath) {
+    $videoPaths += $session.VideoPath
+  }
+  foreach ($path in @($videoPaths + @($session.AudioPath, $session.MusicPath))) {
     if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path $path)) {
       Remove-Item $path -Force -ErrorAction SilentlyContinue
     }
@@ -432,6 +445,62 @@ function Get-FFmpegPath {
   throw "FFmpeg is not installed on this machine."
 }
 
+function Get-FFprobePath {
+  $command = Get-Command ffprobe -ErrorAction SilentlyContinue
+  if ($command -and $command.Source -and (Test-Path $command.Source)) {
+    return $command.Source
+  }
+
+  try {
+    $ffmpegPath = Get-FFmpegPath
+    if (-not [string]::IsNullOrWhiteSpace($ffmpegPath)) {
+      $ffprobeCandidate = Join-Path (Split-Path -Parent $ffmpegPath) "ffprobe.exe"
+      if (Test-Path $ffprobeCandidate) {
+        return $ffprobeCandidate
+      }
+    }
+  } catch {
+  }
+
+  $packageRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+  if (Test-Path $packageRoot) {
+    $match = Get-ChildItem $packageRoot -Filter ffprobe.exe -Recurse -ErrorAction SilentlyContinue |
+      Select-Object -First 1 -ExpandProperty FullName
+    if ($match) {
+      return $match
+    }
+  }
+
+  throw "FFprobe is not installed on this machine."
+}
+
+function Get-VideoDimensions {
+  param([string]$VideoPath)
+
+  if ([string]::IsNullOrWhiteSpace($VideoPath) -or -not (Test-Path $VideoPath)) {
+    throw "Video dimensions could not be read because the file does not exist."
+  }
+
+  $ffprobePath = Get-FFprobePath
+  $probeOutput = & $ffprobePath -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x $VideoPath 2>$null | Out-String
+  $probeText = $probeOutput.Trim()
+  if ([string]::IsNullOrWhiteSpace($probeText) -or ($probeText -notmatch '^\d+x\d+$')) {
+    throw "FFprobe could not determine the video dimensions for '$VideoPath'."
+  }
+
+  $parts = $probeText.Split('x')
+  $width = [int]$parts[0]
+  $height = [int]$parts[1]
+  if ($width -le 0 -or $height -le 0) {
+    throw "FFprobe returned invalid video dimensions for '$VideoPath'."
+  }
+
+  return @{
+    Width = $width
+    Height = $height
+  }
+}
+
 function Get-FileExtension {
   param(
     [string]$FileName,
@@ -446,6 +515,173 @@ function Get-FileExtension {
   return $extension
 }
 
+function Get-DefaultExportDirectory {
+  $userProfile = [Environment]::GetFolderPath([System.Environment+SpecialFolder]::UserProfile)
+  if (-not [string]::IsNullOrWhiteSpace($userProfile)) {
+    $downloadsPath = Join-Path $userProfile "Downloads"
+    if (Test-Path $downloadsPath) {
+      return $downloadsPath
+    }
+  }
+
+  $documentsPath = [Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyDocuments)
+  if (-not [string]::IsNullOrWhiteSpace($documentsPath)) {
+    return $documentsPath
+  }
+
+  return $env:TEMP
+}
+
+function Get-SafeOutputFileName {
+  param([string]$FileName)
+
+  $requestedName = [string]$FileName
+  if ([string]::IsNullOrWhiteSpace($requestedName)) {
+    $requestedName = "learning-outcomes-video.mp4"
+  }
+
+  $baseName = [System.IO.Path]::GetFileNameWithoutExtension($requestedName)
+  $extension = [System.IO.Path]::GetExtension($requestedName)
+  if ([string]::IsNullOrWhiteSpace($baseName)) {
+    $baseName = "learning-outcomes-video"
+  }
+  if ([string]::IsNullOrWhiteSpace($extension)) {
+    $extension = ".mp4"
+  }
+
+  $invalidCharacters = [System.IO.Path]::GetInvalidFileNameChars()
+  foreach ($character in $invalidCharacters) {
+    $baseName = $baseName.Replace([string]$character, "-")
+  }
+
+  $baseName = $baseName.Trim()
+  if ([string]::IsNullOrWhiteSpace($baseName)) {
+    $baseName = "learning-outcomes-video"
+  }
+
+  return $baseName + $extension
+}
+
+function Get-UniqueOutputFilePath {
+  param(
+    [string]$Directory,
+    [string]$FileName
+  )
+
+  if (-not (Test-Path $Directory)) {
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+  }
+
+  $safeFileName = Get-SafeOutputFileName -FileName $FileName
+  $baseName = [System.IO.Path]::GetFileNameWithoutExtension($safeFileName)
+  $extension = [System.IO.Path]::GetExtension($safeFileName)
+  $candidatePath = Join-Path $Directory $safeFileName
+  $counter = 1
+
+  while (Test-Path $candidatePath) {
+    $candidatePath = Join-Path $Directory ("{0} ({1}){2}" -f $baseName, $counter, $extension)
+    $counter += 1
+  }
+
+  return $candidatePath
+}
+
+function Save-MuxedVideoToDefaultPath {
+  param(
+    [string]$SourcePath,
+    [string]$RequestedFileName
+  )
+
+  if (-not (Test-Path $SourcePath)) {
+    throw "The muxed video file was not found."
+  }
+
+  $targetDirectory = Get-DefaultExportDirectory
+  $targetPath = Get-UniqueOutputFilePath -Directory $targetDirectory -FileName $RequestedFileName
+  Move-Item -LiteralPath $SourcePath -Destination $targetPath -Force
+  return $targetPath
+}
+
+function Join-VideoSegments {
+  param(
+    [string[]]$VideoPaths,
+    $Metadata = $null
+  )
+
+  $safeVideoPaths = @($VideoPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path $_) })
+  if (-not $safeVideoPaths.Count) {
+    throw "No rendered video parts were uploaded."
+  }
+
+  if ($safeVideoPaths.Count -eq 1) {
+    return $safeVideoPaths[0]
+  }
+
+  $ffmpegPath = Get-FFmpegPath
+  $includeIntroSegment = $false
+  if ($Metadata -and $Metadata.PSObject.Properties.Name -contains "includeIntroSegment") {
+    $includeIntroSegment = [bool]$Metadata.includeIntroSegment
+  }
+
+  if ($includeIntroSegment) {
+    $outputPath = Join-Path $env:TEMP ("mux-concat-" + [System.Guid]::NewGuid().ToString() + ".mp4")
+    try {
+      $inputArgs = @("-y")
+      $filterParts = @()
+      $concatInputs = ""
+      $targetDimensions = Get-VideoDimensions -VideoPath $safeVideoPaths[0]
+      $targetWidth = [Math]::Max(2, [int]$targetDimensions.Width)
+      $targetHeight = [Math]::Max(2, [int]$targetDimensions.Height)
+      for ($index = 0; $index -lt $safeVideoPaths.Count; $index += 1) {
+        $inputArgs += @("-i", $safeVideoPaths[$index])
+        $segmentFilter = "[{0}:v]setpts=PTS-STARTPTS,scale={1}:{2}:force_original_aspect_ratio=decrease:flags=lanczos,pad={1}:{2}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p[v{0}]" -f $index, $targetWidth, $targetHeight
+        $filterParts += $segmentFilter
+        $concatInputs += "[v$index]"
+      }
+      $filterParts += ("{0}concat=n={1}:v=1:a=0[vout]" -f $concatInputs, $safeVideoPaths.Count)
+      $joinArgs = $inputArgs + @(
+        "-filter_complex", ($filterParts -join ";"),
+        "-map", "[vout]",
+        "-an",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        $outputPath
+      )
+      $joinOutput = & $ffmpegPath @joinArgs 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outputPath)) {
+        throw "FFmpeg could not normalize and join the rendered video parts. $joinOutput"
+      }
+      return $outputPath
+    } catch {
+      throw
+    }
+  }
+
+  $listPath = Join-Path $env:TEMP ("mux-concat-" + [System.Guid]::NewGuid().ToString() + ".txt")
+  $outputPath = Join-Path $env:TEMP ("mux-concat-" + [System.Guid]::NewGuid().ToString() + ".webm")
+
+  try {
+    $listContent = ($safeVideoPaths | ForEach-Object {
+      $escapedPath = $_.Replace("'", "''")
+      "file '$escapedPath'"
+    }) -join [Environment]::NewLine
+    [System.IO.File]::WriteAllText($listPath, $listContent, [System.Text.Encoding]::ASCII)
+
+    $concatOutput = & $ffmpegPath "-y" "-f" "concat" "-safe" "0" "-i" $listPath "-c" "copy" $outputPath 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outputPath)) {
+      throw "FFmpeg could not join the rendered video parts. $concatOutput"
+    }
+
+    return $outputPath
+  } finally {
+    if (Test-Path $listPath) {
+      Remove-Item $listPath -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 function Invoke-VideoMux {
   param(
     [string]$VideoPath,
@@ -456,6 +692,7 @@ function Invoke-VideoMux {
     [string]$ExportQuality = "hd",
     [double]$MusicVolume = 0.18,
     [double]$TargetDurationMs = 0,
+    [double]$HoldLastFrameMs = 0,
     [bool]$AudioDuckingEnabled = $true,
     [switch]$KeepOutputFile
   )
@@ -468,11 +705,17 @@ function Invoke-VideoMux {
     $safeAudioSpeed = [Math]::Min([Math]::Max($AudioSpeed, 0.5), 2.0)
     $safeVideoSpeed = [Math]::Min([Math]::Max($VideoSpeed, 1.0), 20.0)
     $safeTargetDurationMs = [Math]::Max([double]$TargetDurationMs, 0.0)
+    $safeHoldLastFrameMs = [Math]::Max([double]$HoldLastFrameMs, 0.0)
     $volumeText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeMusicVolume)
     $audioSpeedText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeAudioSpeed)
     $videoSpeedText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeVideoSpeed)
     $targetDurationSecondsText = if ($safeTargetDurationMs -gt 0) {
       [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.000}", ($safeTargetDurationMs / 1000.0))
+    } else {
+      ""
+    }
+    $holdLastFrameSecondsText = if ($safeHoldLastFrameMs -gt 0) {
+      [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.000}", ($safeHoldLastFrameMs / 1000.0))
     } else {
       ""
     }
@@ -482,10 +725,20 @@ function Invoke-VideoMux {
     $args = @("-y", "-i", $VideoPath, "-i", $AudioPath)
     $videoFilters = @()
     if ($safeVideoSpeed -ne 1.0) {
+      # Export rendering can advance the lesson timeline faster than real playback.
+      # Stretch the recorded video back to the narration timeline here so visuals stay natural.
       $videoFilters += "setpts=$videoSpeedText*PTS"
     }
     if (-not [string]::IsNullOrWhiteSpace($scaleFilter)) {
       $videoFilters += $scaleFilter
+    }
+    $videoFilters += "fps=30"
+    if ($holdLastFrameSecondsText) {
+      $videoFilters += "tpad=stop_mode=clone:stop_duration=$holdLastFrameSecondsText"
+    }
+    if ($targetDurationSecondsText) {
+      $videoFilters += "trim=duration=$targetDurationSecondsText"
+      $videoFilters += "setpts=PTS-STARTPTS"
     }
     $videoFilterInput = if ($videoFilters.Count -gt 0) {
       "[0:v]{0}[vout]" -f ($videoFilters -join ",")
@@ -498,9 +751,9 @@ function Invoke-VideoMux {
       if ($AudioDuckingEnabled) {
           $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText,asplit[narr_out][narr_sc]" } else { "[1:a]anull,asplit[narr_out][narr_sc]" }
           $mixedAudioTail = if ($targetDurationSecondsText) {
-            "amix=inputs=2:duration=first:dropout_transition=2,apad=whole_dur=$targetDurationSecondsText[aout]"
+            "amix=inputs=2:duration=first:dropout_transition=2,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
           } else {
-            "amix=inputs=2:duration=first:dropout_transition=2,apad[aout]"
+            "amix=inputs=2:duration=first:dropout_transition=2[aout]"
           }
           $args += @(
             "-filter_complex",
@@ -511,9 +764,9 @@ function Invoke-VideoMux {
       } else {
           $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText[narr]" } else { "[1:a]anull[narr]" }
           $mixedAudioTail = if ($targetDurationSecondsText) {
-            "amix=inputs=2:duration=first:dropout_transition=2,apad=whole_dur=$targetDurationSecondsText[aout]"
+            "amix=inputs=2:duration=first:dropout_transition=2,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
           } else {
-            "amix=inputs=2:duration=first:dropout_transition=2,apad[aout]"
+            "amix=inputs=2:duration=first:dropout_transition=2[aout]"
           }
           $args += @(
             "-filter_complex",
@@ -525,12 +778,12 @@ function Invoke-VideoMux {
     } elseif ($safeAudioSpeed -ne 1.0 -or $videoFilters.Count -gt 0) {
       $audioFilterInput = if ($targetDurationSecondsText) {
         if ($safeAudioSpeed -ne 1.0) {
-          "[1:a]atempo=$audioSpeedText,apad=whole_dur=$targetDurationSecondsText[aout]"
+          "[1:a]atempo=$audioSpeedText,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
         } else {
-          "[1:a]anull,apad=whole_dur=$targetDurationSecondsText[aout]"
+          "[1:a]anull,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
         }
       } else {
-        if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText,apad[aout]" } else { "[1:a]anull,apad[aout]" }
+        if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText[aout]" } else { "[1:a]anull[aout]" }
       }
       $args += @(
         "-filter_complex",
@@ -540,9 +793,9 @@ function Invoke-VideoMux {
       )
     } else {
       $audioFilterInput = if ($targetDurationSecondsText) {
-        "[1:a]anull,apad=whole_dur=$targetDurationSecondsText[aout]"
+        "[1:a]anull,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
       } else {
-        "[1:a]anull,apad[aout]"
+        "[1:a]anull[aout]"
       }
       $args += @(
         "-filter_complex",
@@ -556,24 +809,24 @@ function Invoke-VideoMux {
 
     $encoderConfigs = @(
       @{
+        Name = "CPU Fast (Universal Fallback)"
+        Args = @("-c:v", "libx264", "-profile:v", "high", "-level", $(if ($is4k) { "5.1" } elseif ($is2k) { "5.0" } else { "4.1" }), "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "17", "-maxrate", "60M", "-bufsize", "60M")
+      },
+      @{
         Name = "NVENC (Nvidia GPU - Ultra Fast)"
-        Args = @("-c:v", "h264_nvenc", "-preset", "p4", "-cq", $(if ($is4k) { "18" } elseif ($is2k) { "20" } else { "22" }), "-b:v", "120M", "-pix_fmt", "yuv420p")
+        Args = @("-c:v", "h264_nvenc", "-preset", "p2", "-cq", $(if ($is4k) { "19" } elseif ($is2k) { "21" } else { "23" }), "-b:v", "80M", "-pix_fmt", "yuv420p")
       },
       @{
         Name = "AMF (AMD GPU - Ultra Fast)"
-        Args = @("-c:v", "h264_amf", "-quality", "quality", "-b:v", "120M", "-pix_fmt", "yuv420p")
+        Args = @("-c:v", "h264_amf", "-quality", "speed", "-b:v", "80M", "-pix_fmt", "yuv420p")
       },
       @{
         Name = "QSV (Intel GPU - Fast)"
-        Args = @("-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "22", "-b:v", "120M", "-pix_fmt", "yuv420p")
-      },
-      @{
-        Name = "CPU Fast (Universal Fallback)"
-        Args = @("-c:v", "libx264", "-profile:v", "high", "-level", $(if ($is4k) { "5.1" } elseif ($is2k) { "5.0" } else { "4.1" }), "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "10", "-maxrate", "120M", "-bufsize", "120M")
+        Args = @("-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "24", "-b:v", "80M", "-pix_fmt", "yuv420p")
       }
     )
 
-    $audioArgs = @("-c:a", "aac", "-ar", "48000", "-b:a", "192k", "-movflags", "+faststart", $outputPath)
+    $audioArgs = @("-c:a", "aac", "-ar", "48000", "-b:a", "192k", "-movflags", "+faststart", "-shortest", $outputPath)
     
     $success = $false
     foreach ($config in $encoderConfigs) {
@@ -653,9 +906,21 @@ function Handle-Request {
       }
 
       $session = $script:MuxUploadSessions[$sessionId]
+      $videoSegmentIndex = -1
+      if ($target -match '^video-(\d+)$') {
+        $videoSegmentIndex = [int]$matches[1]
+      }
+
       $targetPath = switch ($target) {
         "audio" { $session.AudioPath; break }
         "music" { $session.MusicPath; break }
+        { $videoSegmentIndex -ge 0 } {
+          if (-not $session.VideoPaths -or $videoSegmentIndex -ge $session.VideoPaths.Count) {
+            throw "The requested video segment upload target was not recognized."
+          }
+          $session.VideoPaths[$videoSegmentIndex]
+          break
+        }
         default { $session.VideoPath; break }
       }
 
@@ -663,7 +928,14 @@ function Handle-Request {
       switch ($target) {
         "audio" { $session.AudioBytes += $Request.BodyBytes.Length; break }
         "music" { $session.MusicBytes += $Request.BodyBytes.Length; break }
-        default { $session.VideoBytes += $Request.BodyBytes.Length; break }
+        default {
+          $session.VideoBytes += $Request.BodyBytes.Length
+          if ($videoSegmentIndex -ge 0) {
+            $existingBytes = if ($session.VideoSegmentBytes.ContainsKey($videoSegmentIndex)) { [int]$session.VideoSegmentBytes[$videoSegmentIndex] } else { 0 }
+            $session.VideoSegmentBytes[$videoSegmentIndex] = $existingBytes + $Request.BodyBytes.Length
+          }
+          break
+        }
       }
       $script:MuxUploadSessions[$sessionId] = $session
       Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
@@ -673,6 +945,7 @@ function Handle-Request {
         receivedBytes = switch ($target) {
           "audio" { $session.AudioBytes; break }
           "music" { $session.MusicBytes; break }
+          { $videoSegmentIndex -ge 0 } { [int]$session.VideoSegmentBytes[$videoSegmentIndex]; break }
           default { $session.VideoBytes; break }
         }
       }
@@ -700,8 +973,14 @@ function Handle-Request {
 
       $metadata = $session.Metadata
       $musicPath = if ($session.MusicBytes -gt 0 -and (Test-Path $session.MusicPath)) { $session.MusicPath } else { "" }
+      $joinedVideoPath = ""
+      $videoInputPath = $session.VideoPath
+      if ($session.VideoPaths -and $session.VideoPaths.Count -gt 1) {
+        $joinedVideoPath = Join-VideoSegments -VideoPaths $session.VideoPaths -Metadata $metadata
+        $videoInputPath = $joinedVideoPath
+      }
       $muxedVideoPath = Invoke-VideoMux `
-        -VideoPath $session.VideoPath `
+        -VideoPath $videoInputPath `
         -AudioPath $session.AudioPath `
         -MusicPath $musicPath `
         -AudioSpeed $(if ($metadata) { [double]$metadata.audioSpeed } else { 1.0 }) `
@@ -709,16 +988,31 @@ function Handle-Request {
         -ExportQuality $(if ($metadata) { [string]$metadata.exportQuality } else { "hd" }) `
         -MusicVolume $(if ($metadata) { [double]$metadata.musicVolume } else { 0.18 }) `
         -TargetDurationMs $(if ($metadata) { [double]$metadata.targetDurationMs } else { 0.0 }) `
+        -HoldLastFrameMs $(if ($metadata -and $metadata.PSObject.Properties.Name -contains "holdLastFrameMs") { [double]$metadata.holdLastFrameMs } else { 0.0 }) `
         -AudioDuckingEnabled $(if ($metadata -and $metadata.audioDuckingEnabled -ne $null) { [bool]$metadata.audioDuckingEnabled } else { $true }) `
         -KeepOutputFile
       try {
-        Write-FileResponse -Stream $Stream -StatusCode 200 -FilePath $muxedVideoPath -ContentType "video/mp4" -ExtraHeaders @{
-          "Cache-Control" = "no-store, no-cache, must-revalidate, max-age=0"
-          "Pragma" = "no-cache"
-          "Expires" = "0"
-          "X-Content-Type-Options" = "nosniff"
+        $shouldSaveToDefaultPath = $metadata -and $metadata.saveToDefaultPath -eq $true
+        if ($shouldSaveToDefaultPath) {
+          $savedPath = Save-MuxedVideoToDefaultPath -SourcePath $muxedVideoPath -RequestedFileName ([string]$metadata.outputFileName)
+          $muxedVideoPath = ""
+          Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
+            ok = $true
+            savedPath = $savedPath
+            fileName = [System.IO.Path]::GetFileName($savedPath)
+          }
+        } else {
+          Write-FileResponse -Stream $Stream -StatusCode 200 -FilePath $muxedVideoPath -ContentType "video/mp4" -ExtraHeaders @{
+            "Cache-Control" = "no-store, no-cache, must-revalidate, max-age=0"
+            "Pragma" = "no-cache"
+            "Expires" = "0"
+            "X-Content-Type-Options" = "nosniff"
+          }
         }
       } finally {
+        if ($joinedVideoPath -and (Test-Path $joinedVideoPath)) {
+          Remove-Item $joinedVideoPath -Force -ErrorAction SilentlyContinue
+        }
         if ($muxedVideoPath -and (Test-Path $muxedVideoPath)) {
           Remove-Item $muxedVideoPath -Force -ErrorAction SilentlyContinue
         }
@@ -743,6 +1037,9 @@ function Handle-Request {
     $videoSpeed = 1.0
     $musicVolume = 0.18
     $targetDurationMs = 0.0
+    $holdLastFrameMs = 0.0
+    $outputFileName = "learning-outcomes-video.mp4"
+    $saveToDefaultPath = $false
     $musicLength = 0
     $videoBytes = $null
     $audioBytes = $null
@@ -760,6 +1057,9 @@ function Handle-Request {
       $videoSpeed = if ($metadata) { [double]$metadata.videoSpeed } else { 1.0 }
       $musicVolume = if ($metadata) { [double]$metadata.musicVolume } else { 0.18 }
       $targetDurationMs = if ($metadata) { [double]$metadata.targetDurationMs } else { 0.0 }
+      $holdLastFrameMs = if ($metadata -and $metadata.PSObject.Properties.Name -contains "holdLastFrameMs") { [double]$metadata.holdLastFrameMs } else { 0.0 }
+      $outputFileName = if ($metadata) { [string]$metadata.outputFileName } else { "learning-outcomes-video.mp4" }
+      $saveToDefaultPath = if ($metadata -and $metadata.saveToDefaultPath -ne $null) { [bool]$metadata.saveToDefaultPath } else { $false }
       $audioDuckingEnabled = if ($metadata -and $metadata.audioDuckingEnabled -ne $null) { [bool]$metadata.audioDuckingEnabled } else { $true }
 
       if ($binaryPayload.VideoLength -le 0 -or $binaryPayload.AudioLength -le 0) {
@@ -781,6 +1081,9 @@ function Handle-Request {
       $videoSpeed = if ($payload) { [double]$payload.videoSpeed } else { 1.0 }
       $musicVolume = if ($payload) { [double]$payload.musicVolume } else { 0.18 }
       $targetDurationMs = if ($payload) { [double]$payload.targetDurationMs } else { 0.0 }
+      $holdLastFrameMs = if ($payload -and $payload.PSObject.Properties.Name -contains "holdLastFrameMs") { [double]$payload.holdLastFrameMs } else { 0.0 }
+      $outputFileName = if ($payload) { [string]$payload.outputFileName } else { "learning-outcomes-video.mp4" }
+      $saveToDefaultPath = if ($payload -and $payload.saveToDefaultPath -ne $null) { [bool]$payload.saveToDefaultPath } else { $false }
       $audioDuckingEnabled = if ($payload -and $payload.audioDuckingEnabled -ne $null) { [bool]$payload.audioDuckingEnabled } else { $true }
 
       if ([string]::IsNullOrWhiteSpace($videoBase64) -or [string]::IsNullOrWhiteSpace($audioBase64)) {
@@ -833,13 +1136,24 @@ function Handle-Request {
         -ExportQuality $exportQuality `
         -MusicVolume $musicVolume `
         -TargetDurationMs $targetDurationMs `
+        -HoldLastFrameMs $holdLastFrameMs `
         -AudioDuckingEnabled $audioDuckingEnabled `
         -KeepOutputFile
-      Write-FileResponse -Stream $Stream -StatusCode 200 -FilePath $muxedVideoPath -ContentType "video/mp4" -ExtraHeaders @{
-        "Cache-Control" = "no-store, no-cache, must-revalidate, max-age=0"
-        "Pragma" = "no-cache"
-        "Expires" = "0"
-        "X-Content-Type-Options" = "nosniff"
+      if ($saveToDefaultPath) {
+        $savedPath = Save-MuxedVideoToDefaultPath -SourcePath $muxedVideoPath -RequestedFileName $outputFileName
+        $muxedVideoPath = ""
+        Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
+          ok = $true
+          savedPath = $savedPath
+          fileName = [System.IO.Path]::GetFileName($savedPath)
+        }
+      } else {
+        Write-FileResponse -Stream $Stream -StatusCode 200 -FilePath $muxedVideoPath -ContentType "video/mp4" -ExtraHeaders @{
+          "Cache-Control" = "no-store, no-cache, must-revalidate, max-age=0"
+          "Pragma" = "no-cache"
+          "Expires" = "0"
+          "X-Content-Type-Options" = "nosniff"
+        }
       }
     } catch {
       Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ error = $_.Exception.Message }

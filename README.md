@@ -1,37 +1,89 @@
-# presentator
+# Yasin Presentator
 
-It will present all the things what you given input.
+Windows-first classroom presentation and export app for the current `D:\presentator` workflow.
 
-## Terminal startup
+This repository is meant to preserve the working state of:
 
-Start everything from a terminal:
+- the Vite app on `http://127.0.0.1:5173/`
+- the local speech server
+- the local transcription server
+- the local video export server
+- the Yasin desktop launcher flow
+
+## What is included
+
+- React/Vite app source
+- export server logic
+- intro video flow
+- launcher files:
+  - `Start.cmd`
+  - `Yasin Presentator.cmd`
+  - `Launch-Presentator.cmd`
+- desktop shortcut recreation script:
+  - `Create-Desktop-Shortcut.ps1`
+
+## Prerequisites
+
+- Windows 10 or 11
+- PowerShell
+- Node.js and npm
+- FFmpeg available on the machine
+
+Optional but recommended for the full local voice-clone flow:
+
+- Python
+- a local `.voiceclone-venv` prepared for `anjali-chatterbox-server.py`
+
+The launchers are defensive:
+
+- if the voice-clone venv is missing, the app still starts
+- the launcher skips the Anjali clone server instead of failing the whole startup
+
+## Install
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\start-all-terminal.ps1
+cd <your-clone-path>\presentator
+npm install
 ```
 
-Check all server health endpoints:
+## Run the app
+
+Use either launcher:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\check-servers.ps1
+.\Start.cmd
 ```
 
-App URL:
+or
+
+```powershell
+.\Yasin Presentator.cmd
+```
+
+Both use the same shared startup path and open:
 
 ```text
-http://127.0.0.1:8455/
+http://127.0.0.1:5173/
 ```
 
-## Important note for Termux / mobile terminal
+## Recreate the desktop shortcut
 
-This project can be controlled from a terminal, but the full app stack still runs on the Windows machine because:
+After cloning, create the same desktop launcher with:
 
-- `speech-server.ps1` uses Windows `System.Speech`
-- `transcribe-server.ps1` uses Windows speech recognition
-- the launch flow is PowerShell-based
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Create-Desktop-Shortcut.ps1
+```
 
-So the safe setup is:
+That creates:
 
-1. Keep the project on the Windows laptop
-2. Start it from Windows PowerShell
-3. Use your mobile terminal only to connect to that machine if you want remote control
+```text
+Yasin Presentator.lnk
+```
+
+on the current Windows desktop, pointing to the repo launcher.
+
+## Notes
+
+- `node_modules`, `dist`, temp export folders, and local virtual environments are intentionally excluded from git.
+- Large generated media and local scratch outputs are also excluded.
+- The repository is intended to capture the working app code and launch flow, not every machine-local cache or generated artifact.
