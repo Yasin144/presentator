@@ -1,89 +1,76 @@
-# Yasin Presentator
+# 🎓 Claude Yasin Presentator
 
-Windows-first classroom presentation and export app for the current `D:\presentator` workflow.
+AI-powered educational video studio with Anjali avatar, typewriter animations, burned-in captions, and professional video export.
 
-This repository is meant to preserve the working state of:
+## 🚀 Quick Start (Clone & Run)
 
-- the Vite app on `http://127.0.0.1:5173/`
-- the local speech server
-- the local transcription server
-- the local video export server
-- the Yasin desktop launcher flow
+### Prerequisites
+- **Node.js** (v18+) — [Download](https://nodejs.org/)
+- **Python 3.10+** — [Download](https://python.org/) (for AI narration server)
+- **FFmpeg** — [Download](https://ffmpeg.org/download.html) (for video export muxing)
 
-## What is included
-
-- React/Vite app source
-- export server logic
-- intro video flow
-- launcher files:
-  - `Start.cmd`
-  - `Yasin Presentator.cmd`
-  - `Launch-Presentator.cmd`
-- desktop shortcut recreation script:
-  - `Create-Desktop-Shortcut.ps1`
-
-## Prerequisites
-
-- Windows 10 or 11
-- PowerShell
-- Node.js and npm
-- FFmpeg available on the machine
-
-Optional but recommended for the full local voice-clone flow:
-
-- Python
-- a local `.voiceclone-venv` prepared for `anjali-chatterbox-server.py`
-
-The launchers are defensive:
-
-- if the voice-clone venv is missing, the app still starts
-- the launcher skips the Anjali clone server instead of failing the whole startup
-
-## Install
-
-```powershell
-cd <your-clone-path>\presentator
+### Step 1: Clone & Install
+```bash
+git clone https://github.com/Yasin144/claude-yasin-presentator.git
+cd claude-yasin-presentator
 npm install
 ```
 
-## Run the app
+### Step 2: Start the Dev Server
+```bash
+npm run dev
+```
+Opens at **http://127.0.0.1:5173/**
 
-Use either launcher:
+### Step 3: Start Backend Services (for full features)
 
+**Video Export Server** (required for video export):
 ```powershell
-.\Start.cmd
+powershell -ExecutionPolicy Bypass -File video-export-server.ps1
 ```
 
-or
-
-```powershell
-.\Yasin Presentator.cmd
+**Anjali Narration Server** (required for AI voice):
+```bash
+python anjali-chatterbox-server.py
 ```
 
-Both use the same shared startup path and open:
+### Step 4: (Optional) AI Transcription Server
+For AI caption generation from video audio, start the transcription server at `http://127.0.0.1:8428`.
 
-```text
-http://127.0.0.1:5173/
+## 🖥️ Desktop App Shortcut
+Double-click `Pattan-Presentator.cmd` to launch as a standalone Electron-like app.
+
+## ✨ Features
+- **Anjali Avatar** — AI teacher with lip-sync and draggable positioning
+- **Typewriter Animations** — Butter-smooth text reveal synced to narration
+- **AI Captions** — Transcribe video audio or generate from text, burned into export
+- **Draggable Overlays** — Move avatar, logo, and captions anywhere on canvas
+- **Video Export** — Canvas recording + FFmpeg audio mux for professional MP4 output
+- **Poster System** — Intro & outro poster images with configurable duration
+- **PDF Presentations** — Import PDFs as slide-based lessons
+- **Multiple Templates** — Learning outcomes, glossary, and custom layouts
+- **Auto B-Roll** — AI-powered cinematic footage suggestions
+- **Background Music** — Optional music overlay in exports
+
+## 📁 Project Structure
+```
+├── script.js              # Main app logic (canvas, export, captions)
+├── caption-script.js      # Standalone caption engine
+├── src/
+│   ├── components/
+│   │   ├── InputPanel.jsx # Input/editing UI
+│   │   └── StagePanel.jsx # Stage/preview/export UI
+│   └── index.css          # Styles
+├── anjali-chatterbox-server.py  # AI narration TTS server
+├── video-export-server.ps1      # FFmpeg mux server
+├── main.cjs               # Electron main process
+├── preload.cjs             # Electron preload
+├── vite.config.js          # Vite build config
+└── package.json            # Dependencies
 ```
 
-## Recreate the desktop shortcut
-
-After cloning, create the same desktop launcher with:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Create-Desktop-Shortcut.ps1
-```
-
-That creates:
-
-```text
-Yasin Presentator.lnk
-```
-
-on the current Windows desktop, pointing to the repo launcher.
-
-## Notes
-
-- `node_modules`, `dist`, temp export folders, and local virtual environments are intentionally excluded from git.
-- Large generated media and local scratch outputs are also excluded.
-- The repository is intended to capture the working app code and launch flow, not every machine-local cache or generated artifact.
+## 🔧 Environment Notes
+- Narration server defaults to `http://127.0.0.1:5555`
+- Video export server defaults to `http://127.0.0.1:3456`
+- Transcription server defaults to `http://127.0.0.1:8428`
+- All processing is **local/offline** — no cloud APIs required
