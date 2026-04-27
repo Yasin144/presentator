@@ -70,6 +70,57 @@ body[data-theme="light"] {
   box-sizing: border-box;
 }
 
+/* ── PERFORMANCE LAYER ────────────────────────────────────────────────────── */
+
+/* Promote the canvas to its own GPU compositor layer so drawImage() calls
+   don't trigger a main-thread composite. Zero-copy screen update. */
+#previewCanvas {
+  will-change: transform;
+  transform: translateZ(0);
+  image-rendering: auto;
+}
+
+/* Contain layout/style changes inside each panel to prevent full-page reflows */
+.panel {
+  contain: layout style;
+}
+
+/* Accordion sections: contain each card so toggling open/closed
+   doesn't reflow the entire input panel */
+.section-card {
+  contain: layout style;
+}
+
+/* Promote the stage shell to its own layer — it hosts the canvas and is updated every frame */
+.panel-stage {
+  contain: layout style;
+  isolation: isolate;
+}
+
+/* Stage toolbar: isolate it from canvas repaints */
+.stage-actions {
+  contain: layout style;
+}
+
+/* Task progress bar: hint that it will animate so the browser pre-promotes it */
+.task-progress-bar,
+.task-progress-fill {
+  will-change: width;
+}
+
+/* Give animated badges their own layer to avoid re-painting the rest of the UI */
+.hero-badge {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Status text scrolls smoothly */
+#statusText {
+  contain: layout;
+}
+
+/* ── END PERFORMANCE LAYER ────────────────────────────────────────────────── */
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -2649,3 +2700,133 @@ body[data-subject="maths"] .maths-label {
   display: block !important;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEW FEATURES CSS — Duration Badge, Word Count, Auto-Highlight, Shortcuts
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.lesson-meta-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 4px;
+}
+
+.lesson-duration-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(14,165,233,0.18), rgba(139,92,246,0.18));
+  border: 1px solid rgba(14,165,233,0.25);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #7dd3fc;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.lesson-word-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.lesson-meta-btn {
+  padding: 5px 12px !important;
+  min-height: 30px !important;
+  border-radius: 999px !important;
+  font-size: 0.78rem !important;
+  font-weight: 700 !important;
+  white-space: nowrap;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  background: rgba(255,255,255,0.06) !important;
+  color: #e0f2fe !important;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease !important;
+}
+
+.lesson-meta-btn:hover:not(:disabled) {
+  background: rgba(14,165,233,0.18) !important;
+  border-color: rgba(14,165,233,0.4) !important;
+  transform: translateY(-1px) !important;
+}
+
+.lesson-draft-indicator {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #4ade80;
+  letter-spacing: 0.02em;
+  transition: opacity 0.4s ease;
+  white-space: nowrap;
+}
+
+.shortcuts-overlay {
+  position: relative;
+  z-index: 10;
+  margin-top: 6px;
+}
+
+.shortcuts-card {
+  background: linear-gradient(135deg, rgba(15,23,42,0.97), rgba(2,6,23,0.99));
+  border: 1px solid rgba(14,165,233,0.3);
+  border-radius: 20px;
+  padding: 16px 20px;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  animation: shortcutsFadeIn 0.18s ease;
+}
+
+@keyframes shortcutsFadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.shortcuts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  color: #e0f2fe;
+  font-size: 0.88rem;
+}
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.shortcuts-grid span {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-bottom-width: 2px;
+  font-family: "Courier New", monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #bae6fd;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.3);
+}

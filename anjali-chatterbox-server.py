@@ -409,6 +409,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send_json({"error": str(e), "traceback": traceback.format_exc(limit=3)}, status_code=500)
             return
+        if self.path == '/api/preload':
+            # Trigger model load in background so first narration is instant
+            threading.Thread(target=ENGINE.preload, daemon=True).start()
+            self._send_json({"ok": True, "message": "Model preload triggered."})
+            return
         if not self.path.startswith("/api/narrate"):
             self._send_json({"error": "Route not found."}, status_code=404)
             return

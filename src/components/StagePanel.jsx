@@ -7,7 +7,7 @@ function StagePanel() {
 
   useEffect(() => {
     if (canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
+      const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
       ctx.fillStyle = '#173e58';
       ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
@@ -95,8 +95,8 @@ function StagePanel() {
         <details className="stage-toolbar-group stage-toolbar-card">
           <summary className="stage-toolbar-head stage-toolbar-summary">
             <div>
-              <p className="stage-toolbar-label">Intro</p>
-              <p className="stage-toolbar-meta">Turn the default intro clip on or off</p>
+              <p className="stage-toolbar-label">Intro &amp; Poster</p>
+              <p className="stage-toolbar-meta">Optional: intro clip and/or poster image before the lesson</p>
             </div>
             <span className="stage-toolbar-badge">INT</span>
           </summary>
@@ -104,11 +104,23 @@ function StagePanel() {
             <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "4px 8px" }}>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }} htmlFor="introClipEnabled">
                 <input id="introClipEnabled" type="checkbox" style={{ width: "16px", height: "16px" }} />
-                <span style={{ fontSize: "0.75rem", color: "#fff", fontWeight: "600" }}>Default Intro Clip</span>
+                <span style={{ fontSize: "0.75rem", color: "#fff", fontWeight: "600" }}>Play Intro Clip (optional)</span>
               </label>
               <p id="introClipStatus" className="stage-toolbar-meta" style={{ margin: 0 }}>
-                The default intro clip is ready.
+                Unchecked — intro will be skipped. The lesson starts directly.
               </p>
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.12)", paddingTop: "8px", marginTop: "2px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <button id="introPosterUploadBtn" className="ghost-btn stage-icon-btn" type="button" aria-label="Upload poster image" title="Upload poster image (shown before lesson, no intro needed)">
+                    <span aria-hidden="true">POST</span>
+                  </button>
+                  <input id="introPosterInput" type="file" accept="image/*" hidden />
+                  <span style={{ fontSize: "0.75rem", color: "#ccc", fontWeight: "500" }}>Add Poster (optional, independent of intro)</span>
+                </div>
+                <p id="introPosterStatus" className="stage-toolbar-meta" style={{ margin: "6px 0 0 0" }}>
+                  No poster selected. Upload an image to show it full-screen before the lesson.
+                </p>
+              </div>
             </div>
           </div>
         </details>

@@ -634,7 +634,7 @@ function Join-VideoSegments {
       $targetHeight = [Math]::Max(2, [int]$targetDimensions.Height)
       for ($index = 0; $index -lt $safeVideoPaths.Count; $index += 1) {
         $inputArgs += @("-i", $safeVideoPaths[$index])
-        $segmentFilter = "[{0}:v]setpts=PTS-STARTPTS,scale={1}:{2}:force_original_aspect_ratio=decrease:flags=lanczos,pad={1}:{2}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p[v{0}]" -f $index, $targetWidth, $targetHeight
+        $segmentFilter = "[{0}:v]setpts=PTS-STARTPTS,scale={1}:{2}:force_original_aspect_ratio=increase:flags=lanczos,crop={1}:{2},setsar=1,fps=30,format=yuv420p[v{0}]" -f $index, $targetWidth, $targetHeight
         $filterParts += $segmentFilter
         $concatInputs += "[v$index]"
       }

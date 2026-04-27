@@ -254,6 +254,45 @@ plz open ur books!"></textarea>
             <label className="field-label english-label" htmlFor="lessonInput">English Lesson Content</label>
           </div>
           <textarea id="lessonInput" className="lesson-input" placeholder="Type or paste your lesson here"></textarea>
+          {/* ── FEATURE ROW: Duration + Highlight + Draft + Shortcuts ── */}
+          <div className="lesson-meta-bar" id="lessonMetaBar">
+            <span className="lesson-duration-badge" id="lessonDurationBadge" title="Estimated video length based on Anjali speaking rate">
+              <span style={{fontSize:"0.75rem", opacity:0.6}}>&#9203;</span>
+              <span id="lessonDurationText">&#8212; min</span>
+            </span>
+            <span className="lesson-word-count" id="lessonWordCountBadge" title="Word count">
+              <span id="lessonWordCountText">0 words</span>
+            </span>
+            <button id="autoHighlightMathBtn" className="ghost-btn lesson-meta-btn" type="button"
+              title="Auto-highlight numbers and maths keywords in accent colour">
+              &#10024; Auto-Highlight
+            </button>
+            <span className="lesson-draft-indicator" id="lessonDraftIndicator">
+            </span>
+            <button id="shortcutsHintBtn" className="ghost-btn lesson-meta-btn" type="button"
+              title="View keyboard shortcuts">
+              &#9000; Shortcuts
+            </button>
+          </div>
+          {/* ── KEYBOARD SHORTCUTS OVERLAY ─────────────────────────── */}
+          <div id="shortcutsOverlay" className="shortcuts-overlay" style={{display:"none"}}>
+            <div className="shortcuts-card">
+              <div className="shortcuts-header">
+                <strong>&#9000; Keyboard Shortcuts</strong>
+                <button id="shortcutsCloseBtn" className="ghost-btn" type="button" style={{padding:"2px 8px",minHeight:"28px"}}>&#10005;</button>
+              </div>
+              <div className="shortcuts-grid">
+                <kbd>Ctrl + Enter</kbd><span>Show Screen</span>
+                <kbd>Ctrl + E</kbd><span>Export Video</span>
+                <kbd>Ctrl + P</kbd><span>Play Narration</span>
+                <kbd>Ctrl + S</kbd><span>Save Draft Now</span>
+                <kbd>Ctrl + Z</kbd><span>Restore Last Draft</span>
+                <kbd>Escape</kbd><span>Back to Input</span>
+                <kbd>Ctrl + &#8593;</kbd><span>Previous Slide</span>
+                <kbd>Ctrl + &#8595;</kbd><span>Next Slide</span>
+              </div>
+            </div>
+          </div>
           <div id="pureInputCard" className="display-style-card pure-input-card">
             <div className="pure-input-head">
               <div>

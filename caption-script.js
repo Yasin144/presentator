@@ -1,6 +1,9 @@
 let captionWorker = null;
 let transcriber = null; // Keeping as a placeholder for any lingering references
-document.addEventListener('DOMContentLoaded', () => {
+
+function bootCaptionStudio() {
+  if (window.__presentatorCaptionStudioBooted) return;
+  window.__presentatorCaptionStudioBooted = true;
   try {
     const videoInput = document.getElementById('captionVideoInput');
     const videoContainer = document.getElementById('captionVideoContainer');
@@ -220,12 +223,55 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRecording = false;
     let transcriber = null;
     let hasDrawnFirstFrame = false;
+    let previewFrameHandle = null;
+    let previewFrameMode = null;
 
     function formatTime(seconds) {
         if(isNaN(seconds)) return "00:00";
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');
         const s = Math.floor(seconds % 60).toString().padStart(2, '0');
         return `${m}:${s}`;
+    }
+
+    function updatePlayPauseLabel() {
+        playPauseBtn.textContent = sourceVideo.paused ? '▶️ Play' : '⏸️ Pause';
+    }
+
+    function clearPreviewFrameHandle() {
+        if (previewFrameHandle === null) return;
+        if (previewFrameMode === 'raf') {
+            cancelAnimationFrame(previewFrameHandle);
+        } else if (previewFrameMode === 'rvfc' && typeof sourceVideo.cancelVideoFrameCallback === 'function') {
+            sourceVideo.cancelVideoFrameCallback(previewFrameHandle);
+        }
+        previewFrameHandle = null;
+        previewFrameMode = null;
+    }
+
+    function renderPreviewNow(timeOverride = sourceVideo.currentTime) {
+        const ctx = renderCanvas.getContext('2d');
+        renderCaptionFrame(ctx, renderCanvas.width, renderCanvas.height, timeOverride, { isPreviewSurface: true });
+    }
+
+    function schedulePreviewFrame() {
+        if (previewFrameHandle !== null || sourceVideo.paused || sourceVideo.ended) return;
+        if (typeof sourceVideo.requestVideoFrameCallback === 'function') {
+            previewFrameMode = 'rvfc';
+            previewFrameHandle = sourceVideo.requestVideoFrameCallback(() => {
+                previewFrameHandle = null;
+                previewFrameMode = null;
+                renderPreviewNow(sourceVideo.currentTime);
+                schedulePreviewFrame();
+            });
+        } else {
+            previewFrameMode = 'raf';
+            previewFrameHandle = requestAnimationFrame(() => {
+                previewFrameHandle = null;
+                previewFrameMode = null;
+                renderPreviewNow(sourceVideo.currentTime);
+                schedulePreviewFrame();
+            });
+        }
     }
 
     sourceVideo.addEventListener('timeupdate', () => {
@@ -241,11 +287,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     seekSlider.addEventListener('mousedown', () => seekSlider.isDragging = true);
     seekSlider.addEventListener('mouseup', () => seekSlider.isDragging = false);
-    seekSlider.addEventListener('input', () => sourceVideo.currentTime = seekSlider.value);
+    seekSlider.addEventListener('input', () => {
+        sourceVideo.currentTime = seekSlider.value;
+        if (sourceVideo.paused) renderPreviewNow(sourceVideo.currentTime);
+    });
 
     playPauseBtn.addEventListener('click', () => {
-        if (sourceVideo.paused) { sourceVideo.play(); playPauseBtn.textContent = '⏸️ Pause'; } 
-        else { sourceVideo.pause(); playPauseBtn.textContent = '▶️ Play'; }
+        if (sourceVideo.paused) {
+            sourceVideo.play();
+        } else {
+            sourceVideo.pause();
+        }
     });
     
     resetBtn.addEventListener('click', () => {
@@ -307,11 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 else if (filter === 'invert') ctx.filter = 'invert(100%) hue-rotate(180deg)';
                 else ctx.filter = 'none';
 
-                if (!window.isRenderLoopRunning) {
-                    window.isRenderLoopRunning = true;
-                    requestAnimationFrame(renderLoop);
-                }
-                
+                renderPreviewNow(0);
                 hasDrawnFirstFrame = true;
             }
         });
@@ -454,7 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 pipeline = transformers.pipeline; env = transformers.env;
                                 env.allowLocalModels = true; 
                                 env.allowRemoteModels = false;
-                                env.localModelPath = 'AI_Models/';
+                                env.localModelPath = e.data.modelPath || 'http://127.0.0.1:5173/AI_Models/';
                                 env.useBrowserCache = true;
                             }
                             if (!transcriber) {
@@ -498,7 +546,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             else if (e.data.data.status === 'ready') statusText.innerHTML = "⏳ AI engine initialized. Starting transcription...";
                         } else if (e.data.type === 'error') reject(new Error(e.data.error || "Model initialization failed"));
                     };
-                    captionWorker.postMessage({ type: 'init' });
+                    captionWorker.postMessage({ type: 'init', modelPath: `${window.location.origin}/AI_Models/` });
                 });
             }
             if (pBar) pBar.style.width = "30%";
@@ -594,11 +642,11 @@ document.addEventListener('DOMContentLoaded', () => {
             statusText.innerHTML = "✅ Captions Generated successfully!";
             actionBtn.classList.add('hidden'); exportBtn.classList.remove('hidden');
             
-            sourceVideo.currentTime = 0; sourceVideo.play(); playPauseBtn.textContent = '⏸️ Pause';
-            if (!window.isRenderLoopRunning) {
-                window.isRenderLoopRunning = true;
-                requestAnimationFrame(renderLoop);
-            }
+            sourceVideo.pause();
+            sourceVideo.currentTime = 0;
+            clearPreviewFrameHandle();
+            renderPreviewNow(0);
+            updatePlayPauseLabel();
 
         } catch (error) { 
             statusText.innerHTML = "❌ Error: " + (error.message || "Unknown execution crash");
@@ -820,21 +868,12 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
 
-    function renderLoop() {
-      try {
-        const time = sourceVideo.currentTime;
-        
-        // HUGE OPTIMIZATION: Do not execute a heavy 1080p canvas redraw if the video frame hasn't actually advanced!
-        // This solves "broken pixel / late keyframe lag" by freeing the CPU/GPU decoder thread.
-        if (window._lastRenderTime === time && !sourceVideo.paused) {
-            requestAnimationFrame(renderLoop);
-            return;
-        }
-        window._lastRenderTime = time;
+    function renderCaptionFrame(ctx, targetWidth, targetHeight, time, options = {}) {
+      const isPreviewSurface = options.isPreviewSurface !== false;
+      if (!ctx) return;
+      if (!ctx.imageSmoothingEnabled) ctx.imageSmoothingEnabled = true;
 
-        const ctx = renderCanvas.getContext('2d');
-        if (!ctx.imageSmoothingEnabled) ctx.imageSmoothingEnabled = true;
-        
+      try {
         const filter = filterSelect ? filterSelect.value : 'none';
         let targetFilter = 'none';
         if (filter === 'darken') targetFilter = 'brightness(50%)';
@@ -847,7 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (sourceVideo.readyState >= 2) { // HAVE_CURRENT_DATA
             try {
-                ctx.drawImage(sourceVideo, 0, 0, renderCanvas.width, renderCanvas.height);
+                ctx.drawImage(sourceVideo, 0, 0, targetWidth, targetHeight);
             } catch(ev) {}
         }
         
@@ -875,22 +914,22 @@ document.addEventListener('DOMContentLoaded', () => {
              if (brollImage && brollImage.complete && brollImage.width > 0 && brollImage.height > 0) {
                  ctx.save();
                  ctx.globalAlpha = 0.8;
-                 const wr = renderCanvas.width / brollImage.width; const hr = renderCanvas.height / brollImage.height;
+                 const wr = targetWidth / brollImage.width; const hr = targetHeight / brollImage.height;
                  const scale = Math.max(wr, hr);
-                 const ix = (renderCanvas.width / 2) - (brollImage.width / 2) * scale;
-                 const iy = (renderCanvas.height / 2) - (brollImage.height / 2) * scale;
+                 const ix = (targetWidth / 2) - (brollImage.width / 2) * scale;
+                 const iy = (targetHeight / 2) - (brollImage.height / 2) * scale;
                  ctx.drawImage(brollImage, ix, iy, brollImage.width * scale, brollImage.height * scale);
                  ctx.restore();
              }
 
-            const baseFontSize = renderCanvas.height * 0.08;
+            const baseFontSize = targetHeight * 0.08;
             const sizeMult = (sizeSlider ? parseInt(sizeSlider.value) : 80) / 100;
             const fontSize = Math.floor(baseFontSize * sizeMult);
             
             const gapMult = (gapSlider ? parseInt(gapSlider.value) : 120) / 100;
             const lineHeight = fontSize * gapMult;
 
-            const maxWBase = renderCanvas.width;
+            const maxWBase = targetWidth;
             const widthMult = (widthSlider ? parseInt(widthSlider.value) : 85) / 100;
             const maxWidth = maxWBase * widthMult;
             
@@ -936,7 +975,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const fontFamily = fontSelect ? fontSelect.value : 'Nunito, sans-serif';
             ctx.font = `900 ${fontSize}px ${fontFamily}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             
-            drawWrappedText(ctx, currentChunk.text.trim(), renderCanvas.width * captionPosX, renderCanvas.height * captionPosY, maxWidth, lineHeight, adjustedTime - currentChunk.timestamp[0], styleSelect.value, activeWordIndex, targetEmoji, fontSize, currentChunk.colorOverride);
+            drawWrappedText(ctx, currentChunk.text.trim(), targetWidth * captionPosX, targetHeight * captionPosY, maxWidth, lineHeight, adjustedTime - currentChunk.timestamp[0], styleSelect.value, activeWordIndex, targetEmoji, fontSize, currentChunk.colorOverride);
           } else {
             let useMusic = bgMusicAudio && !bgMusicAudio.paused;
             if (bgMusicCheck && !bgMusicCheck.checked) useMusic = false;
@@ -947,9 +986,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sharedWatermarkImage && sharedWatermarkImage.complete && (!watermarkCheck || watermarkCheck.checked)) {
             ctx.save();
             ctx.globalAlpha = 0.5;
-            const wmWidth = renderCanvas.width * 0.15;
+            const wmWidth = targetWidth * 0.15;
             const wmHeight = (wmWidth / sharedWatermarkImage.width) * sharedWatermarkImage.height;
-            ctx.drawImage(sharedWatermarkImage, renderCanvas.width - wmWidth - 40, 40, wmWidth, wmHeight);
+            ctx.drawImage(sharedWatermarkImage, targetWidth - wmWidth - 40, 40, wmWidth, wmHeight);
             ctx.restore();
         }
 
@@ -961,40 +1000,71 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 8;
             ctx.fillStyle = globalColor;
             const barHeight = 15;
-            ctx.fillRect(0, renderCanvas.height - barHeight, renderCanvas.width * progress, barHeight);
+            ctx.fillRect(0, targetHeight - barHeight, targetWidth * progress, barHeight);
             ctx.restore();
         }
       } catch (err) {
          // Silently catch exceptions so the loop survives rendering failures
       }
-      requestAnimationFrame(renderLoop);
     }
-    
+
     sourceVideo.addEventListener('loadedmetadata', () => {
         const ctx = renderCanvas.getContext('2d');
         ctx.imageSmoothingEnabled = true;
     });
 
-    sourceVideo.addEventListener('ended', () => { if(!isRecording) playPauseBtn.textContent = '▶️ Play'; });
+    sourceVideo.addEventListener('play', () => {
+        updatePlayPauseLabel();
+        schedulePreviewFrame();
+    });
+    sourceVideo.addEventListener('pause', () => {
+        clearPreviewFrameHandle();
+        updatePlayPauseLabel();
+        renderPreviewNow(sourceVideo.currentTime);
+    });
+    sourceVideo.addEventListener('ended', () => {
+        clearPreviewFrameHandle();
+        updatePlayPauseLabel();
+        if (!isRecording) renderPreviewNow(sourceVideo.currentTime);
+    });
 
     exportBtn.addEventListener('click', () => {
         if(isRecording) return;
         isRecording = true; exportBtn.textContent = 'Rendering High-Quality Video...'; exportBtn.disabled = true;
-        statusText.innerHTML = "Processing Upscaled Local Video (please do not switch tabs)...";
+        statusText.innerHTML = "Processing original video with burned captions (please do not switch tabs)...";
         sourceVideo.pause(); sourceVideo.currentTime = 0;
         sourceVideo.playbackRate = 1.0; 
-        
-        const stream = renderCanvas.captureStream(30); // Reverted back to 30 to prevent native drift!
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const destination = audioCtx.createMediaStreamDestination();
-        if (!window.__aiAudioSourceMerged) window.__aiAudioSourceMerged = audioCtx.createMediaElementSource(sourceVideo);
-        window.__aiAudioSourceMerged.connect(destination); window.__aiAudioSourceMerged.connect(audioCtx.destination);
-        if (destination.stream.getAudioTracks().length > 0) stream.addTrack(destination.stream.getAudioTracks()[0]);
-        if (sfxDest.stream.getAudioTracks().length > 0) stream.addTrack(sfxDest.stream.getAudioTracks()[0]);
-        if (bgMusicAudio && !bgMusicAudio.paused) {
-            if (!window.__aiBgMusicMerged) window.__aiBgMusicMerged = audioCtx.createMediaElementSource(bgMusicAudio);
-            window.__aiBgMusicMerged.connect(destination);
-        }
+
+        const exportWidth = sourceVideo.videoWidth || renderCanvas.width;
+        const exportHeight = sourceVideo.videoHeight || renderCanvas.height;
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = exportWidth;
+        exportCanvas.height = exportHeight;
+        const exportCtx = exportCanvas.getContext('2d', { alpha: false });
+
+        let exportFps = 30;
+        try {
+            const probeStream = typeof sourceVideo.captureStream === 'function' ? sourceVideo.captureStream() : null;
+            const probeTrack = probeStream && probeStream.getVideoTracks ? probeStream.getVideoTracks()[0] : null;
+            const probeFps = probeTrack && probeTrack.getSettings ? probeTrack.getSettings().frameRate : null;
+            if (probeFps && Number.isFinite(probeFps)) exportFps = Math.max(24, Math.min(60, Math.round(probeFps)));
+            if (probeTrack) probeTrack.stop();
+            if (probeStream) probeStream.getTracks().forEach(track => track.stop());
+        } catch (e) {}
+
+        let exportLoopStopped = false;
+        const exportIntervalMs = Math.max(16, Math.round(1000 / exportFps));
+        let exportLoopTimer = null;
+        const runExportLoop = () => {
+            if (exportLoopStopped) return;
+            renderCaptionFrame(exportCtx, exportWidth, exportHeight, sourceVideo.currentTime, { isPreviewSurface: false });
+        };
+        renderCaptionFrame(exportCtx, exportWidth, exportHeight, 0, { isPreviewSurface: false });
+        const stream = exportCanvas.captureStream(exportFps);
+        const sourceCapture = typeof sourceVideo.captureStream === 'function' ? sourceVideo.captureStream() : null;
+        const sourceAudioTracks = sourceCapture && sourceCapture.getAudioTracks ? sourceCapture.getAudioTracks() : [];
+        const exportAudioTrack = sourceAudioTracks[0] || null;
+        if (exportAudioTrack) stream.addTrack(exportAudioTrack);
 
         // Maximize absolute bitrate for crispy text rendering!
         let options = { mimeType: 'video/webm; codecs=vp9' };
@@ -1019,17 +1089,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const recordedChunks = [];
         recorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
         recorder.onstop = () => {
+            exportLoopStopped = true;
+            if (exportLoopTimer) clearInterval(exportLoopTimer);
             const blob = new Blob(recordedChunks, { type: options.mimeType.split(';')[0] });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a'); a.href = url; a.download = `captioned_video.${ext}`; a.click(); URL.revokeObjectURL(url);
             isRecording = false; exportBtn.textContent = 'Export Result'; exportBtn.disabled = false;
             statusText.innerHTML = "✅ Export completed!";
-            sourceVideo.currentTime = 0; sourceVideo.play(); playPauseBtn.textContent = '⏸️ Pause';
+            sourceVideo.pause();
+            sourceVideo.currentTime = 0;
+            renderPreviewNow(0);
+            updatePlayPauseLabel();
             stream.getTracks().forEach(track => track.stop());
+            if (sourceCapture) {
+                try { sourceCapture.getTracks().forEach(track => track.stop()); } catch (e) {}
+            }
         };
-        recorder.start(); sourceVideo.play(); playPauseBtn.textContent = '⏸️ Pause';
-        const onEnd = () => { if (isRecording) { recorder.stop(); sourceVideo.removeEventListener('ended', onEnd); } };
-        sourceVideo.addEventListener('ended', onEnd);
+        recorder.start();
+        runExportLoop();
+        exportLoopTimer = setInterval(runExportLoop, exportIntervalMs);
+        sourceVideo.play();
+        const onEnd = () => {
+            if (!isRecording) return;
+            exportLoopStopped = true;
+            renderCaptionFrame(exportCtx, exportWidth, exportHeight, sourceVideo.duration || sourceVideo.currentTime, { isPreviewSurface: false });
+            if (exportLoopTimer) clearInterval(exportLoopTimer);
+            recorder.requestData();
+            setTimeout(() => {
+                if (isRecording) recorder.stop();
+            }, 80);
+        };
+        sourceVideo.addEventListener('ended', onEnd, { once: true });
     });
 
     const stageCaptionBtn = document.getElementById('stageCaptionExportBtn');
@@ -1127,6 +1217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
   } catch (err) {
+      window.__presentatorCaptionStudioBooted = false;
       setTimeout(() => {
           const st = document.getElementById('captionStatusText');
           if (st) {
@@ -1137,4 +1228,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 500);
       console.error(err);
   }
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootCaptionStudio, { once: true });
+} else {
+  bootCaptionStudio();
+}

@@ -1,6 +1,25 @@
 var avatarConfig = {x: 35, y: 35, w: 0, h: 0, scale: 0.85, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 var logoConfig = {x: 1620, y: 920, w: 0, h: 0, scale: 0.54, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 
+// ── Burned-in caption overlay ────────────────────────────────────────────────
+var captionConfig = {
+  x: 200, y: 950, w: 1520, h: 80,
+  dragging: false, dragOffX: 0, dragOffY: 0, hovered: false,
+  fontSize: 40, fontFamily: '"Nunito", "Inter", sans-serif',
+  bgColor: "rgba(0,0,0,0.7)", textColor: "#ffffff",
+  outlineColor: "#000000", outlineWidth: 2
+};
+var captionOverlay = {
+  enabled: false,
+  segments: [],       // [{startMs, endMs, text}]
+  currentText: "",
+  videoFile: null,
+  videoElement: null,
+  videoUrl: "",
+  transcribing: false,
+  playbackStartMs: 0
+};
+
 // Try to load saved positions
 try {
   let savedAv = localStorage.getItem('anjaliAvatarPos');
@@ -14,6 +33,13 @@ try {
       let j = JSON.parse(savedLogo);
       logoConfig.x = j.x; logoConfig.y = j.y; logoConfig.scale = j.scale || 0.54;
       logoConfig.initialized = true; // DO NOT OVERWRITE
+  }
+  let savedCaption = localStorage.getItem('captionOverlayPos');
+  if (savedCaption) {
+      let j = JSON.parse(savedCaption);
+      captionConfig.x = j.x ?? captionConfig.x;
+      captionConfig.y = j.y ?? captionConfig.y;
+      captionConfig.fontSize = j.fontSize ?? captionConfig.fontSize;
   }
 } catch (e) {}
 
@@ -162,6 +188,9 @@ const cutoutControlsStatus = document.getElementById("cutoutControlsStatus");
 const imagePreviewList = document.getElementById("imagePreviewList");
 const introClipEnabled = document.getElementById("introClipEnabled");
 const introClipStatus = document.getElementById("introClipStatus");
+const introPosterUploadBtn = document.getElementById("introPosterUploadBtn");
+const introPosterInput = document.getElementById("introPosterInput");
+const introPosterStatus = document.getElementById("introPosterStatus");
 
 const proCaptionsEnabled = document.getElementById("proCaptionsEnabled");
 const proAnimationsEnabled = document.getElementById("proAnimationsEnabled");
@@ -245,7 +274,7 @@ const narrationLiveProgressFill = document.getElementById("narrationLiveProgress
 const narrationLiveProgressLabel = document.getElementById("narrationLiveProgressLabel");
 const previewCanvas = document.getElementById("previewCanvas");
 let canvas = previewCanvas;
-let ctx = canvas.getContext("2d");
+let ctx = canvas.getContext("2d", { willReadFrequently: true });
 applyHighQualityImageRendering(ctx);
 const stageLogoImage = document.getElementById("stageLogoImage");
 const THEME_STORAGE_KEY = "learning-outcomes-theme";
@@ -287,13 +316,15 @@ const MUX_PACKAGE_MAGIC = "LOMUX1";
 const STAGE_VIDEO_MAX_DIMENSION = 1280;
 const STAGE_VIDEO_CUTOUT_TOLERANCE = 66;
 const STAGE_VIDEO_EDGE_FEATHER = 22;
-const DEFAULT_INTRO_VIDEO_FILE = "default-intro.mp4";
+const DEFAULT_INTRO_VIDEO_FILE = "INTRO.mp4";
+const DEFAULT_INTRO_VIDEO_FALLBACK_FILE = "default-intro-optimized.mp4";
+const LEGACY_DEFAULT_INTRO_VIDEO_FILE = "default-intro.mp4";
 const ANJALI_SAMPLE_AUDIO_FILE = "voice-preview-anjali.mp3";
 const EXPORT_NARRATION_VOICE = "anjali";
 const PRESENTATION_TEMPLATE_CLASSIC = "classic";
 const PRESENTATION_TEMPLATE_OUTCOMES = "learning-outcomes";
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
-const NARRATION_STYLE_PROMPT = "Speak in a natural Indian female teacher voice with clear Indian English pronunciation. Pronounce every word, number, unit, and maths symbol carefully. Keep the accent Indian, warm, and classroom-ready. Use a calm teaching pace, clear pauses, and highly intelligible school pronunciation. Avoid foreign accent drift, rushed speech, swallowed syllables, and casual delivery.";
+const NARRATION_STYLE_PROMPT = "Speak in a natural Indian female teacher voice with clear Indian English pronunciation. Pronounce every word, number, unit, and symbol slowly and carefully. Pause for two full seconds after every sentence. Take a deep breath between sentences. Speak at a slow classroom pace — half the normal speed. Enunciate each syllable clearly. Never rush. Never swallow syllables. Avoid shortcuts, slang, or informal speech. Keep the accent warm Indian English, calm, and highly intelligible for school students.";
 const NARRATION_STYLE_CONFIG = Object.freeze({
   locale: "en-IN",
   accent: "indian-female-english",
@@ -311,11 +342,11 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const ANJALI_GENERATION_OPTIONS = Object.freeze({
-  repetitionPenalty: 1.12,
-  topP: 0.88,
-  temperature: 0.58,
-  topK: 64,
-  cfgWeight: 0,
+  repetitionPenalty: 1.18,   // higher = less repetitive syllables
+  topP: 0.85,
+  temperature: 0.42,          // lower = more consistent, clear delivery
+  topK: 50,
+  cfgWeight: 0.3,             // slight guidance weight for clearer pronunciation
   exaggeration: 0,
   minP: 0,
   normLoudness: true
@@ -354,23 +385,26 @@ const STRICT_SOFT_SENTENCE_PAUSE_MS = 520;
 const STRICT_HEADING_PAUSE_MS = 2000;
 const STRICT_SCENE_END_BUFFER_MS = 1500;
 const DEFAULT_INTRO_TO_LESSON_DELAY_MS = 4500;
+const DEFAULT_INTRO_POSTER_DURATION_MS = 5000;
 const STAGE_VIDEO_START_DELAY_MS = 2000;
 const STRICT_AUTOPLAY_RECOVERY_MS = 1000;
 const STRICT_VOICE_VOLUME = 0.85;
 const STRICT_BACKGROUND_MUSIC_VOLUME = 0.2;
-const LIVE_SCENE_RENDER_FPS = 24;
-const IDLE_SCENE_RENDER_FPS = 8;  // Throttle when not speaking/exporting to reduce CPU/GPU heat
-const EXPORT_SCENE_RENDER_FPS = 30;
-const SCENE_RENDER_MOUTH_DELTA = 0.035;
+const LIVE_SCENE_RENDER_FPS = 60;   // 60fps during narration for butter-smooth animation
+const IDLE_SCENE_RENDER_FPS = 10;   // Throttle when idle to save CPU/GPU
+const EXPORT_SCENE_RENDER_FPS = 30; // 30fps export (broadcast standard)
+const SCENE_RENDER_MOUTH_DELTA = 0.025; // More sensitive mouth tracking at 60fps
 const NARRATION_CHUNK_JOIN_GAP_MS = 2000;
 const ENABLE_PREPARED_LESSON_EXPORT = false;
-const GLOSSARY_KEY_VALUE_PAUSE_MS = 1000;
-const GLOSSARY_ENTRY_GAP_MS = 2400;
+const GLOSSARY_KEY_VALUE_PAUSE_MS = 1000;  // 1 sec pause after key, before value
+const GLOSSARY_ENTRY_GAP_MS = 2000;         // 2 sec pause after value, before next key
 const NARRATION_CHUNK_FADE_MS = 32;
 const SPEECH_SYNC_REVEAL_START = 0.0;
-const SPEECH_SYNC_REVEAL_END = 1.0;
+const SPEECH_SYNC_REVEAL_END   = 1.0;
 const SPEECH_SYNC_WORD_COMMIT_MIN = 0.0;
 const SPEECH_SYNC_WORD_COMMIT_MAX = 1.0;
+// Positive = text appears slightly AFTER the word is spoken
+// Keep at 0 — any lag makes the FIRST word feel slow on cold start
 const SPEECH_SYNC_VISUAL_PROGRESS_LAG = 0.0;
 const MATHS_NUMBERS_TEMPLATE = `# Numbers
 1 is one.
@@ -660,10 +694,18 @@ const state = {
     active: false,
     previewVisible: false,
     available: null,
-    fileName: "INTRO.mp4",
+    fileName: DEFAULT_INTRO_VIDEO_FILE,
     url: DEFAULT_INTRO_VIDEO_FILE,
     element: null,
     durationMs: 0
+  },
+  introPoster: {
+    active: false,
+    available: false,
+    fileName: "",
+    dataUrl: "",
+    image: null,
+    durationMs: DEFAULT_INTRO_POSTER_DURATION_MS
   },
   sceneTransition: {
     blankActive: false,
@@ -1184,6 +1226,67 @@ function setIntroClipStatus(message) {
   }
 }
 
+function setIntroPosterStatus(message) {
+  const result = applyStatusMessage(introPosterStatus, message);
+  if (result.isError) {
+    showRuntimeDisplayError(result.text);
+  }
+}
+
+// ── Poster thumbnail preview with remove (X) button ──────────────────────────
+function updatePosterThumbnailUi() {
+  const container = document.getElementById("introPosterThumbnailWrap");
+  if (!container) {
+    // Create thumbnail container next to the upload button
+    const uploadBtn = document.getElementById("introPosterUploadBtn");
+    if (!uploadBtn || !uploadBtn.parentElement) return;
+    const wrap = document.createElement("div");
+    wrap.id = "introPosterThumbnailWrap";
+    wrap.style.cssText = "position:relative;display:inline-block;margin-left:8px;vertical-align:middle;";
+    uploadBtn.parentElement.insertBefore(wrap, uploadBtn.nextSibling);
+    return updatePosterThumbnailUi(); // re-enter with container created
+  }
+
+  container.innerHTML = "";
+  if (!state.introPoster.available || !state.introPoster.dataUrl) {
+    container.style.display = "none";
+    return;
+  }
+
+  container.style.display = "inline-block";
+
+  // Thumbnail image
+  const thumb = document.createElement("img");
+  thumb.src = state.introPoster.dataUrl;
+  thumb.alt = state.introPoster.fileName || "Poster";
+  thumb.style.cssText = "width:48px;height:48px;object-fit:cover;border-radius:6px;border:2px solid rgba(255,255,255,0.3);cursor:pointer;vertical-align:middle;";
+  thumb.title = state.introPoster.fileName || "Poster preview";
+  container.appendChild(thumb);
+
+  // Remove (X) button
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.textContent = "\u00D7";
+  removeBtn.title = "Remove poster";
+  removeBtn.style.cssText = "position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#e53e3e;color:#fff;border:2px solid #fff;font-size:14px;line-height:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font-weight:700;";
+  removeBtn.addEventListener("click", () => {
+    clearIntroPoster();
+  });
+  container.appendChild(removeBtn);
+}
+
+function clearIntroPoster() {
+  state.introPoster.available = false;
+  state.introPoster.image = null;
+  state.introPoster.dataUrl = "";
+  state.introPoster.fileName = "";
+  state.introPoster.active = false;
+  setIntroPosterStatus("No poster selected. Upload an image to show it full-screen before the lesson.");
+  updatePosterThumbnailUi();
+  drawScene(state.mouthOpen);
+  setStatus("Poster removed.");
+}
+
 function setServerControlsStatus(message) {
   const result = applyStatusMessage(serverControlsStatus, message);
   if (result.isError) {
@@ -1308,6 +1411,8 @@ function getPreparedLessonExportKey(lessonExportSource = getLessonExportSource()
     lessonPlaybackRate: getLessonPlaybackRate(),
     introEnabled: Boolean(state.introPlayback.enabled),
     introFileName: String(state.introPlayback.fileName || ""),
+    introPosterEnabled: Boolean(state.introPlayback.enabled && state.introPoster.available),
+    introPosterFileName: String(state.introPoster.fileName || ""),
     fontScale: Number(state.fontScale || 1),
     template: normalizePresentationTemplate(state.presentationTemplate),
     outcomesTitle: normalizeOutcomesTitle(state.outcomesTitle),
@@ -1785,6 +1890,10 @@ function getExportCanvasSize(quality = getEffectiveExportQuality()) {
 }
 
 function createExportCanvasSurface() {
+  // Switch to export-quality rendering for this session
+  if (ctx && "imageSmoothingQuality" in ctx) {
+    ctx.imageSmoothingQuality = "high";
+  }
   return previewCanvas;
 }
 
@@ -2571,15 +2680,20 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function applyHighQualityImageRendering(targetContext) {
+function applyHighQualityImageRendering(targetContext, forExport = false) {
   if (!targetContext) {
     return;
   }
-
   targetContext.imageSmoothingEnabled = true;
   if ("imageSmoothingQuality" in targetContext) {
-    targetContext.imageSmoothingQuality = "high";
+    // Use 'high' quality only during export — 'medium' is visually indistinguishable
+    // in the live preview canvas but saves ~30% GPU time per frame.
+    targetContext.imageSmoothingQuality = forExport ? "high" : "medium";
   }
+}
+
+function applyExportQualityImageRendering(targetContext) {
+  applyHighQualityImageRendering(targetContext, true);
 }
 
 function resetCanvasSurface() {
@@ -2587,13 +2701,14 @@ function resetCanvasSurface() {
   const height = canvas.height;
   canvas.width = width;
   canvas.height = height;
-  ctx = canvas.getContext("2d");
-  applyHighQualityImageRendering(ctx);
+  ctx = canvas.getContext("2d", { willReadFrequently: true });
+  applyHighQualityImageRendering(ctx, false); // restore medium quality for live preview
+  markSceneDirty();
 }
 
 function useCanvasSurface(nextCanvas) {
   canvas = nextCanvas;
-  ctx = canvas.getContext("2d");
+  ctx = canvas.getContext("2d", { willReadFrequently: true });
   applyHighQualityImageRendering(ctx);
 }
 
@@ -2629,7 +2744,46 @@ function loadImageElementSource(element, source) {
   });
 }
 
-function triggerFileDownload(blob, fileName) {
+async function triggerFileDownload(blob, fileName) {
+  // ── Electron: use native OS Save dialog + direct disk write ──────────────
+  if (window.electronAPI?.isElectron) {
+    try {
+      const result = await window.electronAPI.showSaveDialog({
+        title: 'Save Presentation Video',
+        fileName,
+        defaultPath: fileName,
+        filters: [
+          { name: 'MP4 Video', extensions: ['mp4'] },
+          { name: 'All Files', extensions: ['*'] }
+        ],
+        buttonLabel: 'Save Video'
+      });
+      if (result.canceled || !result.filePath) return;
+
+      setStatus("Writing video to disk...");
+      const arrayBuffer = await blob.arrayBuffer();
+      const uint8 = new Uint8Array(arrayBuffer);
+      let binary = '';
+      const CHUNK = 8192;
+      for (let i = 0; i < uint8.length; i += CHUNK) {
+        binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK));
+      }
+      const base64 = btoa(binary);
+      const writeResult = await window.electronAPI.writeFile(result.filePath, base64);
+      if (writeResult.ok) {
+        setStatus(`✅ Video saved: ${result.filePath}`);
+        window.electronAPI.showItemInFolder(result.filePath);
+      } else {
+        setStatus(`Error saving video: ${writeResult.error}`, { error: true });
+      }
+      return;
+    } catch (err) {
+      console.error('[Electron save]', err);
+      // fall through to browser download
+    }
+  }
+
+  // ── Browser fallback: anchor click download ───────────────────────────────
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -2637,7 +2791,6 @@ function triggerFileDownload(blob, fileName) {
   anchor.style.display = "none";
   document.body.appendChild(anchor);
   anchor.click();
-
   window.setTimeout(() => {
     anchor.remove();
     URL.revokeObjectURL(url);
@@ -3135,13 +3288,85 @@ function buildDisplayedLines(text) {
   return splitIntoLines(text);
 }
 
+// ── Shortcut expansion table: common informal/abbreviated words → full form ──
+const NARRATION_SHORTCUT_MAP = [
+  // Chat shortcuts → full words
+  [/\bu\b/gi,           'you'],
+  [/\bur\b/gi,          'your'],
+  [/\bU\b/g,            'you'],
+  [/\br\b/gi,           'are'],
+  [/\byt\b/gi,          'your'],
+  [/\bim\b/gi,          'I am'],
+  [/\bwud\b/gi,         'would'],
+  [/\bcud\b/gi,         'could'],
+  [/\bshud\b/gi,        'should'],
+  [/\bthru\b/gi,        'through'],
+  [/\bbtw\b/gi,         'by the way'],
+  [/\bidk\b/gi,         'I do not know'],
+  [/\bomg\b/gi,         'oh my goodness'],
+  [/\blol\b/gi,         ''],
+  [/\bw\/\b/gi,         'with'],
+  [/\bw\/o\b/gi,        'without'],
+  [/\bwrt\b/gi,         'with respect to'],
+  [/\beg\b/gi,          'for example'],
+  [/\bie\b/gi,          'that is'],
+  [/\betc\b/gi,         'and so on'],
+  [/\bviz\b/gi,         'namely'],
+  [/\bapprox\b/gi,      'approximately'],
+  [/\bmax\b/gi,         'maximum'],
+  [/\bmin\b/gi,         'minimum'],
+  // Number abbreviations
+  [/\bno\.\s*(\d)/gi,   'number $1'],
+  [/\bvs\.?\b/gi,       'versus'],
+  [/\bamt\b/gi,         'amount'],
+  [/\bqty\b/gi,         'quantity'],
+  [/\bpls\b/gi,         'please'],
+  [/\bthx\b/gi,         'thanks'],
+  [/\binfo\b/gi,        'information'],
+  [/\bques\b/gi,        'question'],
+  [/\bans\b/gi,         'answer'],
+  [/\bsoln\b/gi,        'solution'],
+  [/\bdefn\b/gi,        'definition'],
+  [/\bprop\b/gi,        'property'],
+  [/\bstmt\b/gi,        'statement'],
+  [/\bthm\b/gi,         'theorem'],
+  [/\bprob\b/gi,        'problem'],
+  [/\bex\b/gi,          'example'],
+];
+
+function expandNarrationShortcuts(text) {
+  let result = text;
+  for (const [pattern, replacement] of NARRATION_SHORTCUT_MAP) {
+    result = result.replace(pattern, replacement);
+  }
+  // Collapse double spaces left by empty replacements
+  return result.replace(/  +/g, ' ').trim();
+}
+
+function injectSentencePauses(text) {
+  // After every sentence-ending period (not decimals), insert ', pause,' so the TTS
+  // model produces a natural ~2-second breath pause before the next sentence.
+  // Matches: period followed by whitespace (not period followed by digit — that's decimal)
+  return text
+    .replace(/\.(?=\s+[A-Z])/g, '. Pause.')  // mid-text sentences
+    .replace(/([!?])(?=\s)/g, '$1 Pause.')    // exclamations and questions
+    .trim();
+}
+
 function buildNarrationLine(line = "") {
   const trimmed = String(line || "").replace(/^\s*#{1,3}\s+/, "").replace(/\s+/g, " ").trim();
   if (!trimmed) {
     return "";
   }
 
-  const spokenLine = verbalizeMathForSpeech(trimmed);
+  // 1. Expand informal shortcuts → full proper words
+  const expanded = expandNarrationShortcuts(trimmed);
+
+  // 2. Inject sentence-boundary pauses for slow, clear delivery
+  const withPauses = injectSentencePauses(expanded);
+
+  // 3. Verbalize maths symbols for speech
+  const spokenLine = verbalizeMathForSpeech(withPauses);
   return /[.!?]$/.test(spokenLine) ? spokenLine : `${spokenLine}.`;
 }
 
@@ -3185,7 +3410,7 @@ function getGlossaryNarrationChunks(text = "") {
 }
 
 function getGlossaryNarrationChunkEntries(text = "") {
-  const glossaryPairs = getPureInputStructuredGlossaryPairs(text, { minimumPairs: 2 });
+  const glossaryPairs = getPureInputStructuredGlossaryPairs(text, { minimumPairs: 1 });
   if (!glossaryPairs?.length) {
     return null;
   }
@@ -3215,7 +3440,8 @@ function getGlossaryNarrationChunkEntries(text = "") {
     });
   }
 
-  return entries.length >= 4 ? entries : null;
+  // Works with 1+ pair — glossary chunking applies to any key=value content
+  return entries.length >= 2 ? entries : null;
 }
 
 function buildNarrationText(text) {
@@ -8156,6 +8382,16 @@ function handleAnjaliCloneServerTransition(isReady) {
     return;
   }
 
+  // Server just came online — trigger model preload immediately in background
+  // so the model is warm before the user clicks Generate (saves ~10s first-run wait)
+  if (previousReady === false || previousReady === null) {
+    fetch(`${state.anjaliCloneServerUrl}/api/preload`, { method: "POST", cache: "no-store" })
+      .then(() => console.log("[PP] Anjali model preload triggered."))
+      .catch(() => {}); // silent — server will preload anyway
+    setServerControlsStatus("Anjali voice server is ready. Model is warming up in the background for instant first narration.");
+    return;
+  }
+
   if (previousReady === false) {
     setServerControlsStatus("Anjali clone server is running again on port 8426.");
     if (/Anjali clone server stopped/i.test(state.runtimeErrorMessage || "")) {
@@ -9684,7 +9920,8 @@ function clearSceneSetup() {
 
 function clearTypingInterval() {
   if (state.typingInterval) {
-    clearInterval(state.typingInterval);
+    clearInterval(state.typingInterval);       // handles setInterval IDs
+    cancelAnimationFrame(state.typingInterval); // handles rAF IDs
     state.typingInterval = null;
   }
 }
@@ -10064,24 +10301,24 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     const chunkDurationsMs = [];
     const resolvedChunks = [];
 
-    for (let index = 0; index < totalChunks; index += 1) {
+    // Generate ALL chunks in parallel — eliminates the gap between key and value
+    // (previously sequential: key finishes → value starts → 10s wait → plays)
+    if (typeof options.onProgress === "function") {
+      options.onProgress({
+        label: `Generating ${totalChunks} narration parts in parallel...`,
+        progress: 0.18
+      });
+    }
+    updateTaskProgressUi(0.18, true, { label: `Generating narration (${totalChunks} parts)...` });
+
+    const parallelResults = await Promise.all(
+      chunkEntries.map((chunk) =>
+        generateNarrationChunkWithFallback(chunk.text, voice, options)
+      )
+    );
+
+    parallelResults.forEach((chunkResult, index) => {
       const chunk = chunkEntries[index];
-      const startedProgress = 0.18 + ((index / totalChunks) * 0.56);
-      const completedProgress = 0.18 + (((index + 1) / totalChunks) * 0.56);
-      if (typeof options.onProgress === "function") {
-        options.onProgress({
-          label: `Generating narration part ${index + 1} of ${totalChunks}...`,
-          progress: startedProgress
-        });
-      }
-      updateTaskProgressUi(
-        startedProgress,
-        true,
-        {
-          label: `Generating narration part ${index + 1} of ${totalChunks}`
-        }
-      );
-      const chunkResult = await generateNarrationChunkWithFallback(chunk.text, voice, options);
       blobs.push(...chunkResult.blobs);
       chunkDurationsMs.push(...chunkResult.durations);
       resolvedChunks.push(...normalizeNarrationChunkEntries(
@@ -10092,20 +10329,16 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
             : chunk.gapAfterMs
         }))
       ));
+      const completedProgress = 0.18 + (((index + 1) / totalChunks) * 0.56);
       if (typeof options.onProgress === "function") {
         options.onProgress({
           label: `Finished narration part ${index + 1} of ${totalChunks}.`,
           progress: completedProgress
         });
       }
-      updateTaskProgressUi(
-        completedProgress,
-        true,
-        {
-          label: `Finished narration part ${index + 1} of ${totalChunks}`
-        }
-      );
-    }
+    });
+
+    updateTaskProgressUi(0.74, true, { label: "All narration parts ready." });
 
     if (typeof options.onProgress === "function") {
       options.onProgress({
@@ -10144,6 +10377,66 @@ async function getNarrationExportBlob() {
   return response.blob();
 }
 
+function inferAssetMimeType(fileName, fallbackType = "application/octet-stream") {
+  const normalized = String(fileName || "").trim().toLowerCase();
+  if (normalized.endsWith(".mp4")) {
+    return "video/mp4";
+  }
+  if (normalized.endsWith(".webm")) {
+    return "video/webm";
+  }
+  if (normalized.endsWith(".wav")) {
+    return "audio/wav";
+  }
+  if (normalized.endsWith(".mp3")) {
+    return "audio/mpeg";
+  }
+  if (normalized.endsWith(".ogg")) {
+    return "audio/ogg";
+  }
+  if (normalized.endsWith(".m4a")) {
+    return "audio/mp4";
+  }
+  if (normalized.endsWith(".png")) {
+    return "image/png";
+  }
+  if (normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+  if (normalized.endsWith(".webp")) {
+    return "image/webp";
+  }
+  return fallbackType;
+}
+
+function buildNoCacheAssetUrl(assetUrl) {
+  const separator = assetUrl.includes("?") ? "&" : "?";
+  return `${assetUrl}${separator}__exportFetch=${Date.now()}`;
+}
+
+async function fetchNonEmptyAssetBlob(assetUrl, options = {}) {
+  const fallbackType = options.fallbackType || "application/octet-stream";
+  const fileName = options.fileName || "";
+  const response = await fetch(buildNoCacheAssetUrl(assetUrl), {
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    return null;
+  }
+
+  const buffer = await response.arrayBuffer();
+  if (!buffer || buffer.byteLength <= 0) {
+    return null;
+  }
+
+  const responseType = String(response.headers.get("content-type") || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  const resolvedType = responseType || inferAssetMimeType(fileName, fallbackType);
+  return new Blob([buffer], { type: resolvedType || fallbackType });
+}
+
 async function getIntroExportBlob() {
   const ready = await ensureDefaultIntroClip();
   if (!ready) {
@@ -10152,24 +10445,36 @@ async function getIntroExportBlob() {
 
   const introAudioAssetUrl = resolveProjectAssetUrl("default-intro.wav");
   try {
-    const directAudioResponse = await fetch(introAudioAssetUrl);
-    if (directAudioResponse.ok) {
-      const directAudioBlob = await directAudioResponse.blob();
-      if (directAudioBlob.size) {
-        return directAudioBlob;
-      }
+    const directAudioBlob = await fetchNonEmptyAssetBlob(introAudioAssetUrl, {
+      fallbackType: "audio/wav",
+      fileName: "default-intro.wav"
+    });
+    if (directAudioBlob?.size) {
+      return directAudioBlob;
     }
   } catch (error) {
     console.error(error);
   }
 
-  const response = await fetch(resolveProjectAssetUrl(state.introPlayback.url || DEFAULT_INTRO_VIDEO_FILE));
-  if (!response.ok) {
-    throw new Error("The intro clip audio could not be read for export.");
+  let introBlob = null;
+  for (const candidate of getIntroVideoCandidateUrls()) {
+    try {
+      const blob = await fetchNonEmptyAssetBlob(candidate.url, {
+        fallbackType: inferAssetMimeType(candidate.fileName, "video/mp4"),
+        fileName: candidate.fileName
+      });
+      if (blob.size) {
+        introBlob = blob;
+        state.introPlayback.url = candidate.fileName;
+        state.introPlayback.fileName = candidate.fileName;
+        break;
+      }
+    } catch (error) {
+      console.error(error);
+    }
   }
 
-  const introBlob = await response.blob();
-  if (!introBlob.size) {
+  if (!introBlob?.size) {
     throw new Error("The intro clip audio file was empty.");
   }
 
@@ -10187,6 +10492,27 @@ async function getIntroExportBlob() {
   } catch (error) {
     throw new Error(error?.message || "The intro clip audio could not be decoded for export.");
   }
+}
+
+function getIntroVideoCandidateFiles() {
+  const candidates = [
+    state.introPlayback.url || DEFAULT_INTRO_VIDEO_FILE,
+    DEFAULT_INTRO_VIDEO_FILE,
+    LEGACY_DEFAULT_INTRO_VIDEO_FILE,
+    DEFAULT_INTRO_VIDEO_FALLBACK_FILE
+  ];
+
+  return candidates.filter((value, index, items) => {
+    const normalized = String(value || "").trim();
+    return normalized && items.findIndex((item) => String(item || "").trim() === normalized) === index;
+  });
+}
+
+function getIntroVideoCandidateUrls() {
+  return getIntroVideoCandidateFiles().map((fileName) => ({
+    fileName,
+    url: resolveProjectAssetUrl(fileName)
+  }));
 }
 
 async function renderPlaybackRateAdjustedAudioBlob(blob, playbackRate = 1) {
@@ -10378,22 +10704,36 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
 }
 
 async function getIntroVideoSourceBlob() {
+  // If the element is already loaded, try to capture a blob from the candidate URLs.
+  // This is best-effort — if the file cannot be fetched, we return null so the export
+  // can continue gracefully without the intro clip.
   const ready = await ensureDefaultIntroClip();
   if (!ready) {
-    throw new Error("The intro clip is not ready for export.");
+    console.warn("[intro] ensureDefaultIntroClip returned false — skipping intro in export.");
+    return null;
   }
 
-  const response = await fetch(resolveProjectAssetUrl(state.introPlayback.url || DEFAULT_INTRO_VIDEO_FILE));
-  if (!response.ok) {
-    throw new Error("The intro clip video could not be read for export.");
+  for (const candidate of getIntroVideoCandidateUrls()) {
+    try {
+      const introBlob = await fetchNonEmptyAssetBlob(candidate.url, {
+        fallbackType: inferAssetMimeType(candidate.fileName, "video/mp4"),
+        fileName: candidate.fileName
+      });
+      if (!introBlob?.size) {
+        continue;
+      }
+
+      state.introPlayback.url = candidate.fileName;
+      state.introPlayback.fileName = candidate.fileName;
+      return introBlob;
+    } catch (error) {
+      console.error("[intro] candidate fetch failed:", candidate.url, error);
+    }
   }
 
-  const introBlob = await response.blob();
-  if (!introBlob.size) {
-    throw new Error("The intro clip video file was empty.");
-  }
-
-  return introBlob;
+  // All candidates failed — return null to allow the export to continue without intro.
+  console.warn("[intro] All intro video candidates returned empty or failed. Skipping intro in export.");
+  return null;
 }
 
 function getDefaultNarrationDurationMs() {
@@ -12007,6 +12347,17 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
   }
   ctx.restore();
 
+  // Draw Anjali — if video not yet decoded, kick it to play and retry in 500ms
+  if (!transparentAnjaliCanvas && avatarVideoElement) {
+    if (avatarVideoElement.paused) avatarVideoElement.play().catch(() => {});
+    // Schedule a redraw once the video has a frame ready
+    if (!drawLearningOutcomesBackdrop._retryTimer) {
+      drawLearningOutcomesBackdrop._retryTimer = setTimeout(() => {
+        drawLearningOutcomesBackdrop._retryTimer = null;
+        markSceneDirty();
+      }, 500);
+    }
+  }
   drawPresenterFigure(mouthOpen);
 }
 
@@ -12040,22 +12391,43 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
   // Skip the sequential char-alpha animation to prevent flickering from drawnCharCount
   // being misaligned with column-offset-based rendering.
   const isGlossarySegment = Boolean(segment.isGlossary);
+  const isAnimating = !isGlossarySegment && state.speaking && state.exactCharCountFloat !== undefined;
+  // Smooth fade range: each character fades in over 1.5 character-widths
+  // for a silky transition instead of hard pop-in
+  const FADE_RANGE = 1.5;
 
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
     const characterWidth = ctx.measureText(character).width;
+    const globalCharIndex = (state.drawnCharCount || 0);
     
     // Feed the segment's style color into the coloring engine to validate custom selections!
     ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
     
-    if (!isGlossarySegment && state.speaking && state.exactCharCountFloat !== undefined) {
-      // Only apply the per-character alpha fade for normal (non-glossary) text.
-      ctx.globalAlpha = clamp(state.exactCharCountFloat - (state.drawnCharCount || 0), 0, 1);
+    if (isAnimating) {
+      // Sub-character smooth alpha: ease-out curve over FADE_RANGE characters
+      // so each letter gently materializes instead of popping in
+      const rawAlpha = (state.exactCharCountFloat - globalCharIndex) / FADE_RANGE;
+      const easedAlpha = rawAlpha <= 0 ? 0 : rawAlpha >= 1 ? 1 : 1 - ((1 - rawAlpha) * (1 - rawAlpha));
+      ctx.globalAlpha = clamp(easedAlpha, 0, 1);
+
+      // Subtle glow on the character currently being typed (the "hot" character)
+      const distFromCursor = Math.abs(globalCharIndex - state.exactCharCountFloat);
+      if (distFromCursor < 1.2 && easedAlpha > 0.1 && easedAlpha < 0.95) {
+        ctx.shadowColor = "rgba(13, 126, 169, 0.5)";
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetY = 0;
+      } else {
+        ctx.shadowColor = "rgba(8, 30, 39, 0.24)";
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 1;
+      }
+    } else {
+      ctx.shadowColor = "rgba(8, 30, 39, 0.24)";
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 1;
     }
 
-    ctx.shadowColor = "rgba(8, 30, 39, 0.24)";
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetY = 1;
     ctx.fillText(character, cursorX, y);
 
     ctx.globalAlpha = 1.0;
@@ -13098,6 +13470,7 @@ function clampImageFrame(item, fallbackIndex = 0, options = {}) {
 
 function syncImageLayouts() {
   state.images = state.images.map((item, index) => clampImageFrame(item, index));
+  markSceneDirty();
 }
 
 function bringImageToFront(index) {
@@ -13232,24 +13605,35 @@ function drawInfoKidsLogo() {
      }
   }
 
-  const titleLines = wrapCanvasText(
-    getPresentationHeaderTitle(),
-    canvas.width - 140,
-    '900 66px "League Spartan", sans-serif'
-  ).slice(0, 2);
-  const titleFontSize = titleLines.length > 1 ? 54 : 66;
-  const titleLineHeight = titleLines.length > 1 ? 48 : 56;
-  const titleBlockHeight = titleLines.length * titleLineHeight;
-  const titleY = 36 + Math.max(0, (80 - titleBlockHeight) / 2);
+  // ── Draw header title — auto-shrink to always fit on one line ───────────────
+  const titleText = normalizeOutcomesTitle(state.outcomesTitle) ||
+                    normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value) ||
+                    "LEARNING OUTCOMES";
 
+  // Auto-shrink font until title fits within canvas width
+  const titleMaxW  = canvas.width - 100; // 50px padding each side
+  const fontSizes  = [72, 64, 56, 48, 40, 34];
+  let titleFontSize = fontSizes[0];
+  for (const fs of fontSizes) {
+    ctx.font = `900 ${fs}px "League Spartan", sans-serif`;
+    if (ctx.measureText(titleText).width <= titleMaxW) {
+      titleFontSize = fs;
+      break;
+    }
+  }
+
+  const titleY = 36 + (80 - titleFontSize) / 2;
   ctx.save();
-  ctx.fillStyle = "#cc0000"; // Red heading for Learning Outcomes
+  ctx.globalAlpha = 1.0;
+  ctx.fillStyle = "#cc0000";
   ctx.font = `900 ${titleFontSize}px "League Spartan", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  titleLines.forEach((line, index) => {
-    ctx.fillText(line, canvas.width / 2, titleY + (index * titleLineHeight));
-  });
+  ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2;
+  ctx.fillText(titleText, canvas.width / 2, Math.max(8, titleY));
   ctx.restore();
 }
 
@@ -13420,39 +13804,72 @@ document.addEventListener('click', () => {
 function drawPresenterFigure(mouthOpen = 0) {
   const enableCheck = document.getElementById("avatarEnableCheck");
   if (enableCheck && !enableCheck.checked) return;
-  if (!transparentAnjaliCanvas) return;
 
-  const baseHeight = 1110; 
+  // During export: if Anjali canvas is not ready, BLOCK this frame entirely.
+  // A missing avatar frame in an export is unacceptable — better to wait.
+  if (!transparentAnjaliCanvas) {
+    if (state.exportingVideo) {
+      // Do NOT commit this frame — force a redraw on next tick
+      setTimeout(() => markSceneDirty(), 16);
+    }
+    return;
+  }
+
+  const baseHeight = 1110;
   avatarConfig.h = baseHeight * avatarConfig.scale;
   const aspect_scale = avatarConfig.h / transparentAnjaliCanvas.height;
   avatarConfig.w = transparentAnjaliCanvas.width * aspect_scale;
-  
+
   if (!avatarConfig.initialized) {
-      avatarConfig.x = 0;
-      avatarConfig.y = transparentAnjaliCanvas.height ? canvas.height - avatarConfig.h : 0;
-      avatarConfig.initialized = true;
+    avatarConfig.x = 0;
+    avatarConfig.y = transparentAnjaliCanvas.height ? canvas.height - avatarConfig.h : 0;
+    avatarConfig.initialized = true;
   }
-  
+
   ctx.save();
-  // Drag-and-drop hover box removed by user request!
-  
-  // Synthetic floating animation removed. Video provides natural movement!
-  let finalHeight = avatarConfig.h;
-  let finalWidth = avatarConfig.w;
-  let finalX = avatarConfig.x;
-  let finalY = avatarConfig.y;
-  
+
+  // No breathing, no sway, no animation — perfectly stable position
+  const finalX = avatarConfig.x;
+  const finalY = avatarConfig.y;
+  const finalWidth  = avatarConfig.w;
+  const finalHeight = avatarConfig.h;
+
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 28;
   ctx.shadowOffsetX = 14;
   ctx.shadowOffsetY = 18;
-  
+
   ctx.drawImage(transparentAnjaliCanvas, finalX, finalY, finalWidth, finalHeight);
   
-  // Real-time Audio Reactive Lip Sync Projection
-  let effectiveMouthOpen = mouthOpen;
-  if (!state.exportingVideo && state.speaking && state.displayedText !== state.text && (!mouthOpen || mouthOpen < 0.05)) {
-      effectiveMouthOpen = (Math.sin(performance.now() / 45) + 1) * 0.5;
+  // Draw hover/drag indicator — never show during export
+  if (avatarConfig.hovered && !avatarConfig.dragging && !state.exportingVideo) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(60,180,255,0.55)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 5]);
+    ctx.strokeRect(avatarConfig.x - 4, avatarConfig.y - 4, avatarConfig.w + 8, avatarConfig.h + 8);
+    // Corner resize handles
+    const hs = 14;
+    const corners = [
+      [avatarConfig.x - 4,                    avatarConfig.y - 4],
+      [avatarConfig.x + avatarConfig.w - hs + 4, avatarConfig.y - 4],
+      [avatarConfig.x - 4,                    avatarConfig.y + avatarConfig.h - hs + 4],
+      [avatarConfig.x + avatarConfig.w - hs + 4, avatarConfig.y + avatarConfig.h - hs + 4],
+    ];
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(60,180,255,0.85)";
+    corners.forEach(([cx, cy]) => {
+      ctx.fillRect(cx, cy, hs, hs);
+    });
+    ctx.restore();
+  }
+
+  // ── Lip sync (idle mouth flicker + narration sync) ───────────────────
+  const now = performance.now() / 1000; // needed for mouth sine calculations
+  const idleMouth  = Math.max(0, Math.sin(now * 2.3) * 0.07 + Math.sin(now * 7.1) * 0.04);
+  let effectiveMouthOpen = Math.max(mouthOpen, idleMouth);
+  if (state.speaking && state.displayedText !== state.text && mouthOpen < 0.05) {
+    effectiveMouthOpen = (Math.sin(now * 22) + 1) * 0.5;
   }
   
   let isTalking = effectiveMouthOpen > 0.05 || state.speaking;
@@ -13462,7 +13879,6 @@ function drawPresenterFigure(mouthOpen = 0) {
       const mouthXPercent = parseFloat(document.getElementById('avatarJawXRange')?.value || "28.5") / 100;
       const mouthHPercent = parseFloat(document.getElementById('avatarJawHeightRange')?.value || "3.0") / 100;
       
-      // Restored with a natural human multiplier of 3.5 instead of the robotic extreme 14.5!
       const lipOpenPixels = effectiveMouthOpen * 3.5 * avatarConfig.scale; 
       
       const destMouthWidth = finalWidth * mouthWPercent;
@@ -14271,6 +14687,7 @@ function invalidateDrawSceneLayoutCache() {
   _drawSceneLayoutCache.textOnlyResult = null;
   _drawSceneLayoutCache.fullKey = "";
   _drawSceneLayoutCache.fullResult = null;
+  markSceneDirty(); // layout changed → must redraw
 }
 
 function getCachedTextOnlyContent(text, pageIndex) {
@@ -14296,8 +14713,48 @@ function getCachedFullContent(text, pageIndex, hasImages) {
 }
 // ---------------------------------------------------------------------------
 
+// Dirty-flag rendering: track what changed so we skip full redraws on idle frames
+let _sceneIsDirty = true;
+let _lastDrawnMouthOpen = -1;
+let _lastDrawnText = "";
+let _lastDrawnDisplayedText = "";
+let _lastDrawnPageIndex = -1;
+let _lastDrawnSpeaking = false;
+let _lastDrawnExporting = false;
+let _lastDrawnExactCharFloat = -1; // Track sub-character progress for smooth typing
+
+function markSceneDirty() {
+  _sceneIsDirty = true;
+}
+
+function isSceneActuallyDirty(mouthOpen) {
+  if (_sceneIsDirty) return true;
+  if (state.exportingVideo || state.exportVideoTrack?.readyState === "live") return true;
+  if (state.speaking !== _lastDrawnSpeaking) return true;
+  if (Math.abs((mouthOpen || 0) - _lastDrawnMouthOpen) > 0.01) return true;
+  if (state.text !== _lastDrawnText) return true;
+  if (state.displayedText !== _lastDrawnDisplayedText) return true;
+  // Sub-character float changes trigger redraws for smooth alpha fade
+  if (state.speaking && Math.abs((state.exactCharCountFloat || 0) - _lastDrawnExactCharFloat) > 0.05) return true;
+  if (state.previewPageIndex !== _lastDrawnPageIndex) return true;
+  if (state.introPlayback.active || state.introPlayback.previewVisible) return true;
+  if (state.introPoster.active) return true;
+  return false;
+}
+
 function drawScene(mouthOpen = 0.12) {
+  // Skip the draw if nothing has changed (saves CPU on idle frames)
+  if (!isSceneActuallyDirty(mouthOpen)) return;
+  _sceneIsDirty = false;
+  _lastDrawnMouthOpen = mouthOpen;
+  _lastDrawnText = state.text;
+  _lastDrawnDisplayedText = state.displayedText;
+  _lastDrawnPageIndex = state.previewPageIndex;
+  _lastDrawnSpeaking = state.speaking;
+  _lastDrawnExporting = state.exportingVideo;
+
   state.drawnCharCount = 0;
+  _lastDrawnExactCharFloat = state.exactCharCountFloat || 0;
 
   if (state.sceneTransition.blankActive) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -14310,6 +14767,13 @@ function drawScene(mouthOpen = 0.12) {
 
   if ((state.introPlayback.active || state.introPlayback.previewVisible) && state.introPlayback.element) {
     drawIntroScene();
+    drawRuntimeDisplayErrorOverlay();
+    requestCanvasExportFrame();
+    return;
+  }
+
+  if (state.introPoster.active && state.introPoster.image) {
+    drawPosterScene();
     drawRuntimeDisplayErrorOverlay();
     requestCanvasExportFrame();
     return;
@@ -14485,8 +14949,15 @@ function drawScene(mouthOpen = 0.12) {
   });
 
   if (state.speaking && state.displayedText !== state.text) {
-    ctx.fillStyle = "#0d7ea9";
-    ctx.fillRect(contentArea.x + contentPaddingX, visibleCursorY - 4, 5, 34);
+    // Smooth pulsing cursor with glow effect
+    const cursorPulse = 0.6 + Math.sin(performance.now() / 200) * 0.3;
+    ctx.save();
+    ctx.shadowColor = "rgba(13, 126, 169, 0.6)";
+    ctx.shadowBlur = 10;
+    ctx.globalAlpha = cursorPulse;
+    ctx.fillStyle = "#0d9ec9";
+    ctx.fillRect(contentArea.x + contentPaddingX, visibleCursorY - 4, 3, 30);
+    ctx.restore();
   }
 
   if (totalPageCount > 1) {
@@ -14502,6 +14973,7 @@ function drawScene(mouthOpen = 0.12) {
   drawProceduralConceptAnimations();
   drawAutoQuizOverlay();
   drawWhiteboardStrokes();
+  drawBurnedCaptions();
   drawRuntimeDisplayErrorOverlay();
   
   if (window._renderHologramFrame) {
@@ -14511,13 +14983,173 @@ function drawScene(mouthOpen = 0.12) {
   requestCanvasExportFrame();
 }
 
+// ── Burned-in caption overlay rendering ──────────────────────────────────────
+function drawBurnedCaptions() {
+  if (!captionOverlay.enabled || !captionOverlay.currentText) return;
+
+  const text = captionOverlay.currentText;
+  const fs = captionConfig.fontSize;
+  const pad = 14;
+
+  ctx.save();
+  ctx.font = `700 ${fs}px ${captionConfig.fontFamily}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Measure text to auto-size the background
+  const textWidth = ctx.measureText(text).width;
+  const boxW = Math.min(canvas.width - 40, textWidth + pad * 4);
+  const boxH = fs + pad * 2;
+  const boxX = captionConfig.x;
+  const boxY = captionConfig.y;
+  const centerX = boxX + boxW / 2;
+  const centerY = boxY + boxH / 2;
+
+  // Update captionConfig dimensions for hit-testing
+  captionConfig.w = boxW;
+  captionConfig.h = boxH;
+
+  // Semi-transparent background with rounded corners
+  ctx.globalAlpha = 1.0;
+  ctx.fillStyle = captionConfig.bgColor;
+  const r = 12;
+  ctx.beginPath();
+  ctx.moveTo(boxX + r, boxY);
+  ctx.lineTo(boxX + boxW - r, boxY);
+  ctx.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + r);
+  ctx.lineTo(boxX + boxW, boxY + boxH - r);
+  ctx.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - r, boxY + boxH);
+  ctx.lineTo(boxX + r, boxY + boxH);
+  ctx.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - r);
+  ctx.lineTo(boxX, boxY + r);
+  ctx.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Text outline for readability
+  if (captionConfig.outlineWidth > 0) {
+    ctx.strokeStyle = captionConfig.outlineColor;
+    ctx.lineWidth = captionConfig.outlineWidth;
+    ctx.lineJoin = "round";
+    ctx.strokeText(text, centerX, centerY);
+  }
+
+  // Caption text
+  ctx.fillStyle = captionConfig.textColor;
+  ctx.fillText(text, centerX, centerY);
+
+  // Drag handle indicator (only when hovered, not during export)
+  if (captionConfig.hovered && !state.exportingVideo) {
+    ctx.strokeStyle = "rgba(60,180,255,0.7)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4);
+    ctx.setLineDash([]);
+
+    // Move icon hint
+    ctx.fillStyle = "rgba(60,180,255,0.9)";
+    ctx.font = '600 12px "Nunito"';
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("⇔ Drag to move", boxX + 4, boxY - 6);
+  }
+
+  ctx.restore();
+}
+
+// Update caption text based on current playback time — returns true if text changed
+function updateCaptionFromVideo() {
+  if (!captionOverlay.enabled || !captionOverlay.segments.length) {
+    if (captionOverlay.currentText !== "") {
+      captionOverlay.currentText = "";
+      return true;
+    }
+    return false;
+  }
+
+  let currentTimeMs = 0;
+  // Check stage video element first
+  if (state.stageVideo.element && !state.stageVideo.element.paused && state.stageVideo.element.currentTime > 0) {
+    currentTimeMs = state.stageVideo.element.currentTime * 1000;
+  } else if (captionOverlay.videoElement && !captionOverlay.videoElement.paused) {
+    currentTimeMs = captionOverlay.videoElement.currentTime * 1000;
+  } else if (state.activeAudio && !state.activeAudio.paused) {
+    currentTimeMs = state.activeAudio.currentTime * 1000;
+  }
+
+  // Find matching segment
+  let found = "";
+  for (const seg of captionOverlay.segments) {
+    if (currentTimeMs >= seg.startMs && currentTimeMs <= seg.endMs) {
+      found = seg.text;
+      break;
+    }
+  }
+
+  if (found !== captionOverlay.currentText) {
+    captionOverlay.currentText = found;
+    return true; // text changed — needs redraw
+  }
+  return false; // no change — skip redraw
+}
+
+// Lightweight rAF-based caption sync — only redraws when caption text actually changes
+function startCaptionUpdateLoop() {
+  if (captionOverlay._rafId) return; // already running
+
+  const tick = () => {
+    if (!captionOverlay.enabled) {
+      captionOverlay._rafId = 0;
+      return;
+    }
+    const changed = updateCaptionFromVideo();
+    if (changed) {
+      markSceneDirty(); // only redraw when caption text changes
+    }
+    captionOverlay._rafId = requestAnimationFrame(tick);
+  };
+  captionOverlay._rafId = requestAnimationFrame(tick);
+}
+
 function loadImageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = () => {
+      // Pre-decode to a GPU-resident ImageBitmap for zero-copy drawImage()
+      if (typeof createImageBitmap === "function") {
+        createImageBitmap(image).then((bitmap) => {
+          image._bitmap = bitmap;
+          resolve(image);
+        }).catch(() => resolve(image)); // fallback: just use the HTMLImageElement
+      } else {
+        resolve(image);
+      }
+    };
     image.onerror = () => reject(new Error("One of the selected images could not be loaded."));
     image.src = dataUrl;
   });
+}
+
+// Draw an image using its pre-decoded GPU bitmap when available, falling back to the image element.
+function drawImageFast(source, ...args) {
+  if (source && source._bitmap && source._bitmap.width > 0) {
+    ctx.drawImage(source._bitmap, ...args);
+  } else {
+    ctx.drawImage(source, ...args);
+  }
+}
+
+function hasIntroPosterSelected() {
+  return Boolean(
+    state.introPlayback.enabled
+    && state.introPoster.available
+    && state.introPoster.image
+    && state.introPoster.dataUrl
+  );
+}
+
+function getIntroPosterDurationMs() {
+  return Math.max(1000, Math.round(Number(state.introPoster.durationMs) || DEFAULT_INTRO_POSTER_DURATION_MS));
 }
 
 function ensurePdfExampleImageLoaded(exampleImage) {
@@ -15259,41 +15891,48 @@ function renderStageVideoPreviewList() {
 }
 
 async function ensureDefaultIntroClip() {
-  if (state.introPlayback.available === false) {
-    return false;
-  }
-
   if (state.introPlayback.element) {
     return true;
   }
 
-  try {
-    const introElement = await createLoadedVideo(resolveProjectAssetUrl(state.introPlayback.url || DEFAULT_INTRO_VIDEO_FILE), {
-      muted: false,
-      loop: false,
-      errorMessage: "The default intro clip could not be loaded."
-    });
-    introElement.pause();
+  let lastError = null;
+
+  for (const candidate of getIntroVideoCandidateUrls()) {
     try {
-      introElement.currentTime = 0;
+      const introElement = await createLoadedVideo(candidate.url, {
+        muted: false,
+        loop: false,
+        errorMessage: "The default intro clip could not be loaded."
+      });
+      introElement.pause();
+      try {
+        introElement.currentTime = 0;
+      } catch (error) {
+        console.error(error);
+      }
+      introElement.volume = STRICT_VOICE_VOLUME;
+      introElement.muted = false;
+      state.introPlayback.element = introElement;
+      state.introPlayback.durationMs = Number.isFinite(introElement.duration)
+        ? Math.max(1000, Math.ceil(introElement.duration * 1000))
+        : 0;
+      state.introPlayback.available = true;
+      state.introPlayback.url = candidate.fileName;
+      state.introPlayback.fileName = candidate.fileName;
+      setIntroClipStatus("The default intro clip is ready.");
+      return true;
     } catch (error) {
+      lastError = error;
       console.error(error);
     }
-    introElement.volume = STRICT_VOICE_VOLUME;
-    introElement.muted = false;
-    state.introPlayback.element = introElement;
-    state.introPlayback.durationMs = Number.isFinite(introElement.duration)
-      ? Math.max(1000, Math.ceil(introElement.duration * 1000))
-      : 0;
-    state.introPlayback.available = true;
-    setIntroClipStatus("The default intro clip is ready.");
-    return true;
-  } catch (error) {
-    console.error(error);
-    state.introPlayback.available = false;
-    setIntroClipStatus("The default intro clip could not be loaded.");
-    return false;
   }
+
+  if (lastError) {
+    console.error(lastError);
+  }
+  state.introPlayback.available = false;
+  setIntroClipStatus("The default intro clip could not be loaded.");
+  return false;
 }
 
 function cancelStageMediaLoop() {
@@ -15313,6 +15952,7 @@ function shouldAnimateStageMedia() {
     && !state.exportingVideo
     && !state.introPlayback.active
     && !state.introPlayback.previewVisible
+    && !state.introPoster.active
     && !state.sceneTransition.blankActive
   );
 }
@@ -15411,6 +16051,54 @@ async function playPostIntroBlankTransition(durationMs = DEFAULT_INTRO_TO_LESSON
     drawScene(0.12);
     if (exportMode) {
       requestExportVideoFrame();
+    }
+  }
+}
+
+async function playIntroPosterSegment(durationMs = DEFAULT_INTRO_POSTER_DURATION_MS, options = {}) {
+  if (!hasIntroPosterSelected()) {
+    return false;
+  }
+
+  const safeDurationMs = Math.max(1000, Math.round(Number(durationMs) || DEFAULT_INTRO_POSTER_DURATION_MS));
+  const exportMode = options.exportMode === true;
+  const frameIntervalMs = Math.max(16, Math.round(1000 / 30));
+  state.introPoster.active = true;
+  state.mouthOpen = 0.12;
+  if (!exportMode) {
+    setStatus("Showing the poster before the lesson starts.");
+  }
+  updatePlaybackProgressUi(0, true);
+  drawScene(0.12);
+  if (exportMode) {
+    requestExportVideoFrame();
+  }
+
+  const startedAt = performance.now();
+  try {
+    while ((performance.now() - startedAt) < safeDurationMs) {
+      const progress = clamp((performance.now() - startedAt) / safeDurationMs, 0, 1);
+      updatePlaybackProgressUi(progress, true);
+      drawScene(0.12);
+      if (exportMode) {
+        requestExportVideoFrame();
+      }
+      await waitForNextPaint();
+      await delay(frameIntervalMs);
+    }
+    updatePlaybackProgressUi(1, true);
+    drawScene(0.12);
+    if (exportMode) {
+      requestExportVideoFrame();
+    }
+    return true;
+  } finally {
+    state.introPoster.active = false;
+    updatePlaybackProgressUi(0, false);
+    // Only draw scene in non-export mode — in export mode, skip
+    // to avoid a 1-frame flash of lesson content between poster and narration
+    if (!exportMode) {
+      drawScene(0.12);
     }
   }
 }
@@ -15686,6 +16374,88 @@ async function playIntroClipForExport(options = {}) {
   }
 }
 
+async function recordPosterVideoForExport(durationMs = DEFAULT_INTRO_POSTER_DURATION_MS, options = {}) {
+  if (!hasIntroPosterSelected()) {
+    return null;
+  }
+
+  const effectiveExportQuality = options.effectiveExportQuality || getEffectiveExportQuality();
+  const captureRate = Math.max(24, Number(options.captureRate) || 30);
+  let canvasStream = null;
+  let exportStream = null;
+
+  try {
+    canvasStream = createExportCanvasStream(captureRate, { preferTimedCapture: true });
+    const videoTracks = canvasStream.getVideoTracks().filter((track) => track.kind === "video");
+    if (!videoTracks.length) {
+      throw new Error("Poster export did not produce a usable video track.");
+    }
+
+    state.exportVideoTrack = videoTracks[0];
+    exportStream = canvasStream;
+    const recorder = createExportMediaRecorder(
+      exportStream,
+      getLessonExportBitrate(effectiveExportQuality)
+    );
+    const mimeType = recorder.mimeType || getSupportedVideoMimeType(false) || "video/webm";
+    const chunks = [];
+    let recorderError = null;
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+
+    recorder.onerror = (event) => {
+      recorderError = event.error || new Error("Recording failed.");
+    };
+
+    const blobPromise = new Promise((resolve, reject) => {
+      recorder.onstop = () => {
+        if (recorderError) {
+          reject(recorderError);
+          return;
+        }
+
+        const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
+        if (!blob.size) {
+          reject(new Error("The browser finished recording, but no poster video data was produced."));
+          return;
+        }
+
+        resolve(blob);
+      };
+    });
+
+    recorder.start(100);
+    const shown = await playIntroPosterSegment(durationMs, { exportMode: true });
+    if (!shown) {
+      recorder.stop();
+      await blobPromise.catch(() => null);
+      return null;
+    }
+    await waitForNextPaint();
+    recorder.stop();
+
+    const videoBlob = await blobPromise;
+    if (!videoBlob.type.startsWith("video/")) {
+      throw new Error(`The browser returned ${videoBlob.type || "an unknown file"} instead of poster video.`);
+    }
+
+    return videoBlob;
+  } finally {
+    state.introPoster.active = false;
+    if (exportStream) {
+      exportStream.getTracks().forEach((track) => track.stop());
+    }
+    if (canvasStream) {
+      canvasStream.getTracks().forEach((track) => track.stop());
+    }
+    state.exportVideoTrack = null;
+  }
+}
+
 async function renderNarrationTimelineForExport(durationMs, playbackRate = getLessonPlaybackRate(), options = {}) {
   const safeDurationMs = Math.max(1000, Math.round(durationMs || 1000));
   const safePlaybackRate = Number.isFinite(Number(playbackRate)) && Number(playbackRate) > 0
@@ -15779,8 +16549,8 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
 
     const remainingNarrationMs = Math.max(0, narrationTimelineMs - elapsedMs);
     const completionThresholdMs = isGlossaryMode
-      ? Math.max(900, visualLagMs)
-      : Math.max(240, visualLagMs);
+      ? Math.max(1200, visualLagMs)
+      : Math.max(700, visualLagMs);
     if (remainingNarrationMs <= completionThresholdMs) {
       nextDisplayedText = state.text;
       lastDisplayedLength = state.text.length;
@@ -15807,6 +16577,17 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
     }
     state.mouthOpen = syncFrame.mouthActive ? getFallbackMouth(syncFrame.speechElapsedMs) : 0.12;
+    // Update burned-in caption text for this frame
+    if (captionOverlay.enabled && captionOverlay.segments.length) {
+      let captionText = "";
+      for (const seg of captionOverlay.segments) {
+        if (elapsedMs >= seg.startMs && elapsedMs <= seg.endMs) {
+          captionText = seg.text;
+          break;
+        }
+      }
+      captionOverlay.currentText = captionText;
+    }
     drawScene(state.mouthOpen);
     requestExportVideoFrame();
     await waitForNextPaint();
@@ -16294,6 +17075,23 @@ function drawIntroScene() {
     width: canvas.width,
     height: canvas.height
   });
+  requestCanvasExportFrame();
+}
+
+function drawPosterScene() {
+  const posterImage = state.introPoster.image;
+  state.stageVideoRenderBox = null;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (posterImage) {
+    drawVideoCover(posterImage, {
+      x: 0,
+      y: 0,
+      width: canvas.width,
+      height: canvas.height
+    });
+  }
   requestCanvasExportFrame();
 }
 
@@ -17905,23 +18703,36 @@ function startSpeechLipLoop() {
 }
 
 function startTypingFallback(totalDurationMs) {
-  if (!state.tokens.length) {
-    return;
-  }
-
+  if (!state.tokens.length) return;
   clearTypingInterval();
-  const stepMs = Math.max(24, Math.floor(totalDurationMs / state.tokens.length));
-  let index = 0;
 
-  state.typingInterval = setInterval(() => {
-    index += 1;
-    setDisplayedTokenCount(index);
+  // Linear rAF-based typing — matches constant audio speed exactly
+  const startTime  = performance.now();
+  const totalTokens = state.tokens.length;
 
-    if (index >= state.tokens.length) {
-      clearTypingInterval();
+  const tick = () => {
+    if (!state.speaking) return;
+    const elapsed  = performance.now() - startTime;
+    const progress = Math.min(1, elapsed / totalDurationMs);
+    // Linear — no easing so first word comes at the same rate as the rest
+    // Use float for sub-character smooth alpha fading
+    const exactFloat = progress * totalTokens;
+    const targetIndex = Math.min(totalTokens, Math.round(exactFloat));
+    state.exactCharCountFloat = exactFloat; // drives smooth per-char alpha
+    setDisplayedTokenCount(targetIndex);
+    markSceneDirty();
+    if (progress < 1) {
+      state.typingInterval = requestAnimationFrame(tick);
+    } else {
+      setDisplayedTokenCount(totalTokens);
+      state.exactCharCountFloat = totalTokens;
+      state.typingInterval = null;
     }
-  }, stepMs);
+  };
+
+  state.typingInterval = requestAnimationFrame(tick);
 }
+
 
 function startNarrationLoop(audioElement) {
   let lastRenderAt = 0;
@@ -17962,11 +18773,24 @@ function startNarrationLoop(audioElement) {
       ? (audioMouth ?? getFallbackMouth(syncFrame.speechElapsedMs))
       : 0.12;
     state.mouthOpen = nextMouth;
+    // Always force render during active narration — sub-character alpha
+    // fading needs continuous redraws even between character boundaries
     if (shouldRenderAnimatedSceneFrame(nowMs, {
-      force: state.exportingVideo || previousText !== state.displayedText || progress >= 0.995,
+      force: state.exportingVideo || state.speaking || progress >= 0.995,
       lastRenderAt,
       mouthDelta: nextMouth - lastRenderedMouth
     })) {
+      // Update burned-in caption text for this frame
+      if (captionOverlay.enabled && captionOverlay.segments.length) {
+        let captionText = "";
+        for (const seg of captionOverlay.segments) {
+          if (elapsedMs >= seg.startMs && elapsedMs <= seg.endMs) {
+            captionText = seg.text;
+            break;
+          }
+        }
+        captionOverlay.currentText = captionText;
+      }
       drawScene(state.mouthOpen);
       requestExportVideoFrame();
       lastRenderAt = nowMs;
@@ -18143,6 +18967,7 @@ async function ensureNarrationReadyForSlide(options = {}) {
 async function playSlide() {
   const currentText = commitLatestLessonText();
   const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
+  const posterRequested = Boolean(introClipRequested && state.introPoster.available);
   const allowIntroOnlyPlayback = !String(currentText || "").trim() && introClipRequested;
   if (!isPdfPresentationMode() && shouldPreferPdfScreenFromInput()) {
     const ready = await loadSelectedPdf();
@@ -18172,6 +18997,13 @@ async function playSlide() {
 
   if (allowIntroOnlyPlayback) {
     await playIntroClipIfEnabled();
+    if (state.introPlayback.enabled) {
+      if (posterRequested) {
+        await playIntroPosterSegment();
+      } else {
+        await playPostIntroBlankTransition();
+      }
+    }
     finishPlayback("Playback complete. The default intro clip finished.");
     return;
   }
@@ -18182,7 +19014,11 @@ async function playSlide() {
   if (canReuseExistingNarration) {
     await playIntroClipIfEnabled();
     if (state.introPlayback.enabled) {
-      await playPostIntroBlankTransition();
+      if (posterRequested) {
+        await playIntroPosterSegment();
+      } else {
+        await playPostIntroBlankTransition();
+      }
     }
     playNarrationAudio();
     return;
@@ -18197,7 +19033,11 @@ async function playSlide() {
     updateTaskProgressUi(0.62, true, { mirrorStage: true, label: state.introPlayback.enabled ? "Narration ready. Playing intro clip..." : "Narration ready. Starting playback..." });
     await playIntroClipIfEnabled();
     if (state.introPlayback.enabled) {
-      await playPostIntroBlankTransition();
+      if (posterRequested) {
+        await playIntroPosterSegment();
+      } else {
+        await playPostIntroBlankTransition();
+      }
     }
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
     resetTaskProgressUi();
@@ -18379,8 +19219,8 @@ function preventBackgroundThrottling() {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) unlockAudioContext = new AudioCtx();
     }
-    if (unlockAudioContext && unlockAudioContext.state === 'suspended') {
-      unlockAudioContext.resume();
+    if (unlockAudioContext && (unlockAudioContext.state === 'suspended' || unlockAudioContext.state === 'interrupted')) {
+      unlockAudioContext.resume().catch(() => {});
     }
     if (unlockAudioContext && !unlockOscillator) {
       unlockOscillator = unlockAudioContext.createOscillator();
@@ -18400,6 +19240,10 @@ function allowBackgroundThrottling() {
       unlockOscillator.disconnect();
       unlockOscillator = null;
     }
+    // Suspend the AudioContext to release the audio hardware and prevent memory leak
+    if (unlockAudioContext && unlockAudioContext.state !== 'closed') {
+      unlockAudioContext.suspend().catch(() => {});
+    }
   } catch(e) {}
 }
 
@@ -18413,6 +19257,7 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
 
   if (!canExportVideo()) {
     setStatus("Video export is not supported in this browser. Please use the latest Chrome or Edge.");
+    allowBackgroundThrottling();
     return;
   }
 
@@ -18819,6 +19664,8 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
   const exportSnapshot = options.exportSnapshot || null;
   const captureRate = Math.max(24, Number(options.captureRate) || 30);
   const includeIntro = Boolean(options.includeIntro);
+  const preRollPosterDurationMs = Math.max(0, Math.round(Number(options.preRollPosterDurationMs) || 0));
+  const shouldRecordPosterPreroll = preRollPosterDurationMs > 0 && hasIntroPosterSelected();
   let canvasStream = null;
   let exportStream = null;
   let audioUrl = "";
@@ -18884,7 +19731,7 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
     drawScene(0.12);
     await waitForNextPaint();
 
-    if (state.stageVideo.element) {
+    if (state.stageVideo.element && !shouldRecordPosterPreroll) {
       scheduleStageVideoStartAfterDelay({
         restart: true,
         delayMs: STAGE_VIDEO_START_DELAY_MS,
@@ -18916,6 +19763,11 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
       drawScene(0.12);
       await waitForNextPaint();
     }
+    if (shouldRecordPosterPreroll) {
+      await playIntroPosterSegment(preRollPosterDurationMs, { exportMode: true });
+      drawScene(0.12);
+      await waitForNextPaint();
+    }
     const started = await playAudioWithRecovery(audioElement, { volume: 0 });
     if (!started) {
       throw new Error("The narration audio could not start during export.");
@@ -18939,8 +19791,25 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
       state.displayedText = state.text;
     }
     syncLessonPlaybackProgressUi(1, true);
-    drawScene(0.12);
-    await waitForNextPaint();
+    // Skip drawScene here if poster is about to show — prevents a 1-frame lesson content flash
+    if (!(hasIntroPosterSelected() && state.introPoster.image)) {
+      drawScene(0.12);
+      await waitForNextPaint();
+    }
+
+    // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
+    if (hasIntroPosterSelected() && state.introPoster.image) {
+      const OUTRO_POSTER_DURATION_MS = 5000;
+      setStatus("Holding poster for 5 seconds as outro...");
+      const outroStartMs = performance.now();
+      while (performance.now() - outroStartMs < OUTRO_POSTER_DURATION_MS) {
+        drawPosterScene();
+        requestExportVideoFrame();
+        await waitForNextPaint();
+        await new Promise(resolve => setTimeout(resolve, Math.round(1000 / captureRate)));
+      }
+    }
+
     recorder.stop();
 
     const videoBlob = await blobPromise;
@@ -19095,6 +19964,8 @@ async function exportVideo(options = {}) {
   const exportPlaybackRate = getLessonPlaybackRate();
   const effectiveExportQuality = getEffectiveExportQuality();
   const shouldIncludeIntro = Boolean(state.introPlayback.enabled);
+  // Poster is optional and independent — it can be shown even if intro is skipped at fetch time.
+  const shouldIncludePoster = Boolean(state.introPoster.available);
   const preparingVideoExportMessage = cacheOnly
     ? "Preparing the downloadable video in the background. Please wait..."
     : (allowIntroOnlyExport
@@ -19165,9 +20036,10 @@ async function exportVideo(options = {}) {
     const introTimelineDurationMs = shouldIncludeIntro
       ? Math.max(0, Math.round(state.introPlayback.durationMs || 0))
       : 0;
+    const posterTimelineDurationMs = shouldIncludePoster ? getIntroPosterDurationMs() : 0;
     const totalExportTimelineDurationMs = allowIntroOnlyExport
-      ? Math.max(1000, introTimelineDurationMs)
-      : lessonTimelineDurationMs + introTimelineDurationMs;
+      ? Math.max(1000, introTimelineDurationMs + posterTimelineDurationMs)
+      : lessonTimelineDurationMs + introTimelineDurationMs + posterTimelineDurationMs;
     const exportTargetDurationMs = totalExportTimelineDurationMs + getExportCompletionTailMs();
     const lessonBaseCaptureRate = getLessonExportCaptureRate();
     const exportRenderSpeedMultiplier = Math.min(
@@ -19237,19 +20109,46 @@ async function exportVideo(options = {}) {
       setStatus(introExportLabel);
       updateTaskProgressUi(0.24, true, { mirrorStage: true, label: introExportLabel });
 
-      const introVideoBlob = await getIntroVideoSourceBlob();
-      if (introVideoBlob) {
+      let introVideoBlob = null;
+      try {
+        introVideoBlob = await getIntroVideoSourceBlob();
+      } catch (introFetchError) {
+        console.warn("[export] Intro video fetch error (non-fatal):", introFetchError?.message);
+        introVideoBlob = null;
+      }
+      if (introVideoBlob?.size) {
         includedIntroInExport = true;
         videoBlobs = [introVideoBlob];
       } else {
+        // Intro file unavailable — export continues without it
         includedIntroInExport = false;
         videoBlobs = [];
+        if (shouldIncludeIntro) {
+          setStatus("Intro clip could not be loaded — exporting lesson without intro. Please wait...");
+        }
+      }
+
+      if (shouldIncludePoster && allowIntroOnlyExport) {
+        const posterExportLabel = cacheOnly
+          ? "Preparing the poster segment for the downloadable video. Please wait..."
+          : "Preparing the uploaded poster after the intro clip. Please wait...";
+        setStatus(posterExportLabel);
+        updateTaskProgressUi(0.4, true, { mirrorStage: true, label: posterExportLabel });
+        const posterVideoBlob = await recordPosterVideoForExport(getIntroPosterDurationMs(), {
+          captureRate: 30,
+          effectiveExportQuality
+        });
+        if (posterVideoBlob) {
+          videoBlobs.push(posterVideoBlob);
+        }
       }
 
       if (!allowIntroOnlyExport) {
         const lessonRealtimeLabel = cacheOnly
           ? "Preparing the lesson stage for the downloadable video. Please wait..."
-          : "Recording the live lesson stage with Anjali narration and typing. Please wait...";
+          : (shouldIncludePoster
+            ? "Recording the poster, then the live lesson stage with Anjali narration and typing. Please wait..."
+            : "Recording the live lesson stage with Anjali narration and typing. Please wait...");
         setStatus(lessonRealtimeLabel);
         updateTaskProgressUi(0.52, true, { mirrorStage: true, label: lessonRealtimeLabel });
         const lessonVideoBlob = await recordLessonVideoRealtimeForExport(
@@ -19258,7 +20157,8 @@ async function exportVideo(options = {}) {
           {
             captureRate: 30,
             effectiveExportQuality,
-            exportSnapshot: lessonExportSnapshot
+            exportSnapshot: lessonExportSnapshot,
+            preRollPosterDurationMs: shouldIncludePoster ? getIntroPosterDurationMs() : 0
           }
         );
         videoBlobs.push(lessonVideoBlob);
@@ -19410,9 +20310,28 @@ async function exportVideo(options = {}) {
       cancelVisualLoop();
       state.mouthOpen = 0.12;
       applyLessonExportSnapshot(lessonExportSnapshot, lessonExportSnapshot.text);
-      drawScene(0.12);
-      requestExportVideoFrame();
-      await waitForNextPaint();
+      // Skip drawScene here if poster is about to show — prevents a 1-frame lesson content flash
+      if (!(shouldIncludePoster && state.introPoster.image)) {
+        drawScene(0.12);
+        requestExportVideoFrame();
+        await waitForNextPaint();
+      }
+
+      // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
+      if (shouldIncludePoster && state.introPoster.image) {
+        const OUTRO_POSTER_DURATION_MS = 5000;
+        const outroLabel = "Holding poster for 5 seconds as outro...";
+        setStatus(outroLabel);
+        updateTaskProgressUi(0.88, true, { mirrorStage: true, label: outroLabel });
+        const outroStartMs = performance.now();
+        while (performance.now() - outroStartMs < OUTRO_POSTER_DURATION_MS) {
+          drawPosterScene();
+          requestExportVideoFrame();
+          await waitForNextPaint();
+          await new Promise(resolve => setTimeout(resolve, Math.round(1000 / captureRate)));
+        }
+      }
+
       recorder.stop();
 
       videoBlob = await blobPromise;
@@ -19426,31 +20345,68 @@ async function exportVideo(options = {}) {
     if (includedIntroInExport) {
       try {
         const introAudioBlob = await getIntroExportBlob();
+        const posterGapBlob = shouldIncludePoster
+          ? createSilentWavBlob(getIntroPosterDurationMs())
+          : null;
         audioBlob = allowIntroOnlyExport
-          ? introAudioBlob
+          ? (posterGapBlob
+            ? await combineNarrationBlobs(
+              [introAudioBlob, posterGapBlob],
+              [
+                { text: "default-intro", gapAfterMs: 0 },
+                { text: "poster-gap", gapAfterMs: 0 }
+              ]
+            )
+            : introAudioBlob)
           : await combineNarrationBlobs(
-            [introAudioBlob, exportNarrationBlob],
-            [
-              { text: "default-intro", gapAfterMs: 0 },
-              { text: "lesson-narration", gapAfterMs: 0 }
-            ]
+            posterGapBlob
+              ? [introAudioBlob, posterGapBlob, exportNarrationBlob]
+              : [introAudioBlob, exportNarrationBlob],
+            posterGapBlob
+              ? [
+                { text: "default-intro", gapAfterMs: 0 },
+                { text: "poster-gap", gapAfterMs: 0 },
+                { text: "lesson-narration", gapAfterMs: 0 }
+              ]
+              : [
+                { text: "default-intro", gapAfterMs: 0 },
+                { text: "lesson-narration", gapAfterMs: 0 }
+              ]
           );
         setIntroClipStatus(allowIntroOnlyExport
           ? "The export includes the default intro clip and its audio."
           : "The intro clip and its audio will be included before the Anjali lesson narration.");
       } catch (error) {
         console.error(error);
+        const silentPosterGapBlob = shouldIncludePoster
+          ? createSilentWavBlob(getIntroPosterDurationMs())
+          : null;
         audioBlob = allowIntroOnlyExport
-          ? createSilentWavBlob(state.introPlayback.durationMs || 1000)
+          ? (silentPosterGapBlob
+            ? await combineNarrationBlobs(
+              [createSilentWavBlob(state.introPlayback.durationMs || 1000), silentPosterGapBlob],
+              [
+                { text: "silent-default-intro", gapAfterMs: 0 },
+                { text: "poster-gap", gapAfterMs: 0 }
+              ]
+            )
+            : createSilentWavBlob(state.introPlayback.durationMs || 1000))
           : await combineNarrationBlobs(
             [
               createSilentWavBlob(state.introPlayback.durationMs || 1000),
+              ...(silentPosterGapBlob ? [silentPosterGapBlob] : []),
               exportNarrationBlob
             ],
-            [
-              { text: "silent-default-intro", gapAfterMs: DEFAULT_INTRO_TO_LESSON_DELAY_MS },
-              { text: "lesson-narration", gapAfterMs: 0 }
-            ]
+            silentPosterGapBlob
+              ? [
+                { text: "silent-default-intro", gapAfterMs: 0 },
+                { text: "poster-gap", gapAfterMs: 0 },
+                { text: "lesson-narration", gapAfterMs: 0 }
+              ]
+              : [
+                { text: "silent-default-intro", gapAfterMs: DEFAULT_INTRO_TO_LESSON_DELAY_MS },
+                { text: "lesson-narration", gapAfterMs: 0 }
+              ]
           );
         setIntroClipStatus(allowIntroOnlyExport
           ? "The intro video exported, but its audio could not be merged cleanly, so the export used silent intro audio."
@@ -20358,6 +21314,9 @@ async function showScreen() {
       }
       drawScene(0.12);
       setIntroClipStatus("Intro clip is ready. Play or Export will start with it.");
+      if (state.introPoster.available) {
+        setIntroPosterStatus(`Poster ready: ${state.introPoster.fileName}. It will export full-screen before the lesson.`);
+      }
     } else {
       state.introPlayback.previewVisible = false;
       state.introPlayback.active = false;
@@ -20615,11 +21574,20 @@ if (saveOutcomesTitleBtn) {
   });
 }
 if (outcomesTitleInput) {
+  // Save on Enter key
   outcomesTitleInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       setOutcomesTitle(outcomesTitleInput.value);
     }
+  });
+  // Auto-save as you type (500ms debounce) — no need to click Save
+  let _titleSaveTimer = 0;
+  outcomesTitleInput.addEventListener("input", () => {
+    clearTimeout(_titleSaveTimer);
+    _titleSaveTimer = setTimeout(() => {
+      setOutcomesTitle(outcomesTitleInput.value, { silent: true });
+    }, 500);
   });
 }
 if (insertSpaceBtn) {
@@ -20741,13 +21709,54 @@ introClipEnabled.addEventListener("change", (event) => {
   state.introPlayback.enabled = event.target.checked;
   setIntroClipStatus(
     state.introPlayback.enabled
-      ? "Intro clip is enabled. It will be used only when available."
-      : "Intro clip is off. The lesson will start directly."
+      ? "Intro clip enabled. It will play before the lesson when available."
+      : "Intro clip off. The lesson will start directly (poster still exports if uploaded)."
   );
   if (state.introPlayback.enabled) {
     void ensureDefaultIntroClip();
   }
+  // Poster status is always shown independently of intro state
+  if (state.introPoster.available) {
+    setIntroPosterStatus(`Poster ready: ${state.introPoster.fileName}. It will export as a full-screen image before the lesson.`);
+  }
 });
+if (introPosterUploadBtn && introPosterInput) {
+  introPosterUploadBtn.addEventListener("click", () => {
+    introPosterInput.click();
+  });
+  introPosterInput.addEventListener("change", async (event) => {
+    const file = event.target?.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+        reader.readAsDataURL(file);
+      });
+      const image = await loadImageFromDataUrl(dataUrl);
+      state.introPoster.fileName = file.name;
+      state.introPoster.dataUrl = dataUrl;
+      state.introPoster.image = image;
+      state.introPoster.available = true;
+      state.introPoster.durationMs = DEFAULT_INTRO_POSTER_DURATION_MS;
+      setIntroPosterStatus(
+        `Poster ready: ${file.name}. It will export as a full-screen image${state.introPlayback.enabled ? " after the intro" : ""} before the lesson.`
+      );
+      updatePosterThumbnailUi();
+      drawScene(state.mouthOpen);
+      setStatus(`Poster uploaded: ${file.name}. It will export full-screen before the lesson (intro is ${state.introPlayback.enabled ? "on" : "off and will be skipped"}).`);
+    } catch (error) {
+      console.error(error);
+      setIntroPosterStatus(error.message || "The poster could not be loaded.");
+    } finally {
+      event.target.value = "";
+    }
+  });
+}
 recordBtn.addEventListener("click", startRecordingNarration);
 stopRecordBtn.addEventListener("click", stopRecordingNarration);
 clearAudioBtn.addEventListener("click", clearNarration);
@@ -20901,6 +21910,43 @@ fontDecreaseBtn.addEventListener("click", () => {
 fontIncreaseBtn.addEventListener("click", () => {
   setFontScale(state.fontScale + FONT_SCALE_STEP);
 });
+document.addEventListener("click", (event) => {
+  const button = event.target instanceof Element
+    ? event.target.closest("#zoomOutBtn, #zoomInBtn, #fontDecreaseBtn, #fontIncreaseBtn")
+    : null;
+
+  if (!button) {
+    return;
+  }
+
+  if (
+    button === zoomOutBtn
+    || button === zoomInBtn
+    || button === fontDecreaseBtn
+    || button === fontIncreaseBtn
+  ) {
+    return;
+  }
+
+  if (button.id === "zoomOutBtn") {
+    setPreviewZoom(state.previewZoom - PREVIEW_ZOOM_STEP);
+    return;
+  }
+
+  if (button.id === "zoomInBtn") {
+    setPreviewZoom(state.previewZoom + PREVIEW_ZOOM_STEP);
+    return;
+  }
+
+  if (button.id === "fontDecreaseBtn") {
+    setFontScale(state.fontScale - FONT_SCALE_STEP);
+    return;
+  }
+
+  if (button.id === "fontIncreaseBtn") {
+    setFontScale(state.fontScale + FONT_SCALE_STEP);
+  }
+});
 stageBoldBtn.addEventListener("click", () => {
   updateDisplayStyle({ bold: !state.displayStyle.bold });
 });
@@ -20955,6 +22001,308 @@ downloadBtn.addEventListener("click", () => {
     suggestedName: getDefaultExportFileName()
   });
 });
+
+// ── AI Captions: word-level SRT generation ────────────────────────────────────
+function generateWordLevelSrt(text, durationMs, playbackRate = 1) {
+  if (!text || !durationMs) return "";
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(w => w.length > 0);
+  if (!words.length) return "";
+
+  const totalTimeMs = Math.max(1, Math.round(durationMs / Math.max(0.1, playbackRate)));
+  const entries = [];
+  let charIndex = 0;
+  const totalChars = text.replace(/\s+/g, " ").trim().length;
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    // Calculate start/end time based on character position (linear mapping)
+    const startFraction = charIndex / totalChars;
+    const endFraction = Math.min(1, (charIndex + word.length) / totalChars);
+    const startMs = Math.round(startFraction * totalTimeMs);
+    const endMs = Math.round(endFraction * totalTimeMs);
+
+    // Group words into 4-5 word caption chunks for readability
+    const chunkSize = 5;
+    const chunkIndex = Math.floor(i / chunkSize);
+    if (i % chunkSize === 0) {
+      // Start a new caption entry
+      const chunkWords = words.slice(i, Math.min(i + chunkSize, words.length));
+      const chunkText = chunkWords.join(" ");
+      const lastWordInChunk = Math.min(i + chunkSize - 1, words.length - 1);
+      let lastCharIdx = 0;
+      for (let j = 0; j <= lastWordInChunk; j++) {
+        lastCharIdx += words[j].length + 1;
+      }
+      const chunkEndFraction = Math.min(1, lastCharIdx / totalChars);
+      const chunkEndMs = Math.round(chunkEndFraction * totalTimeMs);
+
+      entries.push({
+        index: chunkIndex + 1,
+        startMs: startMs,
+        endMs: Math.max(startMs + 200, chunkEndMs),
+        text: chunkText
+      });
+    }
+
+    charIndex += word.length + 1; // +1 for space
+  }
+
+  // Format as SRT
+  const formatTime = (ms) => {
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    const millis = ms % 1000;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")},${String(millis).padStart(3, "0")}`;
+  };
+
+  return entries.map(e =>
+    `${e.index}\n${formatTime(e.startMs)} --> ${formatTime(e.endMs)}\n${e.text}\n`
+  ).join("\n");
+}
+
+function downloadSrtFile(srtContent, fileName = "captions.srt") {
+  const blob = new Blob([srtContent], { type: "text/srt;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Use event delegation so the handler works even if React hasn't rendered StagePanel yet
+document.addEventListener("click", async (e) => {
+  const captionExportBtn = e.target.closest("#stageCaptionExportBtn");
+  if (!captionExportBtn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  {
+    // ── MODE 1: If a stage video is loaded, transcribe its audio for burned-in captions ──
+    if (state.stageVideo.element && state.stageVideo.element.src) {
+      try {
+        setStatus("Extracting audio from stage video for AI transcription...");
+        captionOverlay.transcribing = true;
+
+        // Check transcription server
+        const serverReady = await ensureTranscribeServer();
+        if (!serverReady) {
+          throw new Error("The local transcription server is not running. Start it to enable AI captions.");
+        }
+
+        // Extract audio from the video element
+        setStatus("Extracting audio from video...");
+        const videoUrl = state.stageVideo.element.src || state.stageVideo.url;
+        const response = await fetch(videoUrl);
+        const videoArrayBuffer = await response.arrayBuffer();
+        const videoBlob = new Blob([videoArrayBuffer], { type: "video/mp4" });
+
+        // Decode audio from video file to WAV
+        setStatus("Decoding video audio to WAV for transcription...");
+        const wavBlob = await decodeAudioFileToWav(videoBlob);
+        const wavBase64 = arrayBufferToBase64(await wavBlob.arrayBuffer());
+
+        // Send to transcription server
+        setStatus("Sending audio to AI transcription server (this may take a moment)...");
+        const transcribeResponse = await fetch(`${state.transcribeServerUrl}/api/transcribe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName: state.stageVideo.fileName || "stage-video.mp4",
+            audioBase64: wavBase64,
+            wordTimestamps: true
+          })
+        });
+
+        if (!transcribeResponse.ok) {
+          const errPayload = await transcribeResponse.json().catch(() => ({}));
+          throw new Error(errPayload.error || "AI transcription failed.");
+        }
+
+        const payload = await transcribeResponse.json();
+        const transcript = (payload.text || "").trim();
+
+        if (!transcript) {
+          throw new Error("No speech was recognized from the video audio.");
+        }
+
+        // Parse word-level timestamps if available, otherwise create linear segments
+        const segments = [];
+        if (payload.segments && Array.isArray(payload.segments)) {
+          // Use server-provided word-level segments
+          for (const seg of payload.segments) {
+            segments.push({
+              startMs: Math.round((seg.start || 0) * 1000),
+              endMs: Math.round((seg.end || 0) * 1000),
+              text: (seg.text || "").trim()
+            });
+          }
+        } else if (payload.words && Array.isArray(payload.words)) {
+          // Group words into 5-word chunks
+          const words = payload.words;
+          for (let i = 0; i < words.length; i += 5) {
+            const chunk = words.slice(i, Math.min(i + 5, words.length));
+            segments.push({
+              startMs: Math.round((chunk[0].start || 0) * 1000),
+              endMs: Math.round((chunk[chunk.length - 1].end || 0) * 1000),
+              text: chunk.map(w => w.word || w.text || "").join(" ").trim()
+            });
+          }
+        } else {
+          // Fallback: use linear timing from the transcript
+          const videoDurationMs = (state.stageVideo.element.duration || 60) * 1000;
+          const srtText = generateWordLevelSrt(transcript, videoDurationMs, 1);
+          // Parse the SRT back into segments
+          const srtLines = srtText.split("\n\n").filter(Boolean);
+          for (const block of srtLines) {
+            const lines = block.split("\n");
+            if (lines.length >= 3) {
+              const timeParts = lines[1].split(" --> ");
+              if (timeParts.length === 2) {
+                segments.push({
+                  startMs: parseSrtTime(timeParts[0]),
+                  endMs: parseSrtTime(timeParts[1]),
+                  text: lines.slice(2).join(" ").trim()
+                });
+              }
+            }
+          }
+        }
+
+        captionOverlay.segments = segments;
+        captionOverlay.enabled = true;
+        captionOverlay.currentText = segments.length > 0 ? segments[0].text : transcript.substring(0, 60);
+
+        setStatus(`✅ AI transcription complete! ${segments.length} caption segments created. Drag the caption bar to position it, then export.`);
+        markSceneDirty();
+
+        // Start lightweight caption sync loop
+        startCaptionUpdateLoop();
+
+        // Also download the SRT file
+        const srt = segments.map((seg, i) => {
+          const formatMs = (ms) => {
+            const h = Math.floor(ms / 3600000);
+            const m = Math.floor((ms % 3600000) / 60000);
+            const s = Math.floor((ms % 60000) / 1000);
+            const ml = ms % 1000;
+            return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")},${String(ml).padStart(3,"0")}`;
+          };
+          return `${i+1}\n${formatMs(seg.startMs)} --> ${formatMs(seg.endMs)}\n${seg.text}\n`;
+        }).join("\n");
+        if (srt) {
+          const baseName = getDefaultExportFileName().replace(/\.\w+$/, "");
+          downloadSrtFile(srt, `${baseName}.srt`);
+        }
+        // Inject the video's original audio as narration so the export uses it
+        // instead of generating TTS. Set the transcript as lesson text.
+        const exportText = transcript || getEffectiveLessonText() || "Captioned video";
+        state.text = exportText;
+        state.displayedText = "";
+        await setNarrationFromBlob(
+          wavBlob,
+          state.stageVideo.fileName || "stage-video-audio.wav",
+          "Extracted from stage video for caption export",
+          exportText,
+          EXPORT_NARRATION_VOICE,
+          { silent: true }
+        );
+        setStatus("Audio injected. Starting video export with burned-in captions...");
+
+        // Now trigger export with burned-in captions
+        void beginExportFromUi(exportVideo, {
+          suggestedName: getDefaultExportFileName()
+        });
+
+      } catch (error) {
+        console.error(error);
+        captionOverlay.transcribing = false;
+        setStatus(`Caption generation failed: ${error.message}`);
+      } finally {
+        captionOverlay.transcribing = false;
+      }
+      return;
+    }
+
+    // ── MODE 2: Lesson text only → generate SRT from narration timing ──
+    const text = getEffectiveLessonText();
+    if (!text || !text.trim()) {
+      setStatus("Upload a stage video or enter lesson text first to generate AI captions.");
+      return;
+    }
+
+    try {
+      setStatus("Generating AI captions from lesson narration...");
+
+      const narrationBlob = await ensureAnjaliNarrationReadyForExport({
+        textSource: text,
+        timeoutMs: getLongNarrationRequestTimeoutMs(text),
+        skipPreparedExportSchedule: true
+      });
+      const durationMs = await measureNarrationBlobDurationMs(narrationBlob);
+      const playbackRate = getLessonPlaybackRate();
+
+      // Generate word-level segments for burned-in captions
+      const words = text.replace(/\s+/g, " ").trim().split(" ").filter(w => w.length > 0);
+      const totalTimeMs = Math.max(1, Math.round(durationMs / Math.max(0.1, playbackRate)));
+      const totalChars = text.replace(/\s+/g, " ").trim().length;
+      const segments = [];
+      let charIdx = 0;
+      for (let i = 0; i < words.length; i += 5) {
+        const chunk = words.slice(i, Math.min(i + 5, words.length));
+        const startFrac = charIdx / totalChars;
+        let endCharIdx = charIdx;
+        for (const w of chunk) { endCharIdx += w.length + 1; }
+        const endFrac = Math.min(1, endCharIdx / totalChars);
+        segments.push({
+          startMs: Math.round(startFrac * totalTimeMs),
+          endMs: Math.max(Math.round(startFrac * totalTimeMs) + 200, Math.round(endFrac * totalTimeMs)),
+          text: chunk.join(" ")
+        });
+        for (const w of chunk) { charIdx += w.length + 1; }
+      }
+
+      captionOverlay.segments = segments;
+      captionOverlay.enabled = true;
+      captionOverlay.currentText = segments.length > 0 ? segments[0].text : "";
+
+      // Download SRT
+      const srt = generateWordLevelSrt(text, durationMs, playbackRate);
+      if (srt) {
+        const baseName = getDefaultExportFileName().replace(/\.\w+$/, "");
+        downloadSrtFile(srt, `${baseName}.srt`);
+        setStatus("Captions (.srt) downloaded! Burned-in captions enabled. Starting export...");
+      }
+
+      // Start lightweight caption sync loop
+      startCaptionUpdateLoop();
+
+      markSceneDirty();
+
+      void beginExportFromUi(exportVideo, {
+        suggestedName: getDefaultExportFileName()
+      });
+    } catch (error) {
+      console.error(error);
+      setStatus(`Caption generation failed: ${error.message}. Trying video export without captions...`);
+      void beginExportFromUi(exportVideo, {
+        suggestedName: getDefaultExportFileName()
+      });
+    }
+  }
+});
+// Helper: parse SRT timestamp "HH:MM:SS,mmm" to milliseconds
+function parseSrtTime(str) {
+  const parts = str.trim().replace(",", ".").split(":");
+  if (parts.length !== 3) return 0;
+  return Math.round(
+    parseFloat(parts[0]) * 3600000 +
+    parseFloat(parts[1]) * 60000 +
+    parseFloat(parts[2]) * 1000
+  );
+}
 
 document.addEventListener("keydown", (event) => {
   // Toggle whiteboard with W
@@ -21085,7 +22433,10 @@ state.introPlayback.enabled = Boolean(introClipEnabled?.checked);
 if (state.introPlayback.enabled) {
   void ensureDefaultIntroClip();
 } else {
-  setIntroClipStatus("Intro clip is off. The lesson will start directly.");
+  setIntroClipStatus("Intro clip is off. The lesson will start directly (enable by ticking the checkbox).");
+}
+if (!state.introPoster.available) {
+  setIntroPosterStatus("No poster uploaded. Upload an image to show it full-screen before the lesson.");
 }
 setRecordingUi(false);
 resetPdfProgress();
@@ -21166,6 +22517,341 @@ if (autoExplainBtn) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FEATURE 1: LIVE VIDEO DURATION ESTIMATOR + WORD COUNTER
+// Shows "~2 min 45 sec" badge as the user types in the lesson textarea.
+// ═══════════════════════════════════════════════════════════════════════════
+(function initDurationEstimator() {
+  const ANJALI_WPM = 140;        // Anjali's natural speaking rate
+  const PLAYBACK_RATE = 1.8;     // Default avatar speed
+  const EFFECTIVE_WPM = ANJALI_WPM * PLAYBACK_RATE;
+
+  const durationText   = document.getElementById("lessonDurationText");
+  const wordCountEl    = document.getElementById("lessonWordCountText");
+
+  function updateDurationBadge(text) {
+    const words = (text || "").trim().split(/\s+/).filter(Boolean);
+    const wc = words.length;
+    if (wordCountEl) wordCountEl.textContent = `${wc.toLocaleString()} word${wc !== 1 ? "s" : ""}`;
+    if (!durationText) return;
+    if (wc < 3) { durationText.textContent = "— min"; return; }
+    const totalSec = Math.round((wc / EFFECTIVE_WPM) * 60);
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    durationText.textContent = mins > 0
+      ? `~${mins} min ${secs > 0 ? secs + "s" : ""}`
+      : `~${secs}s`;
+  }
+
+  if (lessonInput) {
+    lessonInput.addEventListener("input", () => updateDurationBadge(lessonInput.value));
+    updateDurationBadge(lessonInput.value);
+  }
+})();
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FEATURE 2: AUTO-SAVE DRAFTS TO LOCALSTORAGE
+// Saves the lesson text 1s after every keystroke.
+// SILENTLY restores on page reload — no popup, no friction.
+// ═══════════════════════════════════════════════════════════════════════════
+(function initAutoDraft() {
+  const DRAFT_KEY    = "pp_lesson_draft_v2";
+  const DRAFT_TS_KEY = "pp_lesson_draft_ts";
+  const SAVE_DEBOUNCE_MS = 1000;  // save 1 second after last keystroke
+  const draftIndicator = document.getElementById("lessonDraftIndicator");
+
+  function showDraftSaved() {
+    if (!draftIndicator) return;
+    draftIndicator.textContent = "✓ Draft saved";
+    draftIndicator.style.opacity = "1";
+    clearTimeout(draftIndicator._timer);
+    draftIndicator._timer = setTimeout(() => {
+      draftIndicator.style.opacity = "0";
+    }, 2200);
+  }
+
+  function saveDraft() {
+    if (!lessonInput) return;
+    try {
+      const val = lessonInput.value;
+      if (val.trim()) {
+        window.localStorage.setItem(DRAFT_KEY, val);
+        window.localStorage.setItem(DRAFT_TS_KEY, Date.now().toString());
+        showDraftSaved();
+      } else {
+        // If user cleared the input, remove the draft so we don't restore blank
+        window.localStorage.removeItem(DRAFT_KEY);
+      }
+    } catch(e) {}
+  }
+
+  function restoreDraftSilently() {
+    try {
+      const saved = window.localStorage.getItem(DRAFT_KEY);
+      if (!saved || !lessonInput) return;
+      if (lessonInput.value.trim()) return; // don't overwrite if something already loaded
+      // Silently restore — no popup
+      lessonInput.value = saved;
+      lessonInput.dispatchEvent(new Event("input", { bubbles: true }));
+      if (draftIndicator) {
+        const ts = parseInt(window.localStorage.getItem(DRAFT_TS_KEY) || "0", 10);
+        const ageMin = Math.round((Date.now() - ts) / 60000);
+        const label = ageMin < 1 ? "just now" : ageMin < 60 ? `${ageMin}m ago` : `${Math.round(ageMin/60)}h ago`;
+        draftIndicator.textContent = `↩ Draft restored (${label})`;
+        draftIndicator.style.opacity = "1";
+        clearTimeout(draftIndicator._timer);
+        draftIndicator._timer = setTimeout(() => { draftIndicator.style.opacity = "0"; }, 4000);
+      }
+    } catch(e) {}
+  }
+
+  // Save 1s after every keystroke
+  let _draftTimer = 0;
+  if (lessonInput) {
+    lessonInput.addEventListener("input", () => {
+      clearTimeout(_draftTimer);
+      _draftTimer = setTimeout(saveDraft, SAVE_DEBOUNCE_MS);
+    });
+  }
+
+  // Ctrl+S = save immediately
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "s" && !e.shiftKey) {
+      if (document.getElementById("inputPanel") && !document.getElementById("inputPanel").classList.contains("hidden")) {
+        e.preventDefault();
+        saveDraft();
+      }
+    }
+  });
+
+  // On load: silently restore with no popup
+  window.addEventListener("DOMContentLoaded", () => {
+    setTimeout(restoreDraftSilently, 600);
+  });
+})();
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FEATURE 3: SMART MATH KEYWORD AUTO-HIGHLIGHTER
+// One click: auto-detects key terms across ALL subjects and adds highlight rules.
+// ═══════════════════════════════════════════════════════════════════════════
+(function initAutoHighlight() {
+  // ── Colour palette per category ──────────────────────────────────────────
+  const COLOR_NUMBERS   = "#FFD700"; // gold    — numbers & values
+  const COLOR_MATHS     = "#7FFFD4"; // aqua    — maths operation words
+  const COLOR_ENGLISH   = "#C9AAFF"; // lavender— English / literacy terms
+  const COLOR_SCIENCE   = "#A8FF78"; // lime    — science / nature terms
+  const COLOR_SYMBOLS   = "#FF6B6B"; // coral   — operators & special symbols
+
+  // ── MATHS terms ──────────────────────────────────────────────────────────
+  const MATHS_WORDS = [
+    "add","adding","added","addition","plus",
+    "subtract","subtracting","subtracted","subtraction","minus","take away",
+    "multiply","multiplying","multiplied","multiplication","times","product",
+    "divide","dividing","divided","division","quotient","remainder",
+    "equal","equals","equivalent","same as",
+    "greater than","less than","more than","fewer than",
+    "fraction","numerator","denominator","half","quarter","third",
+    "decimal","percent","percentage","ratio","proportion",
+    "area","perimeter","volume","diameter","radius","circumference",
+    "angle","degree","triangle","square","rectangle","circle","polygon",
+    "negative","positive","integer","prime","factor","multiple",
+    "algebra","equation","variable","expression","formula","solve",
+    "mean","median","mode","range","average","probability","data"
+  ];
+
+  // ── ENGLISH / LITERACY terms ──────────────────────────────────────────────
+  const ENGLISH_WORDS = [
+    "noun","verb","adjective","adverb","pronoun","preposition","conjunction","interjection",
+    "subject","predicate","clause","phrase","sentence","paragraph",
+    "simile","metaphor","alliteration","personification","hyperbole","onomatopoeia",
+    "synonym","antonym","homophone","prefix","suffix","root word",
+    "narrative","descriptive","persuasive","argumentative","expository",
+    "setting","character","plot","theme","conflict","resolution",
+    "fiction","non-fiction","biography","autobiography","poem","sonnet","rhyme","stanza",
+    "vocabulary","grammar","punctuation","comma","apostrophe","quotation",
+    "inference","deduction","comprehension","analyse","evaluate","summarise"
+  ];
+
+  // ── SCIENCE terms ─────────────────────────────────────────────────────────
+  const SCIENCE_WORDS = [
+    "atom","molecule","element","compound","mixture","reaction","solution",
+    "energy","force","gravity","friction","magnetism","electricity","current","circuit",
+    "cell","tissue","organ","organism","photosynthesis","respiration","habitat","ecosystem",
+    "evolution","adaptation","classification","species","predator","prey","food chain",
+    "solid","liquid","gas","evaporation","condensation","precipitation",
+    "planet","orbit","solar system","gravity","star","galaxy","universe",
+    "experiment","hypothesis","observation","variable","evidence","conclusion"
+  ];
+
+  // ── Special symbols (maths operators + punctuation highlights) ───────────
+  const SPECIAL_SYMBOLS = ["×","÷","≈","≠","≤","≥","√","∑","∞","→","⟹","∈"];
+
+  // ── Core push helper (no duplicates) ─────────────────────────────────────
+  function pushRule(phrase, color) {
+    const lc = phrase.toLowerCase();
+    if (!state.keywordStyles.find(r => r.phrase.toLowerCase() === lc)) {
+      state.keywordStyles.push({ phrase: lc, color, bold: true, italic: false, underline: false });
+      return 1;
+    }
+    return 0;
+  }
+
+  function autoHighlightAll() {
+    if (!lessonInput) { setStatus("No lesson input found."); return; }
+    const text = lessonInput.value;
+    if (!text.trim()) { setStatus("Type your lesson first, then click Auto-Highlight."); return; }
+
+    let added = 0;
+
+    // 1. Numbers (universal — works for every subject)
+    const numRe = /\b\d+(\.\d+)?(%|st|nd|rd|th)?\b/g;
+    let m;
+    while ((m = numRe.exec(text)) !== null) {
+      added += pushRule(m[0], COLOR_NUMBERS);
+    }
+
+    // 2. Check which subject categories are present and only add those
+    const ltext = text.toLowerCase();
+
+    const hasMaths   = MATHS_WORDS.some(w   => new RegExp(`\\b${w.replace(/\s+/g,"\\s+")}\\b`,"i").test(text));
+    const hasEnglish = ENGLISH_WORDS.some(w => new RegExp(`\\b${w.replace(/\s+/g,"\\s+")}\\b`,"i").test(text));
+    const hasScience = SCIENCE_WORDS.some(w => new RegExp(`\\b${w.replace(/\s+/g,"\\s+")}\\b`,"i").test(text));
+
+    if (hasMaths) {
+      for (const word of MATHS_WORDS) {
+        if (new RegExp(`\\b${word.replace(/\s+/g,"\\s+")}\\b`,"i").test(text)) {
+          added += pushRule(word, COLOR_MATHS);
+        }
+      }
+    }
+
+    if (hasEnglish) {
+      for (const word of ENGLISH_WORDS) {
+        if (new RegExp(`\\b${word.replace(/\s+/g,"\\s+")}\\b`,"i").test(text)) {
+          added += pushRule(word, COLOR_ENGLISH);
+        }
+      }
+    }
+
+    if (hasScience) {
+      for (const word of SCIENCE_WORDS) {
+        if (new RegExp(`\\b${word.replace(/\s+/g,"\\s+")}\\b`,"i").test(text)) {
+          added += pushRule(word, COLOR_SCIENCE);
+        }
+      }
+    }
+
+    // 3. Special symbols
+    for (const sym of SPECIAL_SYMBOLS) {
+      if (ltext.includes(sym)) added += pushRule(sym, COLOR_SYMBOLS);
+    }
+
+    const subjects = [
+      hasMaths   && "Maths",
+      hasEnglish && "English",
+      hasScience && "Science"
+    ].filter(Boolean);
+
+    invalidateDrawSceneLayoutCache();
+    markSceneDirty();
+    updateTextStyleUi();
+    const subjectLabel = subjects.length ? ` (${subjects.join(" + ")})` : "";
+    setStatus(`✨ Auto-Highlight complete! ${added} term${added !== 1 ? "s" : ""} highlighted${subjectLabel}.`);
+  }
+
+  const autoHighlightBtn = document.getElementById("autoHighlightMathBtn");
+  if (autoHighlightBtn) {
+    autoHighlightBtn.addEventListener("click", autoHighlightAll);
+  }
+})();
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FEATURE 4: KEYBOARD SHORTCUTS SYSTEM
+// Ctrl+Enter=ShowScreen, Ctrl+E=Export, Ctrl+P=Play, Escape=BackToInput,
+// Ctrl+↑/↓=Prev/Next slide. Shortcuts overlay toggle.
+// ═══════════════════════════════════════════════════════════════════════════
+(function initKeyboardShortcuts() {
+  // Shortcuts overlay toggle
+  const shortcutsHintBtn  = document.getElementById("shortcutsHintBtn");
+  const shortcutsOverlay  = document.getElementById("shortcutsOverlay");
+  const shortcutsCloseBtn = document.getElementById("shortcutsCloseBtn");
+
+  if (shortcutsHintBtn && shortcutsOverlay) {
+    shortcutsHintBtn.addEventListener("click", () => {
+      shortcutsOverlay.style.display = shortcutsOverlay.style.display === "none" ? "block" : "none";
+    });
+  }
+  if (shortcutsCloseBtn && shortcutsOverlay) {
+    shortcutsCloseBtn.addEventListener("click", () => { shortcutsOverlay.style.display = "none"; });
+  }
+
+  // Global keyboard handler
+  document.addEventListener("keydown", (e) => {
+    const ctrl = e.ctrlKey || e.metaKey;
+    const tag = (e.target?.tagName || "").toUpperCase();
+    const isTyping = ["INPUT","TEXTAREA","SELECT"].includes(tag) && !ctrl;
+
+    // Don't fire shortcuts while user is typing (unless ctrl is held)
+    if (isTyping) return;
+
+    // Escape → back to input panel
+    if (e.key === "Escape") {
+      const editBtn = document.getElementById("editBtn");
+      if (editBtn && stagePanel && !stagePanel.classList.contains("hidden")) {
+        editBtn.click();
+      }
+      if (shortcutsOverlay) shortcutsOverlay.style.display = "none";
+      return;
+    }
+
+    if (!ctrl) return;
+
+    switch (e.key) {
+      // Ctrl+Enter → Show Screen
+      case "Enter": {
+        e.preventDefault();
+        const showBtn = document.getElementById("showScreenBtn");
+        if (showBtn && inputPanel && !inputPanel.classList.contains("hidden")) showBtn.click();
+        break;
+      }
+      // Ctrl+E → Export Video
+      case "e":
+      case "E": {
+        e.preventDefault();
+        const dlBtn = document.getElementById("downloadBtn");
+        if (dlBtn && stagePanel && !stagePanel.classList.contains("hidden")) dlBtn.click();
+        break;
+      }
+      // Ctrl+P → Play
+      case "p":
+      case "P": {
+        e.preventDefault();
+        const playBtn = document.getElementById("playBtn");
+        if (playBtn && stagePanel && !stagePanel.classList.contains("hidden")) playBtn.click();
+        break;
+      }
+      // Ctrl+ArrowUp → Previous slide
+      case "ArrowUp": {
+        e.preventDefault();
+        const prevBtn = document.getElementById("prevPageBtn");
+        if (prevBtn) prevBtn.click();
+        break;
+      }
+      // Ctrl+ArrowDown → Next slide
+      case "ArrowDown": {
+        e.preventDefault();
+        const nextBtn = document.getElementById("nextPageBtn");
+        if (nextBtn) nextBtn.click();
+        break;
+      }
+    }
+  });
+})();
+
+
 // UI FLOW & ORGANIZATION: Exclusive Accordion
 document.addEventListener("DOMContentLoaded", () => {
   const sections = Array.from(document.querySelectorAll('.section-card'));
@@ -21197,10 +22883,39 @@ function getMousePos(canvas, evt) {
     };
 }
 
+// ── Helper: check if pos is near a corner handle of a config box ──────────────
+function getResizeCorner(cfg, pos, hitSize = 18) {
+    const corners = [
+        { name: 'nw', x: cfg.x,            y: cfg.y },
+        { name: 'ne', x: cfg.x + cfg.w,    y: cfg.y },
+        { name: 'sw', x: cfg.x,            y: cfg.y + cfg.h },
+        { name: 'se', x: cfg.x + cfg.w,    y: cfg.y + cfg.h },
+    ];
+    for (const c of corners) {
+        if (Math.abs(pos.x - c.x) <= hitSize && Math.abs(pos.y - c.y) <= hitSize) {
+            return c.name;
+        }
+    }
+    return null;
+}
+
 previewCanvas.addEventListener('pointerdown', (e) => {
     const pos = getMousePos(previewCanvas, e);
-    
+
+    // ── Avatar: check resize corners first, then drag ────────────────
     if (document.getElementById("avatarEnableCheck")?.checked && !!transparentAnjaliCanvas) {
+        const corner = getResizeCorner(avatarConfig, pos);
+        if (corner) {
+            avatarConfig.resizing = corner;
+            avatarConfig.resizeStartX = pos.x;
+            avatarConfig.resizeStartY = pos.y;
+            avatarConfig.resizeStartW = avatarConfig.w;
+            avatarConfig.resizeStartH = avatarConfig.h;
+            avatarConfig.resizeStartOX = avatarConfig.x;
+            avatarConfig.resizeStartOY = avatarConfig.y;
+            previewCanvas.setPointerCapture(e.pointerId);
+            return;
+        }
         if (pos.x >= avatarConfig.x && pos.x <= avatarConfig.x + avatarConfig.w &&
             pos.y >= avatarConfig.y && pos.y <= avatarConfig.y + avatarConfig.h) {
             avatarConfig.dragging = true;
@@ -21210,9 +22925,22 @@ previewCanvas.addEventListener('pointerdown', (e) => {
             return;
         }
     }
-    
+
+    // ── Logo: check resize corners first, then drag ───────────────────
     if (document.getElementById("logoEnableCheck")?.checked && infoKidsLogoImg.complete) {
         if (normalizePresentationTemplate(state.presentationTemplate) === 'learning-outcomes') {
+            const corner = getResizeCorner(logoConfig, pos);
+            if (corner) {
+                logoConfig.resizing = corner;
+                logoConfig.resizeStartX = pos.x;
+                logoConfig.resizeStartY = pos.y;
+                logoConfig.resizeStartW = logoConfig.w;
+                logoConfig.resizeStartH = logoConfig.h;
+                logoConfig.resizeStartOX = logoConfig.x;
+                logoConfig.resizeStartOY = logoConfig.y;
+                previewCanvas.setPointerCapture(e.pointerId);
+                return;
+            }
             if (pos.x >= logoConfig.x && pos.x <= logoConfig.x + logoConfig.w &&
                 pos.y >= logoConfig.y && pos.y <= logoConfig.y + logoConfig.h) {
                 logoConfig.dragging = true;
@@ -21223,21 +22951,88 @@ previewCanvas.addEventListener('pointerdown', (e) => {
             }
         }
     }
+
+    // ── Caption overlay: drag ──────────────────────────────────────────
+    if (captionOverlay.enabled && captionOverlay.currentText) {
+        if (pos.x >= captionConfig.x && pos.x <= captionConfig.x + captionConfig.w &&
+            pos.y >= captionConfig.y && pos.y <= captionConfig.y + captionConfig.h) {
+            captionConfig.dragging = true;
+            captionConfig.dragOffX = pos.x - captionConfig.x;
+            captionConfig.dragOffY = pos.y - captionConfig.y;
+            previewCanvas.setPointerCapture(e.pointerId);
+            return;
+        }
+    }
 });
 
 previewCanvas.addEventListener('pointermove', (e) => {
     const pos = getMousePos(previewCanvas, e);
     let dirty = false;
-    
-    if (avatarConfig.dragging) {
+
+    // ── Avatar resize ─────────────────────────────────────────────────
+    if (avatarConfig.resizing) {
+        const dx = pos.x - avatarConfig.resizeStartX;
+        const dy = pos.y - avatarConfig.resizeStartY;
+        const corner = avatarConfig.resizing;
+        // Compute new size from corner being dragged
+        let newW = avatarConfig.resizeStartW;
+        let newH = avatarConfig.resizeStartH;
+        let newX = avatarConfig.resizeStartOX;
+        let newY = avatarConfig.resizeStartOY;
+        const aspect = avatarConfig.resizeStartW / avatarConfig.resizeStartH;
+        if (corner === 'se') { newW = Math.max(80, avatarConfig.resizeStartW + dx); newH = newW / aspect; }
+        else if (corner === 'sw') { newW = Math.max(80, avatarConfig.resizeStartW - dx); newH = newW / aspect; newX = avatarConfig.resizeStartOX + avatarConfig.resizeStartW - newW; }
+        else if (corner === 'ne') { newW = Math.max(80, avatarConfig.resizeStartW + dx); newH = newW / aspect; newY = avatarConfig.resizeStartOY + avatarConfig.resizeStartH - newH; }
+        else if (corner === 'nw') { newW = Math.max(80, avatarConfig.resizeStartW - dx); newH = newW / aspect; newX = avatarConfig.resizeStartOX + avatarConfig.resizeStartW - newW; newY = avatarConfig.resizeStartOY + avatarConfig.resizeStartH - newH; }
+        avatarConfig.w = newW; avatarConfig.h = newH;
+        avatarConfig.x = newX; avatarConfig.y = newY;
+        // Derive scale from new height
+        avatarConfig.scale = newH / 1110;
+        previewCanvas.style.cursor = 'nwse-resize';
+        dirty = true;
+    }
+    // ── Logo resize ───────────────────────────────────────────────────
+    else if (logoConfig.resizing) {
+        const dx = pos.x - logoConfig.resizeStartX;
+        const dy = pos.y - logoConfig.resizeStartY;
+        const corner = logoConfig.resizing;
+        const aspect = logoConfig.resizeStartW / logoConfig.resizeStartH;
+        let newW = logoConfig.resizeStartW;
+        let newH = logoConfig.resizeStartH;
+        let newX = logoConfig.resizeStartOX;
+        let newY = logoConfig.resizeStartOY;
+        if (corner === 'se') { newW = Math.max(40, logoConfig.resizeStartW + dx); newH = newW / aspect; }
+        else if (corner === 'sw') { newW = Math.max(40, logoConfig.resizeStartW - dx); newH = newW / aspect; newX = logoConfig.resizeStartOX + logoConfig.resizeStartW - newW; }
+        else if (corner === 'ne') { newW = Math.max(40, logoConfig.resizeStartW + dx); newH = newW / aspect; newY = logoConfig.resizeStartOY + logoConfig.resizeStartH - newH; }
+        else if (corner === 'nw') { newW = Math.max(40, logoConfig.resizeStartW - dx); newH = newW / aspect; newX = logoConfig.resizeStartOX + logoConfig.resizeStartW - newW; newY = logoConfig.resizeStartOY + logoConfig.resizeStartH - newH; }
+        logoConfig.w = newW; logoConfig.h = newH;
+        logoConfig.x = newX; logoConfig.y = newY;
+        logoConfig.scale = newW / (infoKidsLogoImg.naturalWidth || 300);
+        previewCanvas.style.cursor = 'nwse-resize';
+        dirty = true;
+    }
+    // ── Avatar drag ───────────────────────────────────────────────────
+    else if (avatarConfig.dragging) {
         avatarConfig.x = pos.x - avatarConfig.dragOffX;
         avatarConfig.y = pos.y - avatarConfig.dragOffY;
+        previewCanvas.style.cursor = 'grabbing';
         dirty = true;
-    } else if (logoConfig.dragging) {
+    }
+    // ── Logo drag ─────────────────────────────────────────────────────
+    else if (captionConfig.dragging) {
+        captionConfig.x = pos.x - captionConfig.dragOffX;
+        captionConfig.y = pos.y - captionConfig.dragOffY;
+        previewCanvas.style.cursor = 'grabbing';
+        dirty = true;
+    }
+    else if (logoConfig.dragging) {
         logoConfig.x = pos.x - logoConfig.dragOffX;
         logoConfig.y = pos.y - logoConfig.dragOffY;
+        previewCanvas.style.cursor = 'grabbing';
         dirty = true;
-    } else {
+    }
+    // ── Hover detection ───────────────────────────────────────────────
+    else {
         let hoverAvatar = false;
         if (document.getElementById("avatarEnableCheck")?.checked && !!transparentAnjaliCanvas) {
             if (pos.x >= avatarConfig.x && pos.x <= avatarConfig.x + avatarConfig.w &&
@@ -21245,11 +23040,8 @@ previewCanvas.addEventListener('pointermove', (e) => {
                 hoverAvatar = true;
             }
         }
-        if (hoverAvatar !== avatarConfig.hovered) {
-             avatarConfig.hovered = hoverAvatar;
-             dirty = true;
-        }
-        
+        if (hoverAvatar !== avatarConfig.hovered) { avatarConfig.hovered = hoverAvatar; dirty = true; }
+
         let hoverLogo = false;
         if (document.getElementById("logoEnableCheck")?.checked && infoKidsLogoImg.complete) {
             if (normalizePresentationTemplate(state.presentationTemplate) === 'learning-outcomes') {
@@ -21259,31 +23051,59 @@ previewCanvas.addEventListener('pointermove', (e) => {
                 }
             }
         }
-        if (hoverLogo !== logoConfig.hovered) {
-             logoConfig.hovered = hoverLogo;
-             dirty = true;
+        if (hoverLogo !== logoConfig.hovered) { logoConfig.hovered = hoverLogo; dirty = true; }
+
+        // Caption hover
+        let hoverCaption = false;
+        if (captionOverlay.enabled && captionOverlay.currentText) {
+            if (pos.x >= captionConfig.x && pos.x <= captionConfig.x + captionConfig.w &&
+                pos.y >= captionConfig.y && pos.y <= captionConfig.y + captionConfig.h) {
+                hoverCaption = true;
+            }
         }
-        
+        if (hoverCaption !== captionConfig.hovered) { captionConfig.hovered = hoverCaption; dirty = true; }
+
+        // Cursor: show resize cursor near corner handles
+        let cursorSet = false;
         if (hoverAvatar) {
-            previewCanvas.style.cursor = 'grab';
+            const c = getResizeCorner(avatarConfig, pos);
+            previewCanvas.style.cursor = c ? 'nwse-resize' : 'grab';
+            cursorSet = true;
         } else if (hoverLogo) {
-            previewCanvas.style.cursor = 'grab';
-        } else {
-            previewCanvas.style.cursor = 'default';
+            const c = getResizeCorner(logoConfig, pos);
+            previewCanvas.style.cursor = c ? 'nwse-resize' : 'grab';
+            cursorSet = true;
         }
+        if (!cursorSet) previewCanvas.style.cursor = 'default';
     }
-    
-    if (dirty) {
-        if (typeof drawScene === 'function') drawScene();
-    }
+
+    if (dirty) markSceneDirty();
 });
 
+function _saveAvatarPos() {
+    try { localStorage.setItem('anjaliAvatarPos', JSON.stringify({ x: avatarConfig.x, y: avatarConfig.y, scale: avatarConfig.scale })); } catch(e) {}
+}
+function _saveCaptionPos() {
+    try { localStorage.setItem('captionOverlayPos', JSON.stringify({ x: captionConfig.x, y: captionConfig.y, fontSize: captionConfig.fontSize })); } catch(e) {}
+}
+function _saveLogoPos() {
+    try { localStorage.setItem('logoSpritePos', JSON.stringify({ x: logoConfig.x, y: logoConfig.y, scale: logoConfig.scale || 1 })); } catch(e) {}
+}
+
 previewCanvas.addEventListener('pointerup', (e) => {
-    if (avatarConfig.dragging || logoConfig.dragging) {
+    const wasAvatarActive  = avatarConfig.dragging || avatarConfig.resizing;
+    const wasLogoActive    = logoConfig.dragging   || logoConfig.resizing;
+    const wasCaptionActive = captionConfig.dragging;
+    if (wasAvatarActive || wasLogoActive || wasCaptionActive) {
         previewCanvas.releasePointerCapture(e.pointerId);
-        avatarConfig.dragging = false;
-        logoConfig.dragging = false;
-        if (typeof drawScene === 'function') drawScene();
+        avatarConfig.dragging  = false; avatarConfig.resizing = null;
+        logoConfig.dragging    = false; logoConfig.resizing   = null;
+        captionConfig.dragging = false;
+        previewCanvas.style.cursor = 'default';
+        if (wasAvatarActive)  _saveAvatarPos();
+        if (wasLogoActive)    _saveLogoPos();
+        if (wasCaptionActive) _saveCaptionPos();
+        markSceneDirty();
     }
 });
 
@@ -21292,17 +23112,37 @@ previewCanvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         avatarConfig.scale -= e.deltaY * 0.001;
         if (avatarConfig.scale < 0.1) avatarConfig.scale = 0.1;
-        if (typeof drawScene === 'function') drawScene();
+        markSceneDirty();
     } else if (logoConfig.hovered) {
         e.preventDefault();
         logoConfig.scale -= e.deltaY * 0.001;
         if (logoConfig.scale < 0.1) logoConfig.scale = 0.1;
-        if (typeof drawScene === 'function') drawScene();
+        markSceneDirty();
     }
 }, {passive: false});
 
-document.getElementById("avatarEnableCheck")?.addEventListener('change', () => { if (typeof drawScene === 'function') drawScene(); });
-document.getElementById("logoEnableCheck")?.addEventListener('change', () => { if (typeof drawScene === 'function') drawScene(); });
+document.getElementById("avatarEnableCheck")?.addEventListener('change', () => { markSceneDirty(); });
+document.getElementById("logoEnableCheck")?.addEventListener('change',   () => { markSceneDirty(); });
+
+// ── Continuous idle animation loop for Anjali breathing/sway ────────────────
+// Runs only when there's an avatar visible; low-cost rAF at ~20fps
+(function startIdleAnimLoop() {
+    let _lastIdleTick = 0;
+    const IDLE_FPS = 30;
+    function idleTick(ts) {
+        requestAnimationFrame(idleTick);
+        if (ts - _lastIdleTick < 1000 / IDLE_FPS) return;
+        _lastIdleTick = ts;
+        // Only animate when avatar is visible AND we are NOT exporting
+        // (export has its own frame loop — idle loop must not interfere)
+        if (document.getElementById("avatarEnableCheck")?.checked &&
+            transparentAnjaliCanvas && !state.exportingVideo) {
+            markSceneDirty();
+        }
+    }
+    requestAnimationFrame(idleTick);
+})();
+
 
 // -- FLOATING COLOR PALETTE FOR QUICK DRAG & DROP COLORING --
 const floatingPalette = document.getElementById("floatingColorPalette");
