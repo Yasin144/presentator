@@ -74,7 +74,10 @@ def ensure_reference_wav():
             "-t",
             "12",
             "-af",
-            "silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.25,loudnorm=I=-18:TP=-1.5:LRA=11",
+            # -14 LUFS (loud but natural), remove leading silence, no EQ/limiter so
+            # the reference preserves the natural Indian female voice character.
+            "silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.25,"
+            "loudnorm=I=-14:TP=-1.0:LRA=9",
             "-ac",
             "1",
             "-ar",
@@ -122,15 +125,15 @@ class AnjaliCloneEngine:
             "gender": "female",
             "locale": "en-IN",
             "accent": "indian",
-            "style": "indian-female-clear-classroom",
+            "style": "warm-natural-classroom",
         }
         self.generate_options = {
-            "repetition_penalty": 1.12,
-            "top_p": 0.88,
-            "temperature": 0.58,
-            "top_k": 64,
-            "exaggeration": 0.0,
-            "cfg_weight": 0.0,
+            "repetition_penalty": 1.04,  # slight penalty — keeps speech natural without robotic loops
+            "top_p": 0.92,               # balanced sampling for human-like variety
+            "temperature": 0.82,         # natural human rhythm and intonation
+            "top_k": 80,
+            "exaggeration": 0.3,        # adds warmth and expressiveness — real encouraging teacher
+            "cfg_weight": 0.5,           # anchors voice to reference — keeps Indian female teacher character
             "min_p": 0.0,
             "norm_loudness": True,
         }
@@ -217,7 +220,7 @@ class AnjaliCloneEngine:
 
         model.prepare_conditionals(
             reference_path,
-            exaggeration=0.0,
+            exaggeration=float(self.generate_options.get("exaggeration", 0.3)),
             norm_loudness=norm_loudness,
         )
         self.conditioning_key = conditioning_key
@@ -227,6 +230,33 @@ class AnjaliCloneEngine:
     def _wav_array_to_bytes(wav_values, sample_rate):
         wav_np = np.asarray(wav_values, dtype=np.float32).reshape(-1)
         wav_np = np.clip(wav_np, -1.0, 1.0)
+
+        # Prepend 120ms of silence so the TTS model's first phoneme is never
+        # clipped by audio-context trimming (e.g. "cream" → "ream" bug).
+        # ChatterboxTurbo starts generating speech at sample 0 with no warmup
+        # buffer, making the leading consonant burst vulnerable to trimming.
+        lead_frames  = int(sample_rate * 0.08)   # 80 ms lead-in  (prevents first-consonant clipping)
+        trail_frames = int(sample_rate * 0.04)   # 40 ms trail-out (prevents abrupt cutoff)
+        wav_np = np.concatenate([
+            np.zeros(lead_frames,  dtype=np.float32),
+            wav_np,
+            np.zeros(trail_frames, dtype=np.float32),
+        ])
+
+        # ── RMS loudness normalization ─────────────────────────────────────────
+        # ChatterboxTurbo output varies in loudness per chunk.
+        # Normalize every chunk to a consistent loud RMS so the voice is
+        # always full-volume, clear, and broadcast-grade.
+        speech_only = wav_np[np.abs(wav_np) > 0.001]   # exclude silence frames
+        if speech_only.size > 0:
+            rms = float(np.sqrt(np.mean(speech_only ** 2)))
+            if rms > 0.001:
+                target_rms = 0.30          # natural dynamic range — loud but not over-compressed
+                gain = min(target_rms / rms, 3.5)   # cap at 3.5× to avoid distortion
+                wav_np = wav_np * gain
+        # Hard limiter — prevents any clipping after gain
+        wav_np = np.clip(wav_np, -0.97, 0.97)
+
         pcm = (wav_np * 32767.0).round().astype(np.int16)
 
         output = io.BytesIO()
@@ -425,12 +455,12 @@ class Handler(BaseHTTPRequestHandler):
             generation_options = payload.get("generationOptions")
             if isinstance(generation_options, dict):
                 ENGINE.generate_options = {
-                    "repetition_penalty": float(generation_options.get("repetitionPenalty", generation_options.get("repetition_penalty", 1.12)) or 1.12),
-                    "top_p": float(generation_options.get("topP", generation_options.get("top_p", 0.88)) or 0.88),
-                    "temperature": float(generation_options.get("temperature", 0.58) or 0.58),
-                    "top_k": int(generation_options.get("topK", generation_options.get("top_k", 64)) or 64),
-                    "cfg_weight": float(generation_options.get("cfgWeight", generation_options.get("cfg_weight", 0.0)) or 0.0),
-                    "exaggeration": float(generation_options.get("exaggeration", 0.0) or 0.0),
+                    "repetition_penalty": float(generation_options.get("repetitionPenalty", generation_options.get("repetition_penalty", 1.04)) or 1.04),
+                    "top_p": float(generation_options.get("topP", generation_options.get("top_p", 0.92)) or 0.92),
+                    "temperature": float(generation_options.get("temperature", 0.82) or 0.82),
+                    "top_k": int(generation_options.get("topK", generation_options.get("top_k", 80)) or 80),
+                    "cfg_weight": float(generation_options.get("cfgWeight", generation_options.get("cfg_weight", 0.5)) or 0.5),
+                    "exaggeration": float(generation_options.get("exaggeration", 0.3) or 0.3),
                     "min_p": float(generation_options.get("minP", generation_options.get("min_p", 0.0)) or 0.0),
                     "norm_loudness": bool(generation_options.get("normLoudness", generation_options.get("norm_loudness", True))),
                 }

@@ -324,11 +324,11 @@ const EXPORT_NARRATION_VOICE = "anjali";
 const PRESENTATION_TEMPLATE_CLASSIC = "classic";
 const PRESENTATION_TEMPLATE_OUTCOMES = "learning-outcomes";
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
-const NARRATION_STYLE_PROMPT = "Speak in a natural Indian female teacher voice with clear Indian English pronunciation. Pronounce every word, number, unit, and symbol slowly and carefully. Pause for two full seconds after every sentence. Take a deep breath between sentences. Speak at a slow classroom pace — half the normal speed. Enunciate each syllable clearly. Never rush. Never swallow syllables. Avoid shortcuts, slang, or informal speech. Keep the accent warm Indian English, calm, and highly intelligible for school students.";
+const NARRATION_STYLE_PROMPT = "You are a warm, encouraging Indian female school teacher speaking clearly to primary and middle school students. Speak in a natural, conversational Indian English accent — the kind of teacher students love. Your tone is cheerful, calm, and confident. You emphasize important words gently and pause naturally between ideas. Pronounce every number, unit, and term clearly and completely. Never rush — speak at a steady, caring classroom pace. Sound fully human: breathe naturally, vary your pitch and rhythm, and give each idea its own moment.";
 const NARRATION_STYLE_CONFIG = Object.freeze({
   locale: "en-IN",
   accent: "indian-female-english",
-  pacing: "calm-slower-classroom",
+  pacing: "calm-natural-classroom",
   pronunciationMode: "strict-maths-teacher",
   stylePrompt: NARRATION_STYLE_PROMPT
 });
@@ -337,17 +337,17 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   gender: "female",
   locale: "en-IN",
   accent: "indian",
-  style: "soft-natural-classroom",
+  style: "warm-natural-classroom",
   pronunciationMode: NARRATION_STYLE_CONFIG.pronunciationMode,
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const ANJALI_GENERATION_OPTIONS = Object.freeze({
-  repetitionPenalty: 1.02,   // near-zero — natural speech has repeated phoneme patterns
-  topP: 0.95,                // wide sampling — human speech is varied and unpredictable
-  temperature: 0.78,         // higher — natural human rhythm and intonation variation
+  repetitionPenalty: 1.04,   // slight penalty keeps natural speech without robotic repetition
+  topP: 0.92,                // balanced — human-like variety without wandering
+  temperature: 0.82,         // natural human rhythm and intonation variation
   topK: 80,
-  cfgWeight: 0.0,            // no forcing — let the model speak freely
-  exaggeration: 0,            // 0 = no articulatory rehearsal on short words (was causing first-word doubling)
+  cfgWeight: 0.5,            // style-anchor the voice to the reference — keeps Indian female teacher character
+  exaggeration: 0.3,         // adds warmth and expressiveness — sounds like a real encouraging teacher
   minP: 0,
   normLoudness: true
 });
@@ -4044,6 +4044,35 @@ function getSpeechSyncProfile(text = "", targetDurationMs = 0) {
 
   estimatedUnits.forEach((unit, index) => {
     unit.pauseMs = getSpeechSyncUnitPauseMs(unit, estimatedUnits[index + 1] || null);
+  });
+
+  // ── Natural phrase-breath pass ───────────────────────────────────────────
+  // After basic punctuation pauses are set, inject a short "breath pause"
+  // every ~9 syllables of spoken content so the visual reveal feels like a
+  // real teacher: speak a phrase, pause briefly, continue.
+  // We only touch word units that don't already carry a meaningful pause
+  // (≥ STRICT_SOFT_SENTENCE_PAUSE_MS) and that have a spoken word.
+  const PHRASE_SYLLABLE_THRESHOLD = 9;  // syllables between breath pauses
+  const PHRASE_BREATH_PAUSE_MS    = 380; // brief natural pause (~0.4 s)
+  let syllableAccumulator = 0;
+
+  estimatedUnits.forEach((unit) => {
+    if (!unit.spokenText) return; // skip punctuation / whitespace / newlines
+    // Skip if already has a real pause at this position
+    if (unit.pauseMs >= STRICT_SOFT_SENTENCE_PAUSE_MS) {
+      syllableAccumulator = 0; // sentence/comma resets the phrase counter
+      return;
+    }
+    // Count syllables in this word
+    const words = splitIntoWords(unit.spokenText);
+    const unitSyllables = words.reduce((sum, w) => sum + estimateSyllableWeight(w), 0);
+    syllableAccumulator += unitSyllables;
+
+    if (syllableAccumulator >= PHRASE_SYLLABLE_THRESHOLD) {
+      // Only inject at the end of a spoken word (not mid-word fragments)
+      unit.pauseMs = Math.max(unit.pauseMs, PHRASE_BREATH_PAUSE_MS);
+      syllableAccumulator = 0;
+    }
   });
 
   const baseDurationMs = estimatedUnits.reduce((sum, unit) => sum + unit.speechMs + unit.pauseMs, 0);
@@ -15070,8 +15099,13 @@ function isSceneActuallyDirty(mouthOpen) {
   if (Math.abs((mouthOpen || 0) - _lastDrawnMouthOpen) > 0.01) return true;
   if (state.text !== _lastDrawnText) return true;
   if (state.displayedText !== _lastDrawnDisplayedText) return true;
-  // Sub-character float changes trigger redraws for smooth alpha fade
-  if (state.speaking && Math.abs((state.exactCharCountFloat || 0) - _lastDrawnExactCharFloat) > 0.05) return true;
+  // Sub-character float changes trigger redraws for smooth alpha fade.
+  // Threshold is 0.01 (not 0.05) — at typical speech speed a character
+  // spans ~200 ms, so each 16 ms rAF moves the float ~0.08 units; we
+  // must not skip any frame or the fade looks choppy.
+  if (state.speaking && Math.abs((state.exactCharCountFloat || 0) - _lastDrawnExactCharFloat) > 0.01) return true;
+  // The blinking cursor uses performance.now() — always dirty while it is visible.
+  if (state.speaking && state.displayedText !== state.text) return true;
   if (state.previewPageIndex !== _lastDrawnPageIndex) return true;
   if (state.introPlayback.active || state.introPlayback.previewVisible) return true;
   if (state.introPoster.active) return true;
@@ -16394,7 +16428,9 @@ async function playPostIntroBlankTransition(durationMs = DEFAULT_INTRO_TO_LESSON
 }
 
 async function playIntroPosterSegment(durationMs = DEFAULT_INTRO_POSTER_DURATION_MS, options = {}) {
-  if (!hasIntroPosterSelected()) {
+  // Guard: need an actual loaded poster image — do NOT require introPlayback.enabled
+  // so the poster shows even when no intro video is configured.
+  if (!state.introPoster.available || !state.introPoster.image || !state.introPoster.dataUrl) {
     return false;
   }
 
@@ -16587,7 +16623,9 @@ async function playIntroClipIfEnabled() {
       console.error(error);
     }
     updatePlaybackProgressUi(0, false);
-    drawScene(0.12);
+    // Do NOT call drawScene here — doing so causes a 1-frame lesson/black
+    // flash before the poster segment draws its first frame. The caller
+    // (playIntroPosterSegment or playNarrationAudio) owns the next draw.
   }
 }
 
@@ -18853,9 +18891,9 @@ function finishPlayback(message) {
 
   state.displayedText = state.text;
   updatePlaybackProgressUi(1, false);
-  // End of lesson: show poster without Anjali if poster is available,
+  // End of lesson: show poster if one is loaded (does NOT require introPlayback.enabled),
   // otherwise show normal scene. Hold poster for 5 s then deactivate.
-  if (hasIntroPosterSelected() && state.introPoster.image) {
+  if (state.introPoster.available && state.introPoster.image) {
     state.introPoster.active = true;
     drawPosterScene();
     window.setTimeout(function() {
@@ -19082,26 +19120,46 @@ function startTypingFallback(totalDurationMs) {
   if (!state.tokens.length) return;
   clearTypingInterval();
 
-  // Linear rAF-based typing — matches constant audio speed exactly
-  const startTime  = performance.now();
+  // Linear rAF-based typing — matches constant audio speed exactly.
+  // Build a cumulative character-offset table so exactCharCountFloat is
+  // always in CHARACTER units (matching drawnCharCount used by the
+  // alpha-fade renderer), not token units (tokens have variable length).
+  const startTime   = performance.now();
   const totalTokens = state.tokens.length;
+  const totalChars  = state.text.length;
+
+  // charOffsetAtToken[i] = character index at the start of token i
+  const charOffsetAtToken = new Array(totalTokens + 1);
+  charOffsetAtToken[0] = 0;
+  for (let i = 0; i < totalTokens; i++) {
+    charOffsetAtToken[i + 1] = charOffsetAtToken[i] + (state.tokens[i]?.length || 0);
+  }
 
   const tick = () => {
     if (!state.speaking) return;
-    const elapsed  = performance.now() - startTime;
-    const progress = Math.min(1, elapsed / totalDurationMs);
-    // Linear — no easing so first word comes at the same rate as the rest
-    // Use float for sub-character smooth alpha fading
-    const exactFloat = progress * totalTokens;
-    const targetIndex = Math.min(totalTokens, Math.round(exactFloat));
-    state.exactCharCountFloat = exactFloat; // drives smooth per-char alpha
+    const elapsed   = performance.now() - startTime;
+    const progress  = Math.min(1, elapsed / totalDurationMs);
+
+    // Token-level progress (may be fractional between two tokens)
+    const tokenFloat  = progress * totalTokens;
+    const tokenFloor  = Math.min(totalTokens - 1, Math.floor(tokenFloat));
+    const tokenFrac   = tokenFloat - tokenFloor;
+
+    // Convert to character units so the alpha-fade uses the correct scale
+    const charAtFloor = charOffsetAtToken[tokenFloor];
+    const charAtNext  = charOffsetAtToken[tokenFloor + 1];
+    const exactCharFloat = charAtFloor + (charAtNext - charAtFloor) * tokenFrac;
+
+    const targetIndex = Math.min(totalTokens, Math.round(tokenFloat));
+    state.exactCharCountFloat = exactCharFloat; // character-scale — matches drawnCharCount
     setDisplayedTokenCount(targetIndex);
     markSceneDirty();
+
     if (progress < 1) {
       state.typingInterval = requestAnimationFrame(tick);
     } else {
       setDisplayedTokenCount(totalTokens);
-      state.exactCharCountFloat = totalTokens;
+      state.exactCharCountFloat = totalChars;
       state.typingInterval = null;
     }
   };
@@ -19152,9 +19210,12 @@ function startNarrationLoop(audioElement) {
       : 0.12;
     state.mouthOpen = nextMouth;
     // Always force render during active narration — sub-character alpha
-    // fading needs continuous redraws even between character boundaries
+    // fading needs continuous redraws even between character boundaries,
+    // and the blinking cursor pulse uses performance.now() so it changes every frame.
+    const exactFloatChanged = Math.abs(syncFrame.exactCharCountFloat - (_lastDrawnExactCharFloat ?? -1)) > 0.01;
+    const cursorPulseActive = state.speaking && state.displayedText !== state.text;
     if (shouldRenderAnimatedSceneFrame(nowMs, {
-      force: state.exportingVideo || previousText !== state.displayedText || progress >= 0.995,
+      force: state.exportingVideo || previousText !== state.displayedText || progress >= 0.995 || exactFloatChanged || cursorPulseActive,
       lastRenderAt,
       mouthDelta: nextMouth - lastRenderedMouth
     })) {
