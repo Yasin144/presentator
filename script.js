@@ -342,12 +342,12 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const ANJALI_GENERATION_OPTIONS = Object.freeze({
-  repetitionPenalty: 1.18,   // higher = less repetitive syllables
-  topP: 0.85,
-  temperature: 0.42,          // lower = more consistent, clear delivery
-  topK: 50,
-  cfgWeight: 0.3,             // slight guidance weight for clearer pronunciation
-  exaggeration: 0,
+  repetitionPenalty: 1.02,   // near-zero — natural speech has repeated phoneme patterns
+  topP: 0.95,                // wide sampling — human speech is varied and unpredictable
+  temperature: 0.78,         // higher — natural human rhythm and intonation variation
+  topK: 80,
+  cfgWeight: 0.0,            // no forcing — let the model speak freely
+  exaggeration: 0,            // 0 = no articulatory rehearsal on short words (was causing first-word doubling)
   minP: 0,
   normLoudness: true
 });
@@ -369,7 +369,7 @@ const NARRATION_CHUNK_MAX_LENGTH = 560;
 const NARRATION_CHUNK_THRESHOLD = 1800;
 const ANJALI_NARRATION_CHUNK_MAX_LENGTH = 220;
 const ANJALI_NARRATION_CHUNK_THRESHOLD = 260;
-const DEFAULT_STAGE_PLAYBACK_RATE = 1;
+const DEFAULT_STAGE_PLAYBACK_RATE = 1.0;
 const EXPORT_RENDER_SPEED_MULTIPLIER = 1;
 const MAX_EXPORT_CAPTURE_FPS = 240;
 const LESSON_EXPORT_TARGET_WALL_TIME_MS = 18 * 1000;
@@ -379,26 +379,26 @@ const SEGMENTED_EXPORT_THRESHOLD_MS = 75 * 1000;
 const EXPORT_SEGMENT_TARGET_DURATION_MS = 25 * 1000;
 const MUX_CHUNK_UPLOAD_THRESHOLD_BYTES = 96 * 1024 * 1024;
 const MUX_CHUNK_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
-const STRICT_INTER_WORD_PAUSE_MS = 400;
-const STRICT_SENTENCE_PAUSE_MS = 2000;
-const STRICT_SOFT_SENTENCE_PAUSE_MS = 520;
-const STRICT_HEADING_PAUSE_MS = 2000;
-const STRICT_SCENE_END_BUFFER_MS = 1500;
-const DEFAULT_INTRO_TO_LESSON_DELAY_MS = 4500;
+const STRICT_INTER_WORD_PAUSE_MS = 250;
+const STRICT_SENTENCE_PAUSE_MS = 1000;
+const STRICT_SOFT_SENTENCE_PAUSE_MS = 300;
+const STRICT_HEADING_PAUSE_MS = 1000;
+const STRICT_SCENE_END_BUFFER_MS = 800;
+const DEFAULT_INTRO_TO_LESSON_DELAY_MS = 2500;
 const DEFAULT_INTRO_POSTER_DURATION_MS = 5000;
-const STAGE_VIDEO_START_DELAY_MS = 2000;
-const STRICT_AUTOPLAY_RECOVERY_MS = 1000;
-const STRICT_VOICE_VOLUME = 0.85;
-const STRICT_BACKGROUND_MUSIC_VOLUME = 0.2;
+const STAGE_VIDEO_START_DELAY_MS = 1200;
+const STRICT_AUTOPLAY_RECOVERY_MS = 600;
+const STRICT_VOICE_VOLUME = 1.0;           // full volume — louder, clearer Indian female voice
+const STRICT_BACKGROUND_MUSIC_VOLUME = 0.15; // softer bg music so voice cuts through
 const LIVE_SCENE_RENDER_FPS = 60;   // 60fps during narration for butter-smooth animation
 const IDLE_SCENE_RENDER_FPS = 10;   // Throttle when idle to save CPU/GPU
 const EXPORT_SCENE_RENDER_FPS = 30; // 30fps export (broadcast standard)
-const SCENE_RENDER_MOUTH_DELTA = 0.025; // More sensitive mouth tracking at 60fps
-const NARRATION_CHUNK_JOIN_GAP_MS = 2000;
+const NARRATION_CHUNK_JOIN_GAP_MS = 800;
 const ENABLE_PREPARED_LESSON_EXPORT = false;
-const GLOSSARY_KEY_VALUE_PAUSE_MS = 1000;  // 1 sec pause after key, before value
-const GLOSSARY_ENTRY_GAP_MS = 2000;         // 2 sec pause after value, before next key
+const SCENE_RENDER_MOUTH_DELTA = 0.025; // More sensitive mouth tracking at 60fps
 const NARRATION_CHUNK_FADE_MS = 32;
+const GLOSSARY_KEY_VALUE_PAUSE_MS = 700;  // 0.7 sec pause after key, before value
+const GLOSSARY_ENTRY_GAP_MS = 1400;         // 1.4 sec pause after value, before next key
 const SPEECH_SYNC_REVEAL_START = 0.0;
 const SPEECH_SYNC_REVEAL_END   = 1.0;
 const SPEECH_SYNC_WORD_COMMIT_MIN = 0.0;
@@ -705,7 +705,9 @@ const state = {
     fileName: "",
     dataUrl: "",
     image: null,
-    durationMs: DEFAULT_INTRO_POSTER_DURATION_MS
+    durationMs: DEFAULT_INTRO_POSTER_DURATION_MS,
+    posterWidth: 1920,
+    posterHeight: 1080
   },
   sceneTransition: {
     blankActive: false,
@@ -1146,6 +1148,8 @@ function startNarrationLiveProgress(label) {
       active: true
     });
   }, 1000);
+  // Start canvas refresh loop so the progress overlay animates on screen
+  if (typeof startNarrationOverlayLoop === "function") startNarrationOverlayLoop();
 }
 
 function updateNarrationLiveProgress(label, progress) {
@@ -1170,6 +1174,16 @@ function finishNarrationLiveProgress(message, options = {}) {
   }
 
   clearNarrationLiveProgressTimer();
+  // Stop canvas overlay loop and clear state first so overlay disappears
+  if (typeof stopNarrationOverlayLoop === "function") stopNarrationOverlayLoop();
+  state.narrationLiveProgress.startedAt = 0;
+  state.narrationLiveProgress.label = "";
+  state.narrationLiveProgress.detail = "";
+  state.narrationLiveProgress.progress = 0;
+  // Redraw once immediately to clear the overlay from the canvas
+  if (typeof drawScene === "function" && !stagePanel?.classList.contains("hidden")) {
+    drawScene(state.mouthOpen);
+  }
   const safeMessage = String(message || (options.error ? "Narration generation failed." : "Narration ready."));
   renderNarrationLiveProgress({
     label: safeMessage,
@@ -1185,10 +1199,6 @@ function finishNarrationLiveProgress(message, options = {}) {
     narrationLiveProgressFill.style.width = "0%";
     narrationLiveProgressLabel.textContent = "Anjali narration is preparing...";
   }, options.error ? 2800 : 1800);
-  state.narrationLiveProgress.startedAt = 0;
-  state.narrationLiveProgress.label = "";
-  state.narrationLiveProgress.detail = "";
-  state.narrationLiveProgress.progress = 0;
 }
 
 function setMathsHelperStatus(message) {
@@ -2200,22 +2210,34 @@ function setPreviewZoom(nextZoom) {
   updateStageViewUi();
 }
 
+// Debounce timer for the expensive PDF rebuild on font scale changes
+let _fontScaleRebuildTimer = 0;
+
 function setFontScale(nextScale) {
   state.fontScale = clamp(normalizeControlValue(nextScale), FONT_SCALE_MIN, FONT_SCALE_MAX);
   state.pdf.contextPagesKey = "";
   state.pdf.autoImageSyncKey = "";
   state.pdf.lessonAutoImageSyncKey = "";
 
-  if (hasActivePdfSelection()) {
-    rebuildPdfPresentationSchedule({ preserveTime: true });
-  }
-  syncExtractedPdfLessonImages({ skipDraw: true });
+  // Update UI and canvas instantly so F+ / F- feel responsive
   updateStageViewUi();
-
   if (!stagePanel.classList.contains("hidden")) {
     drawScene(state.mouthOpen);
   }
+
+  // Defer heavy PDF rebuild so button click is instant
+  if (_fontScaleRebuildTimer) window.clearTimeout(_fontScaleRebuildTimer);
+  _fontScaleRebuildTimer = window.setTimeout(() => {
+    _fontScaleRebuildTimer = 0;
+    if (hasActivePdfSelection()) {
+      rebuildPdfPresentationSchedule({ preserveTime: true });
+    }
+    syncExtractedPdfLessonImages({ skipDraw: true });
+  }, 120);
 }
+// Expose for React Styles slider
+window.ppSetFontScale = (scale) => setFontScale(scale);
+window.ppGetFontScale = () => state.fontScale;
 
 function setPreviewPage(nextPageIndex) {
   const totalPageCount = Math.max(1, state.renderedPageCount || 1);
@@ -3353,6 +3375,42 @@ function injectSentencePauses(text) {
     .trim();
 }
 
+// ── Teacher pacing: comma every 5 words ──────────────────────────────────────
+// ChatterboxTurbo pauses naturally at commas — this makes Anjali sound like a
+// teacher explaining step-by-step, not rushing like a radio jockey.
+// Short chunks (≤5 words, e.g. glossary keys) are left completely untouched.
+function injectTeacherPauses(text, wordsPerPause = 5) {
+  const safeText = String(text || "").trim();
+  if (!safeText) return safeText;
+
+  const words = safeText.split(/\s+/).filter(Boolean);
+  if (words.length <= wordsPerPause) return safeText; // too short — don't touch
+
+  const result = [];
+  let wordsSincePause = 0;
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const isLast = i === words.length - 1;
+    const endsWithPunct = /[.,!?;:]$/.test(word);
+
+    result.push(word);
+    wordsSincePause++;
+
+    if (endsWithPunct) {
+      // Natural punctuation already signals a pause — reset counter
+      wordsSincePause = 0;
+    } else if (!isLast && wordsSincePause >= wordsPerPause) {
+      // Inject teacher pause comma after every 5th word
+      result[result.length - 1] = word + ",";
+      wordsSincePause = 0;
+    }
+  }
+
+  // Remove any trailing comma that lands right before the sentence-ending period
+  return result.join(" ").replace(/,\s*$/, "");
+}
+
 function buildNarrationLine(line = "") {
   const trimmed = String(line || "").replace(/^\s*#{1,3}\s+/, "").replace(/\s+/g, " ").trim();
   if (!trimmed) {
@@ -3362,12 +3420,14 @@ function buildNarrationLine(line = "") {
   // 1. Expand informal shortcuts → full proper words
   const expanded = expandNarrationShortcuts(trimmed);
 
-  // 2. Inject sentence-boundary pauses for slow, clear delivery
-  const withPauses = injectSentencePauses(expanded);
+  // 2. Verbalize maths symbols for speech
+  const spokenLine = verbalizeMathForSpeech(expanded);
 
-  // 3. Verbalize maths symbols for speech
-  const spokenLine = verbalizeMathForSpeech(withPauses);
-  return /[.!?]$/.test(spokenLine) ? spokenLine : `${spokenLine}.`;
+  // 3. Inject teacher pauses — comma every 5 words so Anjali breathes naturally
+  //    while explaining, like a classroom teacher not a radio jockey
+  const pacedLine = injectTeacherPauses(spokenLine);
+
+  return /[.!?]$/.test(pacedLine) ? pacedLine : `${pacedLine}.`;
 }
 
 function buildNarrationLines(text) {
@@ -3424,7 +3484,10 @@ function getGlossaryNarrationChunkEntries(text = "") {
       return null;
     }
 
-    const termChunk = buildNarrationLine(`${term} =`);
+    // No '=' — verbalized as 'equals.' on a short word causes ChatterboxTurbo to
+    // do an articulatory rehearsal of the first phoneme → doubled/stuttered word.
+    // The 700ms silence gap already signals key→value structure.
+    const termChunk = buildNarrationLine(term);
     const definitionChunk = buildNarrationLine(definition);
     if (!termChunk || !definitionChunk) {
       return null;
@@ -3486,7 +3549,8 @@ function splitNarrationTextIntoChunks(narrationText, maxChunkLength = NARRATION_
       words.forEach((word) => {
         const candidate = segment ? `${segment} ${word}` : word;
         if (candidate.length > maxChunkLength && segment) {
-          chunks.push(`${segment.trim()},`);
+          chunks.push(`${segment.trim()}`);
+          // No trailing comma — comma boundary makes ChatterboxTurbo rush/skip the next chunk's first word
           segment = word;
         } else {
           segment = candidate;
@@ -3919,7 +3983,7 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
   }
 
   if (/^,+$/.test(displayText)) {
-    return Math.round(STRICT_INTER_WORD_PAUSE_MS * 0.9);
+    return Math.round(STRICT_INTER_WORD_PAUSE_MS * 0.9); // 360ms — original calibrated comma pause
   }
 
   if (!nextUnit || /^\r?\n+$/.test(nextUnit.displayText || "")) {
@@ -4188,7 +4252,18 @@ function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [
 function getResolvedSpeechSyncProfile(text = "", targetDurationMs = 0, options = {}) {
   const safeText = String(text || "");
   const safeTargetDurationMs = Math.max(0, Math.round(Number(targetDurationMs) || 0));
-  const narrationProfile = options.syncProfileData || state.narration?.syncProfile;
+
+  // When caller explicitly passes a syncProfileData, trust it — no text comparison
+  // needed since the caller has already verified it belongs to this audio.
+  if (options.syncProfileData?.profile?.units?.length) {
+    const providedProfile = options.syncProfileData.profile;
+    return safeTargetDurationMs > 0
+      ? scaleSpeechSyncProfile(providedProfile, safeTargetDurationMs)
+      : providedProfile;
+  }
+
+  // Otherwise fall back to the state-stored profile (with text comparison to guard against stale data)
+  const narrationProfile = state.narration?.syncProfile;
   if (
     narrationProfile
     && narrationProfile.text === safeText
@@ -4615,6 +4690,19 @@ function scheduleLessonInputChange(delayMs = 140) {
     });
   }, delayMs);
 }
+// Expose for React Apply button
+window.ppRefreshCanvas = () => scheduleLessonInputChange(0);
+
+// Expose export stop for React Stop Export button
+window.ppStopExport = () => {
+  if (!state.exportingVideo) return;
+  state.exportingVideo = false;
+  try { stopActiveAudio(); }    catch(_) {}
+  try { cancelVisualLoop(); }   catch(_) {}
+  try { finishPlayback('Export stopped by user.'); } catch(_) {}
+  setStatus('Export stopped. The partial video was not saved.');
+};
+window.ppIsExporting = () => Boolean(state.exportingVideo || state.actionLocks?.export);
 
 function clearNarrationWarmupTimer() {
   if (state.narrationWarmup.timerId) {
@@ -8607,6 +8695,42 @@ async function ensureAnjaliCloneServer() {
     state.anjaliCloneServerReady = recentlyHealthy;
   }
 
+  // ── Warm-up wait: server is running but model is still loading ──────────
+  // Instead of failing immediately, poll every 5s for up to 5 minutes and
+  // auto-proceed the moment the model finishes loading.
+  if (!state.anjaliCloneServerReady && state.anjaliMonitor.warming) {
+    const WARMUP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+    const WARMUP_POLL_MS   = 5000;            // poll every 5s
+    const deadline = Date.now() + WARMUP_TIMEOUT_MS;
+    setNarrationGenStatus("⏳ Anjali AI model is loading (takes 2–4 min after startup). Please wait — playback will begin automatically.");
+    setServerControlsStatus("Anjali voice server is warming up. Model is loading...");
+    while (Date.now() < deadline) {
+      await delay(WARMUP_POLL_MS);
+      const secsLeft = Math.round((deadline - Date.now()) / 1000);
+      setNarrationGenStatus(`⏳ Anjali model warming up... (~${Math.ceil(secsLeft / 60)} min left). Playback will begin automatically.`);
+      try {
+        const pollRes = await fetchWithTimeout(`${state.anjaliCloneServerUrl}/health`, { method: "GET", cache: "no-store" }, ANJALI_CLONE_HEALTH_TIMEOUT_MS);
+        const pollPayload = pollRes.ok ? await pollRes.clone().json().catch(() => null) : null;
+        if (pollPayload?.modelLoaded) {
+          state.anjaliCloneServerReady = true;
+          state.anjaliMonitor.modelLoaded = true;
+          state.anjaliMonitor.warming = false;
+          state.anjaliMonitor.lastHealthyAt = Date.now();
+          state.anjaliMonitor.transientFailureCount = 0;
+          setNarrationGenStatus("✅ Anjali model is ready!");
+          setServerControlsStatus("Anjali voice server is ready.");
+          handleAnjaliCloneServerTransition(true);
+          updateServerHealthUi();
+          return true;
+        }
+      } catch (_pollErr) {
+        // Server temporarily unreachable during warm-up — keep polling
+      }
+    }
+    // Timed out waiting
+    state.anjaliCloneServerReady = false;
+  }
+
   if (!state.anjaliCloneServerReady) {
     if (isAnjaliCloneStartupPending()) {
       setNarrationGenStatus("Anjali voice is starting on port 8426. Please wait while the voice model warms up.");
@@ -8716,10 +8840,20 @@ async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
       const gapAfterMs = safeChunks[index]?.gapAfterMs ?? (index < (decodedBuffers.length - 1) ? NARRATION_CHUNK_JOIN_GAP_MS : 0);
       return Math.max(0, Number(gapAfterMs) || 0) / 1000;
     });
+    // Pre-compute per-chunk lead-in seconds so totalDuration accounts for them.
+    // Without this, totalFrames is too short and the last glossary definition
+    // gets silently clipped by the OfflineAudioContext.
+    const chunkLeadInSeconds = decodedBuffers.map((_, index) => {
+      const prevGapMs = index > 0
+        ? (safeChunks[index - 1]?.gapAfterMs ?? NARRATION_CHUNK_JOIN_GAP_MS)
+        : 0;
+      return prevGapMs > 200 ? 0.08 : 0;
+    });
     const totalDuration = decodedBuffers.reduce((sum, buffer, index) => (
-      sum + buffer.duration + (joinGapSeconds[index] || 0)
+      sum + buffer.duration + (joinGapSeconds[index] || 0) + (chunkLeadInSeconds[index] || 0)
     ), 0);
-    const totalFrames = Math.max(1, Math.ceil(totalDuration * sampleRate) + 1);
+    // Extra 200ms padding as belt-and-suspenders
+    const totalFrames = Math.max(1, Math.ceil((totalDuration + 0.2) * sampleRate) + 1);
     const offlineContext = new OfflineAudioContextConstructor(channelCount, totalFrames, sampleRate);
     let cursorTime = 0;
     const fadeSeconds = Math.max(0.008, NARRATION_CHUNK_FADE_MS / 1000);
@@ -8736,16 +8870,37 @@ async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
       const effectiveFadeIn = Math.min(fadeSeconds, Math.max(0.004, buffer.duration * 0.18));
       const effectiveFadeOut = Math.min(fadeSeconds, Math.max(0.004, buffer.duration * 0.18));
 
-      gainNode.gain.setValueAtTime(index === 0 ? 1 : 0.0001, startTime);
-      if (index > 0) {
+      // Don't fade-in if the previous chunk ended with a silence gap (e.g. glossary 1s/2s pauses).
+      // Fading in after silence clips the first consonant of the next term ("cream" → "rem").
+      const prevGapMs = index > 0
+        ? (safeChunks[index - 1]?.gapAfterMs ?? NARRATION_CHUNK_JOIN_GAP_MS)
+        : 0;
+      const hasSilenceBefore = prevGapMs > 200;
+
+      // Don't fade-out if this chunk is followed by a silence gap —
+      // the silence already provides a clean ending.
+      const thisGapMs = safeChunks[index]?.gapAfterMs ?? 0;
+      const hasSilenceAfter = thisGapMs > 200;
+
+      // For glossary chunks: add 80ms silence lead-in before speech starts.
+      // TTS engines often clip the first 20-50ms of audio; the lead-in absorbs
+      // that so every consonant is fully audible ("cream" not "rem").
+      const leadInSec = chunkLeadInSeconds[index] || 0;
+
+      gainNode.gain.setValueAtTime(1, startTime + leadInSec);
+      if (!hasSilenceBefore && index > 0) {
+        // Seamless join between continuous chunks — use a short cross-fade
+        gainNode.gain.setValueAtTime(0.0001, startTime);
         gainNode.gain.linearRampToValueAtTime(1, Math.min(endTime, startTime + effectiveFadeIn));
       }
 
-      gainNode.gain.setValueAtTime(1, Math.max(startTime, endTime - effectiveFadeOut));
-      gainNode.gain.linearRampToValueAtTime(0.0001, endTime);
+      if (!hasSilenceAfter) {
+        gainNode.gain.setValueAtTime(1, Math.max(startTime + leadInSec, endTime - effectiveFadeOut));
+        gainNode.gain.linearRampToValueAtTime(0.0001, endTime);
+      }
 
-      source.start(cursorTime);
-      cursorTime += buffer.duration + (joinGapSeconds[index] || 0);
+      source.start(cursorTime + leadInSec);
+      cursorTime += buffer.duration + leadInSec + (joinGapSeconds[index] || 0);
     });
 
     const renderedBuffer = await offlineContext.startRendering();
@@ -11763,7 +11918,21 @@ function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
   const definitionWidth = Math.max(Math.round(maxWidth - definitionStart), Math.round(fontSize * 8));
   const rows = [];
 
+  // Pre-compute where each pair's term and definition start in state.text
+  // so the smooth per-character alpha fading aligns with exactCharCountFloat.
+  const fullText = (typeof state !== "undefined" && state.text) ? state.text : "";
+  const pairTextOffsets = [];
+  let searchFrom = 0;
+  normalizedPairs.forEach((pair) => {
+    const termStart = fullText.indexOf(pair.term, searchFrom);
+    const termEnd = termStart >= 0 ? termStart + pair.term.length : -1;
+    const defStart = termEnd >= 0 ? fullText.indexOf(pair.definition, termEnd) : -1;
+    pairTextOffsets.push({ termStart, defStart });
+    if (defStart >= 0) searchFrom = defStart + pair.definition.length;
+  });
+
   normalizedPairs.forEach((pair, pairIndex) => {
+    const offsets = pairTextOffsets[pairIndex] || {};
     const wrappedDefinitionRows = wrapStyledRuns(
       ctxRef,
       [{ text: pair.definition, style: definitionStyle }],
@@ -11784,21 +11953,39 @@ function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
     const firstRowSegments = [];
 
     if (pair.started && pair.visibleTerm) {
-      // isGlossary=true tells the draw engine to skip the per-character alpha animation
-      // (glossary segments control their own visibility via visibleTerm/visibleDefinition)
-      firstRowSegments.push({ text: pair.visibleTerm, style: termStyle, columnOffset: 0, isGlossary: true });
+      firstRowSegments.push({
+        text: pair.visibleTerm,
+        style: termStyle,
+        columnOffset: 0,
+        isGlossary: true,
+        textStartIndex: offsets.termStart >= 0 ? offsets.termStart : undefined
+      });
     }
 
     if (pair.started && pair.showSeparator) {
-      firstRowSegments.push({ text: " = ", style: separatorStyle, columnOffset: maxTermWidth, isGlossary: true });
+      // Separator sits between term-end and definition-start in state.text
+      const sepStart = offsets.termStart >= 0 ? offsets.termStart + pair.term.length : undefined;
+      firstRowSegments.push({
+        text: " = ",
+        style: separatorStyle,
+        columnOffset: maxTermWidth,
+        isGlossary: true,
+        textStartIndex: sepStart
+      });
     }
 
     if (visibleDefinitionRows[0]?.length) {
-      firstRowSegments.push(...visibleDefinitionRows[0].map((run) => ({
-        ...run,
-        columnOffset: definitionStart,
-        isGlossary: true
-      })));
+      let defCharCursor = offsets.defStart >= 0 ? offsets.defStart : undefined;
+      firstRowSegments.push(...visibleDefinitionRows[0].map((run) => {
+        const seg = {
+          ...run,
+          columnOffset: definitionStart,
+          isGlossary: true,
+          textStartIndex: defCharCursor
+        };
+        if (defCharCursor !== undefined) defCharCursor += run.text.length;
+        return seg;
+      }));
     }
 
     rows.push({
@@ -11810,12 +11997,22 @@ function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
 
     for (let rowIndex = 1; rowIndex < rowCount; rowIndex += 1) {
       const visibleRow = visibleDefinitionRows[rowIndex] || [];
+      // Track char cursor across wrapped definition rows
+      const prevRowChars = visibleDefinitionRows
+        .slice(0, rowIndex)
+        .reduce((sum, r) => sum + r.reduce((s, run) => s + run.text.length, 0), 0);
+      let defCharCursor = offsets.defStart >= 0 ? offsets.defStart + prevRowChars : undefined;
       rows.push({
-        segments: visibleRow.map((run) => ({
-          ...run,
-          columnOffset: definitionStart,
-          isGlossary: true
-        })),
+        segments: visibleRow.map((run) => {
+          const seg = {
+            ...run,
+            columnOffset: definitionStart,
+            isGlossary: true,
+            textStartIndex: defCharCursor
+          };
+          if (defCharCursor !== undefined) defCharCursor += run.text.length;
+          return seg;
+        }),
         bullet: false,
         isGlossary: true,
         glossaryGroupId: `glossary-${pairIndex}`
@@ -12376,22 +12573,32 @@ function isUsingDefaultStageStyle(style) {
 }
 
 function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIndex, characterIndex = 0) {
-  // If the user explicitly highlighted this exact sentence/word with a custom color, ALWAYS respect it!
+  const isOutcomes = normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES;
+
+  // Always preserve explicit custom colours (glossary key red, value dark, user highlights)
+  // Exception: on template 2 do NOT treat the default white as a custom colour.
   if (segmentColor && segmentColor !== "#ffffff") {
-      return segmentColor;
+    return segmentColor;
   }
-  
+
+  // Template 2 (Learning Outcomes) has a light-blue background — use BLACK for all
+  // plain text so it is legible. Key colour (#c81f25) and value colour (#17191f)
+  // are already preserved above since they are not white.
+  if (isOutcomes) {
+    return "#000000";
+  }
+
   return getBaseTextStyle().color || "#ffffff";
 }
 
 function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIndex, fontSize) {
   const text = segment.text || "";
   let cursorX = x;
-  // Glossary segments manage their own visibility via visibleTerm/visibleDefinition.
-  // Skip the sequential char-alpha animation to prevent flickering from drawnCharCount
-  // being misaligned with column-offset-based rendering.
-  const isGlossarySegment = Boolean(segment.isGlossary);
-  const isAnimating = !isGlossarySegment && state.speaking && state.exactCharCountFloat !== undefined;
+  // Glossary segments carry textStartIndex (position in state.text) so alpha fading
+  // uses the exact sync position instead of drawnCharCount, giving smooth per-char
+  // fade-in in both templates without column-offset misalignment.
+  const hasTextIndex = segment.textStartIndex !== undefined && Number.isFinite(segment.textStartIndex);
+  const isAnimating = state.speaking && state.exactCharCountFloat !== undefined;
   // Smooth fade range: each character fades in over 1.5 character-widths
   // for a silky transition instead of hard pop-in
   const FADE_RANGE = 1.5;
@@ -12406,13 +12613,17 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
     
     if (isAnimating) {
       // Sub-character smooth alpha: ease-out curve over FADE_RANGE characters
-      // so each letter gently materializes instead of popping in
-      const rawAlpha = (state.exactCharCountFloat - globalCharIndex) / FADE_RANGE;
+      // so each letter gently materializes instead of popping in.
+      // Glossary segments use textStartIndex for precise alignment with state.text.
+      const charRef = hasTextIndex ? (segment.textStartIndex + index) : globalCharIndex;
+      const rawAlpha = (state.exactCharCountFloat - charRef) / FADE_RANGE;
       const easedAlpha = rawAlpha <= 0 ? 0 : rawAlpha >= 1 ? 1 : 1 - ((1 - rawAlpha) * (1 - rawAlpha));
       ctx.globalAlpha = clamp(easedAlpha, 0, 1);
 
-      // Subtle glow on the character currently being typed (the "hot" character)
-      const distFromCursor = Math.abs(globalCharIndex - state.exactCharCountFloat);
+      // Subtle glow on the character currently being typed (the "hot" character).
+      // Glossary segments use charRef (aligned to state.text position) for accuracy.
+      const glowRef = hasTextIndex ? (segment.textStartIndex + index) : globalCharIndex;
+      const distFromCursor = Math.abs(glowRef - state.exactCharCountFloat);
       if (distFromCursor < 1.2 && easedAlpha > 0.1 && easedAlpha < 0.95) {
         ctx.shadowColor = "rgba(13, 126, 169, 0.5)";
         ctx.shadowBlur = 12;
@@ -12717,6 +12928,87 @@ function drawRuntimeDisplayErrorOverlay() {
     ctx.fillText(line, x + 24, y + 36 + (index * lineHeight));
   });
   ctx.restore();
+}
+
+/**
+ * Canvas banner shown while narration is being generated.
+ * Pulses + spins so the teacher can see something is actively happening.
+ */
+function drawNarrationProgressOverlay() {
+  if (!state.generatingNarration && !state.narrationLiveProgress.startedAt) {
+    return;
+  }
+  const progress = clamp(state.narrationLiveProgress.progress || 0, 0, 1);
+  const label = state.narrationLiveProgress.label || "Generating Anjali narration\u2026";
+  const pct = Math.round(progress * 100);
+  const elapsedMs = Math.max(0, Date.now() - (state.narrationLiveProgress.startedAt || Date.now()));
+  const elapsedSec = Math.floor(elapsedMs / 1000);
+  const detailText = `${pct}%  \u2022  ${elapsedSec}s elapsed`;
+
+  const bw = Math.min(canvas.width - 60, 520);
+  const bh = 64;
+  const bx = Math.round((canvas.width - bw) / 2);
+  const by = 18;
+  const pulse = 0.82 + 0.18 * Math.sin(Date.now() / 360);
+
+  ctx.save();
+  ctx.shadowColor = "rgba(15, 56, 80, 0.5)";
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 6;
+  ctx.fillStyle = `rgba(10, 30, 50, ${pulse})`;
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, 14);
+  ctx.fill();
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+
+  // Progress bar
+  const barX = bx + 12, barY = by + bh - 10, barW = bw - 24, barH = 5;
+  ctx.fillStyle = "rgba(255,255,255,0.1)";
+  ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 3); ctx.fill();
+  if (pct > 0) {
+    ctx.fillStyle = "#38bdf8";
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, Math.max(barH * 2, Math.round(barW * progress)), barH, 3);
+    ctx.fill();
+  }
+
+  // Border
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.35)"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 14); ctx.stroke();
+
+  // Spinner arc
+  const spinAngle = (Date.now() / 120) % (Math.PI * 2);
+  ctx.beginPath();
+  ctx.arc(bx + 22, by + 22, 7, spinAngle, spinAngle + Math.PI * 1.3);
+  ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.5; ctx.lineCap = "round";
+  ctx.stroke();
+
+  // Text
+  ctx.fillStyle = "#f0f6fc";
+  ctx.font = '700 13px "Nunito", sans-serif';
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillText(label.length > 38 ? label.slice(0, 36) + "\u2026" : label, bx + 36, by + 10);
+  ctx.fillStyle = "#7dd3fc";
+  ctx.font = '700 12px "Nunito", sans-serif';
+  ctx.fillText(detailText, bx + 36, by + 28);
+  ctx.restore();
+}
+
+// rAF loop so the overlay animates even when the slide is idle
+let _narrationOverlayRafId = 0;
+function startNarrationOverlayLoop() {
+  if (_narrationOverlayRafId) return;
+  const tick = () => {
+    if (!state.generatingNarration && !state.narrationLiveProgress.startedAt) {
+      _narrationOverlayRafId = 0; return;
+    }
+    if (!state.speaking && !stagePanel.classList.contains("hidden")) drawScene(state.mouthOpen);
+    _narrationOverlayRafId = requestAnimationFrame(tick);
+  };
+  _narrationOverlayRafId = requestAnimationFrame(tick);
+}
+function stopNarrationOverlayLoop() {
+  if (_narrationOverlayRafId) { cancelAnimationFrame(_narrationOverlayRafId); _narrationOverlayRafId = 0; }
 }
 
 function buildExpandedFormText(value, systemKey = "indian") {
@@ -13650,7 +13942,7 @@ avatarVideoElement.style.pointerEvents = "none";
 document.body.appendChild(avatarVideoElement); // Required for Chrome to honor infinite looping
 
 // Use the exact path requested by the user!
-avatarVideoElement.src = "teacher_video.mp4"; 
+avatarVideoElement.src = "teacher_video_blue_bg.mp4"; 
 avatarVideoElement.loop = true;
 avatarVideoElement.muted = true;
 avatarVideoElement.crossOrigin = "anonymous";
@@ -13675,11 +13967,17 @@ avatarVideoElement.playbackRate = 1.8; // Ensure 1.8x speed as requested
     }
 })();
 
-// Rely completely on HTML5 'loop=true' so there are NO javascript frame-drop gaps at the video boundary!
-// Further prevent "millisec vanishing" by skipping the raw encode's zero-frame boundaries!
+// Grace-period counter: after a manual seek (loop reset), skip this many
+// step() ticks so blank/transitional frames are never written to transparentAnjaliCanvas.
+let _avatarPostSeekGraceTicks = 0;
+
+// Seek 1.5 s before the end — gives step() plenty of time to see grace ticks
+// before the video arrives at the loopback position.
 avatarVideoElement.addEventListener('timeupdate', () => {
-    if (avatarVideoElement.duration && avatarVideoElement.currentTime >= avatarVideoElement.duration - 0.25) {
-        avatarVideoElement.currentTime = 0.15;
+    if (avatarVideoElement.duration && avatarVideoElement.currentTime >= avatarVideoElement.duration - 1.5) {
+        // Set grace ticks FIRST, then seek — prevents race with step()
+        _avatarPostSeekGraceTicks = state.exportingVideo ? 60 : 18; // ~1 s during export
+        avatarVideoElement.currentTime = 0.05;
     }
 });
 
@@ -13694,6 +13992,12 @@ const scratchCvs = document.createElement('canvas');
 const sCtx = scratchCvs.getContext('2d', { willReadFrequently: true });
 
     function step() {
+        if (_avatarPostSeekGraceTicks > 0) {
+            // Burn off grace ticks after a seek — don't capture a transitional blank frame
+            _avatarPostSeekGraceTicks -= 1;
+            setTimeout(step, 1000 / 60);
+            return;
+        }
         if (avatarVideoElement.readyState >= 2) { // Read frame safely instantly if video is ready!
             const sourceWidth = avatarVideoElement.videoWidth || 720;
             const sourceHeight = avatarVideoElement.videoHeight || 1280;
@@ -13731,19 +14035,31 @@ const sCtx = scratchCvs.getContext('2d', { willReadFrequently: true });
             }
             
             const cx = w >> 1; const cy = h >> 1;
+            // Sample light blue background from the top middle of the frame
+            const idxBg = (Math.floor(h * 0.1) * w + cx) * 4;
+            const bgR = d[idxBg];
+            const bgG = d[idxBg+1];
+            const bgB = d[idxBg+2];
+            
+            // Seeds on the edges (for black letterbox) and top middle (for light blue bg)
             const seeds = [
-                [0,0], [w-1,0], [0,h-1], [w-1,h-1],
-                [cx, 0], [cx, h-1], [0, cy], [w-1, cy]
+                [0, 0], [w-1, 0], [0, h-1], [w-1, h-1], // corners for black letterbox
+                [cx, Math.floor(h * 0.1)], // top middle for light blue bg
+                [cx, h-1] // bottom middle
             ];
-            for (const [sx, sy] of seeds) {
-                push(sx, sy);
-                floodVisited[sy * w + sx] = 1;
-            }
+            for (const [sx, sy] of seeds) { push(sx, sy); floodVisited[sy * w + sx] = 1; }
             
             function isBgEdge(x, y) {
                 if (x < 0 || x >= w || y < 0 || y >= h) return false;
                 const r = d[(y * w + x) * 4], g = d[(y * w + x) * 4 + 1], b = d[(y * w + x) * 4 + 2];
-                return (r > 200 && g > 200 && b > 200) || (r < 55 && g < 55 && b < 55);
+                
+                // Match the dynamic light blue background (like 197, 231, 240)
+                if (Math.abs(r-bgR) <= 60 && Math.abs(g-bgG) <= 60 && Math.abs(b-bgB) <= 60) return true;
+                
+                // Also always strip the black letterboxing
+                if (r < 25 && g < 25 && b < 25) return true;
+                
+                return false;
             }
             
             while(stackPtr > 0) {
@@ -13782,6 +14098,20 @@ const sCtx = scratchCvs.getContext('2d', { willReadFrequently: true });
             }
             
             sCtx.putImageData(frameData, 0, 0);
+
+            // Blank-frame guard: if >98% of pixels are transparent after removal,
+            // this is a seek/decode gap frame — hold the last valid canvas instead.
+            let visiblePixels = 0;
+            const totalPx = w * h;
+            for (let pi = 3; pi < d.length; pi += 4) {
+                if (d[pi] > 10) visiblePixels++;
+            }
+            if (visiblePixels < totalPx * 0.02) {
+                // Blank frame — do NOT update transparentAnjaliCanvas; keep last good frame.
+                setTimeout(step, 1000 / 60);
+                return;
+            }
+
             transparentAnjaliCanvas = scratchCvs;
             if (typeof drawScene === 'function') requestAnimationFrame(() => drawScene());
         }
@@ -13801,28 +14131,34 @@ document.addEventListener('click', () => {
 
 
 
+// Cached last good Anjali frame — used as fallback if canvas is momentarily null during export
+let _lastGoodAnjaliCanvas = null;
+
 function drawPresenterFigure(mouthOpen = 0) {
   const enableCheck = document.getElementById("avatarEnableCheck");
   if (enableCheck && !enableCheck.checked) return;
 
-  // During export: if Anjali canvas is not ready, BLOCK this frame entirely.
-  // A missing avatar frame in an export is unacceptable — better to wait.
-  if (!transparentAnjaliCanvas) {
+  // If the live canvas is momentarily unavailable (video decode gap), use the last
+  // known-good frame instead of skipping Anjali — prevents the 1-frame blank flicker.
+  const canvasToDraw = transparentAnjaliCanvas || _lastGoodAnjaliCanvas;
+  if (!canvasToDraw) {
     if (state.exportingVideo) {
-      // Do NOT commit this frame — force a redraw on next tick
       setTimeout(() => markSceneDirty(), 16);
     }
     return;
   }
+  if (transparentAnjaliCanvas) {
+    _lastGoodAnjaliCanvas = transparentAnjaliCanvas;
+  }
 
   const baseHeight = 1110;
   avatarConfig.h = baseHeight * avatarConfig.scale;
-  const aspect_scale = avatarConfig.h / transparentAnjaliCanvas.height;
-  avatarConfig.w = transparentAnjaliCanvas.width * aspect_scale;
+  const aspect_scale = avatarConfig.h / canvasToDraw.height;
+  avatarConfig.w = canvasToDraw.width * aspect_scale;
 
   if (!avatarConfig.initialized) {
     avatarConfig.x = 0;
-    avatarConfig.y = transparentAnjaliCanvas.height ? canvas.height - avatarConfig.h : 0;
+    avatarConfig.y = canvasToDraw.height ? canvas.height - avatarConfig.h : 0;
     avatarConfig.initialized = true;
   }
 
@@ -13839,7 +14175,7 @@ function drawPresenterFigure(mouthOpen = 0) {
   ctx.shadowOffsetX = 14;
   ctx.shadowOffsetY = 18;
 
-  ctx.drawImage(transparentAnjaliCanvas, finalX, finalY, finalWidth, finalHeight);
+  ctx.drawImage(canvasToDraw, finalX, finalY, finalWidth, finalHeight);
   
   // Draw hover/drag indicator — never show during export
   if (avatarConfig.hovered && !avatarConfig.dragging && !state.exportingVideo) {
@@ -14975,6 +15311,8 @@ function drawScene(mouthOpen = 0.12) {
   drawWhiteboardStrokes();
   drawBurnedCaptions();
   drawRuntimeDisplayErrorOverlay();
+  drawNarrationProgressOverlay();
+  drawPlayLoadingOverlay();
   
   if (window._renderHologramFrame) {
     window._renderHologramFrame(ctx, typeof mouthOpen !== 'undefined' ? mouthOpen : (state.mouthOpen || 0.12));
@@ -16095,11 +16433,8 @@ async function playIntroPosterSegment(durationMs = DEFAULT_INTRO_POSTER_DURATION
   } finally {
     state.introPoster.active = false;
     updatePlaybackProgressUi(0, false);
-    // Only draw scene in non-export mode — in export mode, skip
-    // to avoid a 1-frame flash of lesson content between poster and narration
-    if (!exportMode) {
-      drawScene(0.12);
-    }
+    // Do NOT call drawScene here — it causes a 1-frame lesson content flash
+    // before the narration loop draws its first frame.
   }
 }
 
@@ -16527,7 +16862,9 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
         state.stageVideo.element.currentTime = ((elapsedMs - STAGE_VIDEO_START_DELAY_MS) / 1000) % stageVidDuration;
       }
     }
-    const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, narrationTimelineMs);
+    const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, narrationTimelineMs, {
+      syncProfileData: state.narration?.syncProfile
+    });
     let nextDisplayedText = syncFrame.displayedText;
     const nextDisplayedLength = nextDisplayedText.length;
 
@@ -17082,16 +17419,41 @@ function drawPosterScene() {
   const posterImage = state.introPoster.image;
   state.stageVideoRenderBox = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
   if (posterImage) {
-    drawVideoCover(posterImage, {
-      x: 0,
-      y: 0,
-      width: canvas.width,
-      height: canvas.height
-    });
+    // Full-screen cover: stretch/fill edge-to-edge on every screen size.
+    // Uses object-fit:cover logic — whichever dimension fills first, centre the other.
+    const iw = posterImage.width  || posterImage.naturalWidth  || canvas.width;
+    const ih = posterImage.height || posterImage.naturalHeight || canvas.height;
+    const imgAspect    = iw / Math.max(1, ih);
+    const canvasAspect = canvas.width / Math.max(1, canvas.height);
+    let drawW, drawH;
+    if (imgAspect > canvasAspect) {
+      // Image wider — match canvas height, let width overflow (centred)
+      drawH = canvas.height;
+      drawW = Math.round(canvas.height * imgAspect);
+    } else {
+      // Image taller — match canvas width, let height overflow (centred)
+      drawW = canvas.width;
+      drawH = Math.round(canvas.width / imgAspect);
+    }
+    const imgX = Math.round((canvas.width  - drawW) / 2);
+    const imgY = Math.round((canvas.height - drawH) / 2);
+
+    // Clip to canvas so nothing bleeds outside
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.clip();
+    ctx.drawImage(posterImage, imgX, imgY, drawW, drawH);
+    ctx.restore();
+  } else {
+    // No poster uploaded — solid dark fallback
+    ctx.fillStyle = "#08131d";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
+
+  // Anjali is intentionally NOT drawn here — poster only during the hold.
   requestCanvasExportFrame();
 }
 
@@ -18409,6 +18771,9 @@ function stopPlayback(restoreFullText = true) {
   state.speaking = false;
   state.mouthOpen = 0.12;
   state.contentScrollOffset = 0;
+  // Clear overlay RAFs so they don't ghost after stop
+  clearPlayLoadingOverlay();
+  stopNarrationOverlayLoop();
 
   if (isPdfPresentationMode()) {
     state.pdf.paused = false;
@@ -18488,7 +18853,18 @@ function finishPlayback(message) {
 
   state.displayedText = state.text;
   updatePlaybackProgressUi(1, false);
-  drawScene(0.12);
+  // End of lesson: show poster without Anjali if poster is available,
+  // otherwise show normal scene. Hold poster for 5 s then deactivate.
+  if (hasIntroPosterSelected() && state.introPoster.image) {
+    state.introPoster.active = true;
+    drawPosterScene();
+    window.setTimeout(function() {
+      state.introPoster.active = false;
+      drawScene(0.12);
+    }, 5000);
+  } else {
+    drawScene(0.12);
+  }
   if (state.stageVideo.element && !stagePanel.classList.contains("hidden")) {
     void startStageVideoPlayback();
   } else {
@@ -18757,7 +19133,9 @@ function startNarrationLoop(audioElement) {
     const syncElapsedMs = Math.max(0, elapsedMs - visualLagMs);
     const progress = durationMs ? clamp(elapsedMs / durationMs, 0, 1) : 0;
     const previousText = state.displayedText;
-    const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, durationMs);
+    const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, durationMs, {
+      syncProfileData: state.narration?.syncProfile
+    });
     state.displayedText = syncFrame.displayedText;
     state.exactCharCountFloat = syncFrame.exactCharCountFloat;
     syncLessonPlaybackProgressUi(progress, true);
@@ -18776,7 +19154,7 @@ function startNarrationLoop(audioElement) {
     // Always force render during active narration — sub-character alpha
     // fading needs continuous redraws even between character boundaries
     if (shouldRenderAnimatedSceneFrame(nowMs, {
-      force: state.exportingVideo || state.speaking || progress >= 0.995,
+      force: state.exportingVideo || previousText !== state.displayedText || progress >= 0.995,
       lastRenderAt,
       mouthDelta: nextMouth - lastRenderedMouth
     })) {
@@ -18939,6 +19317,136 @@ function hasFreshGeneratedAnjaliNarration(currentText = "") {
   );
 }
 
+// ── Play Loading Overlay ────────────────────────────────────────────────────
+// Step-by-step checklist drawn on the canvas while Play is preparing.
+const PLAY_LOADING_STEPS = [
+  { id: "narration", label: "Generating Anjali narration audio..." },
+  { id: "audio",    label: "Loading & decoding audio..." },
+  { id: "intro",    label: "Playing intro clip..." },
+  { id: "starting", label: "Starting lesson playback..." }
+];
+let _playLoadingActiveStep = "";
+let _playLoadingCompletedSteps = [];
+let _playLoadingRafId = 0;
+
+function setPlayLoadingStep(stepId) {
+  const idx = PLAY_LOADING_STEPS.findIndex((s) => s.id === stepId);
+  if (idx < 0) return;
+  _playLoadingCompletedSteps = PLAY_LOADING_STEPS.slice(0, idx).map((s) => s.id);
+  _playLoadingActiveStep = stepId;
+  if (!_playLoadingRafId) {
+    const tick = () => {
+      if (!_playLoadingActiveStep) { _playLoadingRafId = 0; return; }
+      if (!state.speaking && !stagePanel.classList.contains("hidden")) drawScene(state.mouthOpen);
+      _playLoadingRafId = requestAnimationFrame(tick);
+    };
+    _playLoadingRafId = requestAnimationFrame(tick);
+  }
+}
+
+function clearPlayLoadingOverlay() {
+  _playLoadingActiveStep = "";
+  _playLoadingCompletedSteps = [];
+  if (_playLoadingRafId) { cancelAnimationFrame(_playLoadingRafId); _playLoadingRafId = 0; }
+}
+
+function drawPlayLoadingOverlay() {
+  if (!_playLoadingActiveStep) return;
+  const panelW = Math.min(canvas.width - 60, 460);
+  const rowH = 44;
+  const padX = 22, padY = 20;
+  const titleH = 28;
+  const panelH = padY * 2 + titleH + PLAY_LOADING_STEPS.length * rowH;
+  const px = Math.round((canvas.width - panelW) / 2);
+  const py = Math.round((canvas.height - panelH) / 2);
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = 28;
+  ctx.shadowOffsetY = 10;
+  ctx.fillStyle = "rgba(8, 16, 28, 0.95)";
+  ctx.beginPath();
+  ctx.roundRect(px, py, panelW, panelH, 18);
+  ctx.fill();
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.28)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(px, py, panelW, panelH, 18);
+  ctx.stroke();
+
+  // Title
+  ctx.fillStyle = "#7dd3fc";
+  ctx.font = '700 11px "Nunito", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("PREPARING PLAYBACK", px + panelW / 2, py + 10);
+
+  // Divider
+  ctx.strokeStyle = "rgba(56,189,248,0.15)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(px + 16, py + titleH + 4);
+  ctx.lineTo(px + panelW - 16, py + titleH + 4);
+  ctx.stroke();
+
+  PLAY_LOADING_STEPS.forEach((step, i) => {
+    const rowY = py + padY + titleH + i * rowH;
+    const isDone = _playLoadingCompletedSteps.includes(step.id);
+    const isActive = _playLoadingActiveStep === step.id;
+
+    if (isActive) {
+      const pulse = 0.10 + 0.06 * Math.sin(Date.now() / 280);
+      ctx.fillStyle = `rgba(56, 189, 248, ${pulse})`;
+      ctx.beginPath();
+      ctx.roundRect(px + 8, rowY - 4, panelW - 16, rowH - 4, 8);
+      ctx.fill();
+    }
+
+    const iconX = px + padX + 10;
+    const iconY = rowY + (rowH - 6) / 2 - 2;
+
+    if (isDone) {
+      ctx.fillStyle = "#22c55e";
+      ctx.beginPath();
+      ctx.arc(iconX, iconY, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(iconX - 5, iconY + 0.5);
+      ctx.lineTo(iconX - 1, iconY + 4.5);
+      ctx.lineTo(iconX + 5.5, iconY - 4);
+      ctx.stroke();
+    } else if (isActive) {
+      const angle = (Date.now() / 100) % (Math.PI * 2);
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(iconX, iconY, 9, angle, angle + Math.PI * 1.4);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(iconX, iconY, 9, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.font = isActive ? '700 13px "Nunito", sans-serif' : '500 12px "Nunito", sans-serif';
+    ctx.fillStyle = isDone ? "#86efac" : isActive ? "#f0f6fc" : "rgba(255,255,255,0.28)";
+    ctx.fillText(step.label, iconX + 20, iconY);
+  });
+
+  ctx.restore();
+}
+// ── End Play Loading Overlay ─────────────────────────────────────────────────
+
 async function ensureNarrationReadyForSlide(options = {}) {
   const currentText = commitLatestLessonText();
   if (!ensureLessonTextIsReady(currentText)) {
@@ -18965,9 +19473,10 @@ async function ensureNarrationReadyForSlide(options = {}) {
 }
 
 async function playSlide() {
+  clearPlayLoadingOverlay(); // clear any stale overlay from a previous stopped play
   const currentText = commitLatestLessonText();
   const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
-  const posterRequested = Boolean(introClipRequested && state.introPoster.available);
+  const posterRequested = Boolean(state.introPoster.available);
   const allowIntroOnlyPlayback = !String(currentText || "").trim() && introClipRequested;
   if (!isPdfPresentationMode() && shouldPreferPdfScreenFromInput()) {
     const ready = await loadSelectedPdf();
@@ -18997,12 +19506,10 @@ async function playSlide() {
 
   if (allowIntroOnlyPlayback) {
     await playIntroClipIfEnabled();
-    if (state.introPlayback.enabled) {
-      if (posterRequested) {
-        await playIntroPosterSegment();
-      } else {
-        await playPostIntroBlankTransition();
-      }
+    if (posterRequested) {
+      await playIntroPosterSegment();
+    } else if (state.introPlayback.enabled) {
+      await playPostIntroBlankTransition();
     }
     finishPlayback("Playback complete. The default intro clip finished.");
     return;
@@ -19012,41 +19519,53 @@ async function playSlide() {
   state.preparedLessonExport.prepareAfterPlayback = ENABLE_PREPARED_LESSON_EXPORT;
 
   if (canReuseExistingNarration) {
+    clearPlayLoadingOverlay();
     await playIntroClipIfEnabled();
-    if (state.introPlayback.enabled) {
-      if (posterRequested) {
-        await playIntroPosterSegment();
-      } else {
-        await playPostIntroBlankTransition();
-      }
+    if (posterRequested) {
+      await playIntroPosterSegment();
+    } else if (state.introPlayback.enabled) {
+      await playPostIntroBlankTransition();
     }
     playNarrationAudio();
     return;
   }
 
   try {
+    // ── Step 1: Generate narration ─────────────────────────────────────────
+    setPlayLoadingStep("narration");
     setStatus("Preparing narration for live playback...");
     updateTaskProgressUi(0.2, true, { mirrorStage: true });
     await ensureNarrationReadyForSlide({
       timeoutMs: getLongNarrationRequestTimeoutMs(currentText)
     });
+    // ── Step 2: Audio loaded ───────────────────────────────────────────────
+    setPlayLoadingStep("audio");
     updateTaskProgressUi(0.62, true, { mirrorStage: true, label: state.introPlayback.enabled ? "Narration ready. Playing intro clip..." : "Narration ready. Starting playback..." });
+    // ── Step 3: Intro clip ────────────────────────────────────────────────
+    setPlayLoadingStep("intro");
     await playIntroClipIfEnabled();
-    if (state.introPlayback.enabled) {
-      if (posterRequested) {
-        await playIntroPosterSegment();
-      } else {
-        await playPostIntroBlankTransition();
-      }
+    if (posterRequested) {
+      await playIntroPosterSegment();
+    } else if (state.introPlayback.enabled) {
+      await playPostIntroBlankTransition();
     }
+    // ── Step 4: Starting playback ─────────────────────────────────────────
+    setPlayLoadingStep("starting");
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
     resetTaskProgressUi();
+    clearPlayLoadingOverlay();
     playNarrationAudio();
   } catch (error) {
     console.error(error);
     state.preparedLessonExport.prepareAfterPlayback = false;
     resetTaskProgressUi();
-    setStatus("The Anjali voice server is unavailable, so playback could not start. Start the local Anjali voice server on port 8426 and try again.");
+    clearPlayLoadingOverlay();
+    const isWarmingUp = state.anjaliMonitor?.warming;
+    if (isWarmingUp) {
+      setStatus("⏳ Anjali model is still warming up. Please wait a moment and try again — it will be ready soon.");
+    } else {
+      setStatus("The Anjali voice server is unavailable. Make sure the app launched via the Electron shortcut and give it 2–4 minutes after first start.");
+    }
     return;
   }
 }
@@ -19066,6 +19585,86 @@ async function openPreviewVoiceChooser() {
   await startTextPreview("anjali");
 }
 
+// ── Chunked narration: requests FULL text from Anjali (real voice),
+//    then plays 6 words at a time by pause/resume on the same audio. ─────────
+async function playChunkedNarration(text) {
+  const CHUNK_WORDS = 6;   // words per spoken chunk
+  const PAUSE_MS    = 750; // silence gap between chunks (ms)
+
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return;
+
+  state.inputPreviewing = true;
+  setSpeechToolsStatus('Generating Anjali audio — please wait…');
+  updateSpeechToolsUi();
+
+  let previewUrl = null;
+  try {
+    // One full request to the Anjali server → real voice, real intonation
+    const blob = await requestNarrationBlob(text, 'anjali', {
+      timeoutMs: getLongNarrationRequestTimeoutMs(text)
+    });
+    previewUrl = URL.createObjectURL(blob);
+    const audio = await createLoadedAudio(previewUrl);
+    applyNaturalVoicePlayback(audio, getLessonPlaybackRate());
+    state.previewAudio = audio;
+
+    const totalDurationMs = audio.duration * 1000;          // full clip length
+    const msPerWord       = totalDurationMs / words.length; // avg ms per word
+
+    let wordIndex = 0;
+
+    // Play one chunk, pause, wait PAUSE_MS, then resume for next chunk
+    await new Promise((resolve) => {
+      function playChunk() {
+        if (!state.inputPreviewing || wordIndex >= words.length) {
+          audio.pause();
+          resolve();
+          return;
+        }
+
+        const chunkSize   = Math.min(CHUNK_WORDS, words.length - wordIndex);
+        const chunkMs     = chunkSize * msPerWord;
+        wordIndex        += chunkSize;
+
+        const chunkLabel  = words.slice(wordIndex - chunkSize, wordIndex).join(' ');
+        setSpeechToolsStatus(`Anjali: "${chunkLabel}"`);
+        updateSpeechToolsUi();
+
+        audio.play().catch(resolve);
+
+        setTimeout(() => {
+          if (!state.inputPreviewing) { resolve(); return; }
+          audio.pause();
+
+          if (wordIndex >= words.length) { resolve(); return; }
+
+          // Gap between chunks
+          setTimeout(() => {
+            if (!state.inputPreviewing) { resolve(); return; }
+            playChunk();
+          }, PAUSE_MS);
+        }, chunkMs);
+      }
+
+      audio.addEventListener('ended', resolve, { once: true });
+      audio.addEventListener('error', resolve, { once: true });
+      playChunk();
+    });
+
+  } catch (error) {
+    console.error('[chunkedNarration]', error);
+    setSpeechToolsStatus('Anjali server unavailable. Start the server on port 8426 and try again.');
+    updateSpeechToolsUi();
+  } finally {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    stopInputPreview(false);
+    setSpeechToolsStatus('Finished reading.');
+    updateSpeechToolsUi();
+  }
+}
+
+
 async function startTextPreview(voicePreference) {
   const text = getEffectiveLessonText();
   const lessonIssue = getLessonTextIssue(text);
@@ -19081,16 +19680,10 @@ async function startTextPreview(voicePreference) {
   state.preferredNarrationVoice = "anjali";
   updatePreferredVoiceUi();
 
-  const voiceLabel = getNarrationVoiceLabel("anjali");
-  try {
-    await playServerBackedTextPreview(text, "anjali");
-    return;
-  } catch (error) {
-    console.error(error);
-  }
-
-  setSpeechToolsStatus(`${voiceLabel} voice preview needs the local Anjali voice server on port 8426.`);
+  // Chunked reading: 5-6 words at a time with pauses
+  setSpeechToolsStatus('Starting chunked narration — reads 6 words at a time with pauses…');
   updateSpeechToolsUi();
+  await playChunkedNarration(text);
 }
 
 function startDictation() {
@@ -21724,11 +22317,10 @@ if (introPosterUploadBtn && introPosterInput) {
   introPosterUploadBtn.addEventListener("click", () => {
     introPosterInput.click();
   });
+
   introPosterInput.addEventListener("change", async (event) => {
     const file = event.target?.files?.[0];
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
     try {
       const dataUrl = await new Promise((resolve, reject) => {
@@ -21738,17 +22330,200 @@ if (introPosterUploadBtn && introPosterInput) {
         reader.readAsDataURL(file);
       });
       const image = await loadImageFromDataUrl(dataUrl);
-      state.introPoster.fileName = file.name;
-      state.introPoster.dataUrl = dataUrl;
-      state.introPoster.image = image;
-      state.introPoster.available = true;
+
+      // ── Step 1: Show size-picker modal ─────────────────────────────────
+      const POSTER_SIZES = [
+        { label: "Full HD  —  1920 × 1080",   w: 1920, h: 1080 },
+        { label: "YouTube  —  1280 × 720",    w: 1280, h: 720  },
+        { label: "Square   —  1080 × 1080",   w: 1080, h: 1080 },
+        { label: "Story    —  1080 × 1920",   w: 1080, h: 1920 },
+        { label: "A4 Portrait — 794 × 1123",  w: 794,  h: 1123 },
+        { label: "A4 Landscape — 1123 × 794", w: 1123, h: 794  },
+        { label: `Original  —  ${image.naturalWidth || image.width} × ${image.naturalHeight || image.height}`,
+          w: image.naturalWidth || image.width,
+          h: image.naturalHeight || image.height }
+      ];
+
+      const selectedSize = await new Promise((resolve) => {
+        // Backdrop
+        const backdrop = document.createElement("div");
+        backdrop.style.cssText = [
+          "position:fixed","inset:0","z-index:99999",
+          "background:rgba(0,0,0,0.82)","display:flex",
+          "align-items:center","justify-content:center",
+          "font-family:'Segoe UI',system-ui,sans-serif"
+        ].join(";");
+
+        // Panel
+        const panel = document.createElement("div");
+        panel.style.cssText = [
+          "background:#1a1f2e","border-radius:16px",
+          "padding:28px 32px","width:680px","max-width:94vw",
+          "box-shadow:0 24px 80px rgba(0,0,0,0.7)",
+          "border:1px solid rgba(255,255,255,0.08)",
+          "display:flex","flex-direction:column","gap:20px"
+        ].join(";");
+
+        // Title
+        const title = document.createElement("h2");
+        title.textContent = "Choose Poster Size";
+        title.style.cssText = "margin:0;color:#fff;font-size:1.25rem;font-weight:700;letter-spacing:0.01em;";
+        panel.appendChild(title);
+
+        // Preview + sizes row
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:20px;align-items:flex-start;";
+
+        // Preview canvas
+        const previewCanvas = document.createElement("canvas");
+        previewCanvas.style.cssText = "border-radius:8px;border:2px solid rgba(255,255,255,0.15);background:#0a0e1a;flex-shrink:0;";
+        const PREV_W = 220, PREV_H = 140;
+        previewCanvas.width = PREV_W; previewCanvas.height = PREV_H;
+        row.appendChild(previewCanvas);
+        const pCtx = previewCanvas.getContext("2d");
+
+        function drawPreview(w, h) {
+          pCtx.clearRect(0, 0, PREV_W, PREV_H);
+          pCtx.fillStyle = "#0a0e1a";
+          pCtx.fillRect(0, 0, PREV_W, PREV_H);
+          // Draw image fitted inside preview
+          const scale = Math.min(PREV_W / w, PREV_H / h);
+          const dw = w * scale, dh = h * scale;
+          const dx = (PREV_W - dw) / 2, dy = (PREV_H - dh) / 2;
+          pCtx.fillStyle = "#111827";
+          pCtx.fillRect(dx, dy, dw, dh);
+          const imgScale = Math.max(dw / image.width, dh / image.height);
+          const sw = dw / imgScale, sh = dh / imgScale;
+          const sx = (image.width - sw) / 2, sy = (image.height - sh) / 2;
+          try { pCtx.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh); } catch(_) {}
+          // Size label
+          pCtx.fillStyle = "rgba(255,255,255,0.7)";
+          pCtx.font = "bold 11px 'Segoe UI',sans-serif";
+          pCtx.textAlign = "center";
+          pCtx.fillText(`${w} × ${h}`, PREV_W / 2, PREV_H - 6);
+        }
+
+        // Size list
+        const list = document.createElement("div");
+        list.style.cssText = "display:flex;flex-direction:column;gap:8px;flex:1;";
+        let activeBtn = null;
+
+        POSTER_SIZES.forEach((size, idx) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = size.label;
+          const isFirst = idx === 0;
+          btn.style.cssText = [
+            "text-align:left","padding:10px 14px","border-radius:8px",
+            "border:2px solid " + (isFirst ? "#6366f1" : "rgba(255,255,255,0.1)"),
+            "background:" + (isFirst ? "rgba(99,102,241,0.18)" : "transparent"),
+            "color:" + (isFirst ? "#a5b4fc" : "rgba(255,255,255,0.75)"),
+            "font-size:0.9rem","font-weight:600","cursor:pointer",
+            "transition:all 0.15s"
+          ].join(";");
+          if (isFirst) { activeBtn = btn; drawPreview(size.w, size.h); }
+          btn.addEventListener("mouseenter", () => {
+            if (btn !== activeBtn) btn.style.background = "rgba(255,255,255,0.06)";
+          });
+          btn.addEventListener("mouseleave", () => {
+            if (btn !== activeBtn) btn.style.background = "transparent";
+          });
+          btn.addEventListener("click", () => {
+            if (activeBtn) {
+              activeBtn.style.border = "2px solid rgba(255,255,255,0.1)";
+              activeBtn.style.background = "transparent";
+              activeBtn.style.color = "rgba(255,255,255,0.75)";
+            }
+            btn.style.border = "2px solid #6366f1";
+            btn.style.background = "rgba(99,102,241,0.18)";
+            btn.style.color = "#a5b4fc";
+            activeBtn = btn;
+            drawPreview(size.w, size.h);
+          });
+          list.appendChild(btn);
+        });
+
+        row.appendChild(list);
+        panel.appendChild(row);
+
+        // Buttons row
+        const btnRow = document.createElement("div");
+        btnRow.style.cssText = "display:flex;justify-content:flex-end;gap:12px;margin-top:4px;";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.style.cssText = "padding:10px 22px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-size:0.9rem;font-weight:600;cursor:pointer;";
+        cancelBtn.addEventListener("click", () => { document.body.removeChild(backdrop); resolve(null); });
+
+        const saveBtn = document.createElement("button");
+        saveBtn.type = "button";
+        saveBtn.textContent = "Save Poster";
+        saveBtn.style.cssText = "padding:10px 26px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:0.9rem;font-weight:700;cursor:pointer;box-shadow:0 4px 15px rgba(99,102,241,0.35);";
+        saveBtn.addEventListener("click", () => {
+          const idx = Array.from(list.children).indexOf(activeBtn);
+          document.body.removeChild(backdrop);
+          resolve(POSTER_SIZES[idx] || POSTER_SIZES[0]);
+        });
+
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(saveBtn);
+        panel.appendChild(btnRow);
+        backdrop.appendChild(panel);
+
+        // ESC to cancel
+        const onKey = (e) => { if (e.key === "Escape") { document.removeEventListener("keydown", onKey); document.body.removeChild(backdrop); resolve(null); } };
+        document.addEventListener("keydown", onKey);
+        document.body.appendChild(backdrop);
+      });
+
+      if (!selectedSize) { event.target.value = ""; return; } // user cancelled
+
+      // ── Step 2: Save poster state ─────────────────────────────────────
+      state.introPoster.fileName   = file.name;
+      state.introPoster.dataUrl    = dataUrl;
+      state.introPoster.image      = image;
+      state.introPoster.available  = true;
       state.introPoster.durationMs = DEFAULT_INTRO_POSTER_DURATION_MS;
-      setIntroPosterStatus(
-        `Poster ready: ${file.name}. It will export as a full-screen image${state.introPlayback.enabled ? " after the intro" : ""} before the lesson.`
-      );
+      state.introPoster.posterWidth  = selectedSize.w;
+      state.introPoster.posterHeight = selectedSize.h;
+      setIntroPosterStatus(`Poster ready: ${file.name} — ${selectedSize.w}×${selectedSize.h}. Full-screen before the lesson.`);
       updatePosterThumbnailUi();
       drawScene(state.mouthOpen);
-      setStatus(`Poster uploaded: ${file.name}. It will export full-screen before the lesson (intro is ${state.introPlayback.enabled ? "on" : "off and will be skipped"}).`);
+      setStatus(`Poster saved at ${selectedSize.w}×${selectedSize.h}.`);
+
+      // ── Step 3: Fullscreen poster-only preview ───────────────────────────
+      const overlay = document.createElement("div");
+      overlay.style.cssText = [
+        "position:fixed","inset:0","z-index:99998",
+        "background:#000","display:flex","flex-direction:column",
+        "align-items:center","justify-content:center",
+        "cursor:zoom-out"
+      ].join(";");
+
+      // Poster image fitted to screen
+      const posterImg = document.createElement("img");
+      posterImg.src = dataUrl;
+      const maxW = window.innerWidth  * 0.9;
+      const maxH = window.innerHeight * 0.88;
+      const ar   = selectedSize.w / selectedSize.h;
+      let dispW = maxW, dispH = maxW / ar;
+      if (dispH > maxH) { dispH = maxH; dispW = maxH * ar; }
+      posterImg.style.cssText = `width:${Math.round(dispW)}px;height:${Math.round(dispH)}px;object-fit:cover;border-radius:10px;box-shadow:0 0 60px rgba(0,0,0,0.9);`;
+      overlay.appendChild(posterImg);
+
+      // Label bar
+      const label = document.createElement("div");
+      label.textContent = `${file.name}  —  ${selectedSize.w} × ${selectedSize.h}  —  Click or press Esc to close`;
+      label.style.cssText = "margin-top:16px;color:rgba(255,255,255,0.55);font:500 13px 'Segoe UI',sans-serif;letter-spacing:0.03em;";
+      overlay.appendChild(label);
+
+      const closeOverlay = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); document.removeEventListener("keydown", closeOnEsc); };
+      const closeOnEsc = (e) => { if (e.key === "Escape") closeOverlay(); };
+      overlay.addEventListener("click", closeOverlay);
+      document.addEventListener("keydown", closeOnEsc);
+      document.body.appendChild(overlay);
+
     } catch (error) {
       console.error(error);
       setIntroPosterStatus(error.message || "The poster could not be loaded.");
@@ -22305,74 +23080,35 @@ function parseSrtTime(str) {
 }
 
 document.addEventListener("keydown", (event) => {
-  // Toggle whiteboard with W
-  if (event.key.toLowerCase() === "w" && !event.ctrlKey && !event.metaKey && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") {
-    state.whiteboard.enabled = !state.whiteboard.enabled;
-    const word = state.whiteboard.enabled ? "enabled" : "disabled";
-    setStatus(`Whiteboard drawing is now ${word}. Click and drag on the screen to draw.`);
-  }
-  // Clear whiteboard with C
-  if (event.key.toLowerCase() === "c" && !event.ctrlKey && !event.metaKey && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") {
-    if (state.whiteboard.strokes.length > 0) {
-       state.whiteboard.strokes = [];
-       drawScene(state.mouthOpen);
-       setStatus("Whiteboard cleared.");
-    }
-  }
+  // W key: whiteboard toggle removed (was accidentally activated by users)
+  // C key: whiteboard clear removed (was accidentally activated by users)
+  // Whiteboard is accessible via its dedicated toolbar button instead.
 });
 
 const resetInputsBtn = document.getElementById("resetInputsBtn");
 if (resetInputsBtn) {
   resetInputsBtn.addEventListener("click", () => {
-    if (window.confirm("Are you sure you want to clear all inputs and reset the workspace?")) {
-        if (lessonInput) lessonInput.value = "";
-        if (pureInputSource) pureInputSource.value = "";
-        state.rawInput.text = "";
-        setPureInputMode(false);
-        state.text = "";
-        try { window.localStorage.removeItem(LESSON_STORAGE_KEY); } catch (e) {}
-
-        if (mathsSourceInput) mathsSourceInput.value = "";
-        state.mathsSource = "";
-        try { window.localStorage.removeItem(MATHS_SOURCE_STORAGE_KEY); } catch (e) {}
-
-        if (placeValueNumberInput) placeValueNumberInput.value = "";
-        state.placeValueNumber = "";
-        try { window.localStorage.removeItem(PLACE_VALUE_STORAGE_KEY); } catch (e) {}
-
-        if (outcomesTitleInput) outcomesTitleInput.value = "";
-        state.outcomesTitle = "";
-        try { window.localStorage.removeItem(OUTCOMES_TITLE_STORAGE_KEY); } catch (e) {}
-
-        if (window.watermarkCheck) window.watermarkCheck.checked = true;
-
-        state.images = [];
-        if (imageInput) imageInput.value = "";
-
-        const audioInput = document.getElementById("audioFileInput");
-        if (audioInput) audioInput.value = "";
-        state.activeAudioFile = null;
-
-        const videoInput = document.getElementById("videoFileInput");
-        if (videoInput) videoInput.value = "";
-        state.activeVideoFile = null;
-
-        const audioFileName = document.getElementById("audioFileName");
-        if (audioFileName) audioFileName.textContent = "No narration audio loaded.";
-        
-        const sceneVideoFileName = document.getElementById("sceneVideoFileName");
-        if (sceneVideoFileName) sceneVideoFileName.textContent = "No scene video loaded.";
-
-        _drawSceneLayoutCache.pagesReady = false;
-        _drawSceneLayoutCache.pagesResult = null;
-        _drawSceneLayoutCache.fullReady = false;
-        _drawSceneLayoutCache.fullResult = null;
-        
-        state.previewPageIndex = 0;
-        updateStagePageUi(0, 1);
-        drawScene(0.12);
-        setStatus("Workspace inputs successfully cleared.");
+    if (!window.confirm("Reset the workspace?\n\nAll inputs, uploaded files, and settings will be cleared and the app will reload fresh.")) {
+      return;
     }
+
+    // 1. Stop any active narration / audio playback so media elements
+    //    don't block or error after the page reloads.
+    try { stopNarration?.(); }        catch (_) {}
+    try { stopBackgroundMusic?.(); }  catch (_) {}
+    try {
+      if (state.activeAudio && !state.activeAudio.paused) {
+        state.activeAudio.pause();
+      }
+    } catch (_) {}
+
+    // 2. Wipe all localStorage so the app starts completely blank —
+    //    no saved draft, theme, template, caption positions, etc.
+    try { window.localStorage.clear(); } catch (_) {}
+
+    // 3. Full page reload = guaranteed clean slate.
+    //    Electron reloads the renderer process, re-runs all init code.
+    window.location.reload();
   });
 }
 
@@ -22455,6 +23191,40 @@ updateCutoutControlsUi();
 setCutoutControlsStatus("These controls apply to both image and video background removal.");
 checkServerHealth();
 startAnjaliCloneMonitor();
+
+// ── Electron IPC: react instantly when main-process watchdog detects Anjali down ──
+if (window.electronAPI?.onServerStatus) {
+  window.electronAPI.onServerStatus((data) => {
+    if (data?.server !== 'anjali') return;
+
+    if (data.status === 'restarting') {
+      // Mark as offline immediately — don't wait for the next 15s poll
+      state.anjaliCloneServerReady = false;
+      state.anjaliMonitor.warming  = false;
+      state.anjaliMonitor.lastError = 'Server restarting…';
+      updateServerHealthUi();
+      setNarrationGenStatus('⚠️ Anjali AI server went offline — restarting automatically. Please wait…');
+
+      // Fast-poll every 5 s until Anjali comes back, then resume normal monitor
+      let fastPollTimer = null;
+      const fastPoll = async () => {
+        if (state.anjaliCloneServerReady) return; // already recovered
+        const recovered = await ensureAnjaliCloneServer().catch(() => false);
+        if (!recovered) {
+          fastPollTimer = setTimeout(fastPoll, 5000);
+        } else {
+          setNarrationGenStatus('✅ Anjali AI server is back online and ready.');
+        }
+      };
+
+      // Ask main process to restart too (belt-and-suspenders)
+      window.electronAPI.restartAnjali?.().catch(() => {});
+
+      // Start fast-polling after a small delay (give server time to bind port)
+      fastPollTimer = setTimeout(fastPoll, 8000);
+    }
+  });
+}
 if (stageAutoTeachBtn) {
   stageAutoTeachBtn.addEventListener("click", autoTeachSelectedImage);
 }
@@ -23238,3 +24008,84 @@ if (pureEnglishBtn) {
 }
 
 setPureInputMode(false);
+
+// ── Input Style Controls (Line Spacing / Font Size / Letter Spacing) ──────────
+// Sliders live above the lessonInput textarea. Changes apply instantly and are
+// saved to localStorage so your preferred settings survive every reload.
+(function initInputStyleControls() {
+  const LS_KEY   = 'pp-input-style-v1';
+  const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
+
+  const textarea = document.getElementById('lessonInput');
+  const sliderLH = document.getElementById('inputLineHeight');
+  const valLH    = document.getElementById('inputLineHeightVal');
+  const sliderFS = document.getElementById('inputFontSize');
+  const valFS    = document.getElementById('inputFontSizeVal');
+  const sliderLS = document.getElementById('inputLetterSpacing');
+  const valLS    = document.getElementById('inputLetterSpacingVal');
+  const resetBtn = document.getElementById('inputStyleResetBtn');
+
+  if (!textarea || !sliderLH || !sliderFS || !sliderLS) return;
+
+  function applyStyle(lh, fs, ls) {
+    textarea.style.lineHeight    = String(lh);
+    textarea.style.fontSize      = `${fs}rem`;
+    textarea.style.letterSpacing = `${ls}em`;
+  }
+
+  function syncDisplays(lh, fs, ls) {
+    valLH.textContent = String(lh);
+    valFS.textContent = `${fs}rem`;
+    valLS.textContent = `${Number(ls).toFixed(3)}em`;
+  }
+
+  function save(lh, fs, ls) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ lineHeight: lh, fontSize: fs, letterSpacing: ls })); } catch (_) {}
+  }
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null') || DEFAULTS; }
+    catch (_) { return DEFAULTS; }
+  }
+
+  // Boot: restore saved values
+  const init = load();
+  sliderLH.value = init.lineHeight;
+  sliderFS.value = init.fontSize;
+  sliderLS.value = init.letterSpacing;
+  applyStyle(init.lineHeight, init.fontSize, init.letterSpacing);
+  syncDisplays(init.lineHeight, init.fontSize, init.letterSpacing);
+
+  // Live updates
+  sliderLH.addEventListener('input', () => {
+    const v = parseFloat(sliderLH.value);
+    textarea.style.lineHeight = String(v);
+    valLH.textContent = String(v);
+    save(v, parseFloat(sliderFS.value), parseFloat(sliderLS.value));
+  });
+
+  sliderFS.addEventListener('input', () => {
+    const v = parseFloat(sliderFS.value);
+    textarea.style.fontSize = `${v}rem`;
+    valFS.textContent = `${v}rem`;
+    save(parseFloat(sliderLH.value), v, parseFloat(sliderLS.value));
+  });
+
+  sliderLS.addEventListener('input', () => {
+    const v = parseFloat(sliderLS.value);
+    textarea.style.letterSpacing = `${v}em`;
+    valLS.textContent = `${v.toFixed(3)}em`;
+    save(parseFloat(sliderLH.value), parseFloat(sliderFS.value), v);
+  });
+
+  // Reset to defaults
+  resetBtn?.addEventListener('click', () => {
+    const { lineHeight, fontSize, letterSpacing } = DEFAULTS;
+    sliderLH.value = lineHeight;
+    sliderFS.value = fontSize;
+    sliderLS.value = letterSpacing;
+    applyStyle(lineHeight, fontSize, letterSpacing);
+    syncDisplays(lineHeight, fontSize, letterSpacing);
+    save(lineHeight, fontSize, letterSpacing);
+  });
+}());

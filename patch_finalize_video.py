@@ -3,7 +3,7 @@ import re
 with open(r'd:\presentator\script.js', 'r', encoding='utf-8') as f:
     text = f.read()
 
-text = re.sub(r'avatarVideoElement\.src = .*?;', r'avatarVideoElement.src = "teacher_video.mp4";', text)
+text = re.sub(r'avatarVideoElement\.src = .*?;', r'avatarVideoElement.src = "teacher_video_transparent_1080p.webm";', text)
 
 simple_draw = r'''  // Draw the live video frame directly!
   ctx.drawImage(transparentAnjaliCanvas, finalX, finalY, finalWidth, finalHeight);
