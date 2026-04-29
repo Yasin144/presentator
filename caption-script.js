@@ -1122,22 +1122,8 @@ function bootCaptionStudio() {
         sourceVideo.addEventListener('ended', onEnd, { once: true });
     });
 
-    const stageCaptionBtn = document.getElementById('stageCaptionExportBtn');
-    if (stageCaptionBtn) {
-        stageCaptionBtn.addEventListener('click', () => {
-            alert("To auto-caption your presentation, use the 'Export Video' button directly above this to save your lesson to an MP4 video first.\n\nThen, I will redirect you to the 'AI Video Captioning' studio. Drop your exported MP4 video in there to perfectly burn the offline TikTok-style styles into it!");
-            const stagePanel = document.getElementById('stagePanel');
-            const inputPanel = document.getElementById('inputPanel');
-            if (stagePanel) stagePanel.classList.add('hidden');
-            if (inputPanel) inputPanel.classList.remove('hidden');
+    // stageCaptionExportBtn is handled by script.js — do not add a second listener here.
 
-            const captionSection = document.getElementById('aiCaptionSection');
-            if (captionSection) {
-                captionSection.open = true;
-                captionSection.scrollIntoView({behavior: "smooth", block: "start"});
-            }
-        });
-    }
 
     if (viralShortBtn) {
         viralShortBtn.addEventListener('click', () => {

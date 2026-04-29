@@ -3,6 +3,7 @@ import { useStore } from "../store/useStore";
 
 function InputPanel() {
   const actionLocks = useStore((state) => state.actionLocks);
+
   return (
     <section className="panel panel-input" id="inputPanel">
       <div className="panel-head">
@@ -34,6 +35,7 @@ function InputPanel() {
               </label>
             </div>
           </div>
+
           <strong id="themeModeLabel" className="theme-value theme-value-hidden">Day Theme</strong>
           <select id="themeSelect" className="theme-select hidden" aria-label="Choose theme">
             <option value="light">Light Mode</option>

@@ -2830,3 +2830,10 @@ kbd {
   letter-spacing: 0.04em;
   box-shadow: 0 2px 0 rgba(0,0,0,0.3);
 }
+
+/* Image Insights upload drop zone */
+#insightsDropZone:hover,
+#insightsDropZone.drag-over {
+  background: rgba(124,58,237,0.14) !important;
+  border-color: rgba(124,58,237,0.8) !important;
+}

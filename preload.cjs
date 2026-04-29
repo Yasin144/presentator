@@ -21,6 +21,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemInfo: () =>
     ipcRenderer.invoke('get-system-info'),
 
+  // ── Server management ──────────────────────────────────────────────────────
+
+  // Ask the main process to restart the Anjali AI server
+  restartAnjali: () =>
+    ipcRenderer.invoke('restart-anjali'),
+
+  // Get live health status of all servers
+  getServerHealth: () =>
+    ipcRenderer.invoke('get-server-health'),
+
+  // Listen for server-status push events from main process
+  onServerStatus: (callback) => {
+    ipcRenderer.on('server-status', (_, data) => callback(data));
+  },
+
+  // Remove server-status listener (cleanup)
+  offServerStatus: (callback) => {
+    ipcRenderer.removeListener('server-status', callback);
+  },
+
   // Check if running inside Electron
   isElectron: true,
   platform: process.platform,

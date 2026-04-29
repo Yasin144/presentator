@@ -1,347 +1,246 @@
+import asyncio
 import io
 import json
 import os
-import shutil
-import subprocess
+import struct
 import threading
 import traceback
-import warnings
 import wave
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-warnings.filterwarnings(
-    "ignore",
-    message=r".*pkg_resources is deprecated as an API.*",
-    category=UserWarning,
-)
-warnings.simplefilter("ignore", FutureWarning)
-warnings.simplefilter("ignore", UserWarning)
+# ── Edge TTS — free Microsoft Azure Neural voices, no API key needed ──────────
+import edge_tts
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 PORT = 8426
-REFERENCE_MP3 = PROJECT_ROOT / "voice-reference-anjali.mp3"
-REFERENCE_WAV = PROJECT_ROOT / "voice-reference-anjali.wav"
-REFERENCE_SOURCE_VIDEO = PROJECT_ROOT / "voice-reference-anjali-source.mp4"
-BUNDLED_MP3 = PROJECT_ROOT / "voice-preview-anjali.mp3"
-DESKTOP_MP3 = Path.home() / "Desktop" / "voice_preview_anjali - warm, cheerful and clear.mp3"
-DESKTOP_GOOD_VOICE_VIDEO = Path.home() / "Desktop" / "good voice.mp4"
-NARRATION_CACHE_LIMIT = 24
+NARRATION_CACHE_LIMIT = 48
+
+# Best Indian English female voices (in preference order)
+# NeerjaExpressiveNeural — warm, enthusiastic, very natural Indian English
+# NeerjaNeural           — slightly more formal, also excellent
+VOICE_NAME     = "en-IN-NeerjaExpressiveNeural"
+VOICE_FALLBACK = "en-IN-NeerjaNeural"
+
+# Prosody tuning — matches the energetic Info-Kids educational style
+VOICE_RATE   = "+0%"    # default speed — clearest pronunciation
+VOICE_PITCH  = "+0Hz"   # natural pitch
+VOICE_VOLUME = "+0%"    # natural volume
 
 for proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
     os.environ.pop(proxy_key, None)
 
-import numpy as np
-import torch
-from chatterbox.tts_turbo import ChatterboxTurboTTS
-import base64
-from PIL import Image
 
-def ensure_reference_mp3():
-    if REFERENCE_SOURCE_VIDEO.exists() or DESKTOP_GOOD_VOICE_VIDEO.exists():
-        return None
-
-    if REFERENCE_MP3.exists():
-        return REFERENCE_MP3
-
-    if DESKTOP_MP3.exists():
-        shutil.copy2(DESKTOP_MP3, REFERENCE_MP3)
-        return REFERENCE_MP3
-
-    if BUNDLED_MP3.exists():
-        shutil.copy2(BUNDLED_MP3, REFERENCE_MP3)
-        return REFERENCE_MP3
-
-    raise FileNotFoundError("Anjali reference MP3 was not found.")
-
-
-def ensure_reference_wav():
-    preferred_video = REFERENCE_SOURCE_VIDEO if REFERENCE_SOURCE_VIDEO.exists() else DESKTOP_GOOD_VOICE_VIDEO
-    if preferred_video.exists():
-        source_path = preferred_video
-        if REFERENCE_WAV.exists() and REFERENCE_WAV.stat().st_mtime >= source_path.stat().st_mtime:
-            return REFERENCE_WAV
-
-        command = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(source_path),
-            "-vn",
-            "-ss",
-            "2",
-            "-t",
-            "12",
-            "-af",
-            # -14 LUFS (loud but natural), remove leading silence, no EQ/limiter so
-            # the reference preserves the natural Indian female voice character.
-            "silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.25,"
-            "loudnorm=I=-14:TP=-1.0:LRA=9",
-            "-ac",
-            "1",
-            "-ar",
-            "24000",
-            str(REFERENCE_WAV),
-        ]
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
-        if completed.returncode != 0:
-            raise RuntimeError(completed.stderr.strip() or "ffmpeg failed while preparing the Anjali reference clip from good voice.mp4.")
-        return REFERENCE_WAV
-
-    source_mp3 = ensure_reference_mp3()
-    if REFERENCE_WAV.exists() and source_mp3 and REFERENCE_WAV.stat().st_mtime >= source_mp3.stat().st_mtime:
-        return REFERENCE_WAV
-
-    command = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(source_mp3),
-        "-ac",
-        "1",
-        "-ar",
-        "24000",
-        str(REFERENCE_WAV),
-    ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
-    if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or "ffmpeg failed while preparing the Anjali reference clip.")
-    return REFERENCE_WAV
-
-
-class AnjaliCloneEngine:
+class AnjaliEdgeEngine:
     def __init__(self):
         self.lock = threading.Lock()
-        self.model = None
-        self.model_error = ""
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.sample_rate = 24000
         self.cache = OrderedDict()
-        self.reference_key = None
-        self.conditioning_key = None
+        self.voice  = VOICE_NAME
+        self.rate   = VOICE_RATE
+        self.pitch  = VOICE_PITCH
+        self.volume = VOICE_VOLUME
         self.target_profile = {
-            "voiceId": "anjali",
-            "gender": "female",
-            "locale": "en-IN",
-            "accent": "indian",
-            "style": "warm-natural-classroom",
+            "voiceId":  "anjali",
+            "gender":   "female",
+            "locale":   "en-IN",
+            "accent":   "indian",
+            "style":    "expressive-educator",
+            "engine":   "edge-tts",
+            "voice":    VOICE_NAME,
         }
+        # These mirror the old Chatterbox generate_options shape so the
+        # health endpoint / UI still gets a valid JSON object.
         self.generate_options = {
-            "repetition_penalty": 1.04,  # slight penalty — keeps speech natural without robotic loops
-            "top_p": 0.92,               # balanced sampling for human-like variety
-            "temperature": 0.82,         # natural human rhythm and intonation
-            "top_k": 80,
-            "exaggeration": 0.3,        # adds warmth and expressiveness — real encouraging teacher
-            "cfg_weight": 0.5,           # anchors voice to reference — keeps Indian female teacher character
-            "min_p": 0.0,
-            "norm_loudness": True,
+            "voice":    VOICE_NAME,
+            "rate":     VOICE_RATE,
+            "pitch":    VOICE_PITCH,
+            "volume":   VOICE_VOLUME,
         }
 
+    # ── Health ────────────────────────────────────────────────────────────────
     def get_health(self):
-        reference_exists = (
-            REFERENCE_WAV.exists()
-            or REFERENCE_SOURCE_VIDEO.exists()
-            or DESKTOP_GOOD_VOICE_VIDEO.exists()
-            or REFERENCE_MP3.exists()
-            or DESKTOP_MP3.exists()
-            or BUNDLED_MP3.exists()
-        )
-        reference_file = (
-            REFERENCE_WAV if REFERENCE_WAV.exists()
-            else REFERENCE_SOURCE_VIDEO if REFERENCE_SOURCE_VIDEO.exists()
-            else DESKTOP_GOOD_VOICE_VIDEO if DESKTOP_GOOD_VOICE_VIDEO.exists()
-            else REFERENCE_MP3 if REFERENCE_MP3.exists()
-            else DESKTOP_MP3 if DESKTOP_MP3.exists()
-            else BUNDLED_MP3
-        )
         return {
-            "ok": True,
-            "voice": "anjali",
-            "engine": "chatterbox-turbo",
-            "profile": self.target_profile,
+            "ok":              True,
+            "voice":           "anjali",
+            "engine":          "edge-tts",
+            "profile":         self.target_profile,
             "generationOptions": self.generate_options,
-            "device": self.device,
-            "modelLoaded": self.model is not None,
-            "cacheEntries": len(self.cache),
-            "referenceReady": reference_exists,
-            "referenceFile": str(reference_file),
-            "sampleRate": self.sample_rate,
-            "error": self.model_error,
+            "device":          "cloud",
+            "modelLoaded":     True,   # Edge TTS needs no local model
+            "cacheEntries":    len(self.cache),
+            "referenceReady":  True,
+            "referenceFile":   VOICE_NAME,
+            "sampleRate":      24000,
+            "error":           "",
         }
 
-    def preload(self):
-        try:
-            self._ensure_model_loaded()
-        except Exception as exc:
-            self.model_error = str(exc)
-            print("Anjali preload failed:", exc, flush=True)
+    # ── Cache ─────────────────────────────────────────────────────────────────
+    def _cache_key(self, text):
+        return f"{self.voice}|{self.rate}|{self.pitch}|{self.volume}||{text.strip()}"
 
-    def _ensure_model_loaded(self):
-        if self.model is not None:
-            return self.model
-
+    def _get_cached(self, text):
+        key = self._cache_key(text)
         with self.lock:
-            if self.model is not None:
-                return self.model
+            entry = self.cache.get(key)
+            if entry is not None:
+                self.cache.move_to_end(key)
+            return entry
 
-            ensure_reference_wav()
-            torch.set_num_threads(max(1, os.cpu_count() or 4))
-            try:
-                torch.set_num_interop_threads(max(1, min(4, os.cpu_count() or 4)))
-            except RuntimeError:
-                pass
-            self.model = ChatterboxTurboTTS.from_pretrained(self.device)
-            self.sample_rate = int(getattr(self.model, "sr", 24000) or 24000)
-            self.reference_key = self._get_reference_key()
-            self.model_error = ""
-            print(f"Anjali Chatterbox model loaded on {self.device}.", flush=True)
-            return self.model
-
-    def _get_reference_key(self):
-        reference_path = ensure_reference_wav()
-        return (str(reference_path), reference_path.stat().st_mtime_ns)
-
-    def _reference_path(self):
-        reference_key = self._get_reference_key()
-        self.reference_key = reference_key
-        return reference_key[0]
-
-    def _ensure_conditionals_ready(self):
-        model = self._ensure_model_loaded()
-        reference_path = self._reference_path()
-        norm_loudness = bool(self.generate_options.get("norm_loudness", True))
-        conditioning_key = (
-            self.reference_key[1] if self.reference_key else None,
-            norm_loudness,
-        )
-        if self.conditioning_key == conditioning_key and getattr(model, "conds", None) is not None:
-            return model
-
-        model.prepare_conditionals(
-            reference_path,
-            exaggeration=float(self.generate_options.get("exaggeration", 0.3)),
-            norm_loudness=norm_loudness,
-        )
-        self.conditioning_key = conditioning_key
-        return model
-
-    @staticmethod
-    def _wav_array_to_bytes(wav_values, sample_rate):
-        wav_np = np.asarray(wav_values, dtype=np.float32).reshape(-1)
-        wav_np = np.clip(wav_np, -1.0, 1.0)
-
-        # Prepend 120ms of silence so the TTS model's first phoneme is never
-        # clipped by audio-context trimming (e.g. "cream" → "ream" bug).
-        # ChatterboxTurbo starts generating speech at sample 0 with no warmup
-        # buffer, making the leading consonant burst vulnerable to trimming.
-        lead_frames  = int(sample_rate * 0.08)   # 80 ms lead-in  (prevents first-consonant clipping)
-        trail_frames = int(sample_rate * 0.04)   # 40 ms trail-out (prevents abrupt cutoff)
-        wav_np = np.concatenate([
-            np.zeros(lead_frames,  dtype=np.float32),
-            wav_np,
-            np.zeros(trail_frames, dtype=np.float32),
-        ])
-
-        # ── RMS loudness normalization ─────────────────────────────────────────
-        # ChatterboxTurbo output varies in loudness per chunk.
-        # Normalize every chunk to a consistent loud RMS so the voice is
-        # always full-volume, clear, and broadcast-grade.
-        speech_only = wav_np[np.abs(wav_np) > 0.001]   # exclude silence frames
-        if speech_only.size > 0:
-            rms = float(np.sqrt(np.mean(speech_only ** 2)))
-            if rms > 0.001:
-                target_rms = 0.30          # natural dynamic range — loud but not over-compressed
-                gain = min(target_rms / rms, 3.5)   # cap at 3.5× to avoid distortion
-                wav_np = wav_np * gain
-        # Hard limiter — prevents any clipping after gain
-        wav_np = np.clip(wav_np, -0.97, 0.97)
-
-        pcm = (wav_np * 32767.0).round().astype(np.int16)
-
-        output = io.BytesIO()
-        with wave.open(output, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(int(sample_rate))
-            wav_file.writeframes(pcm.tobytes())
-        return output.getvalue()
-
-    def _make_cache_key(self, text):
-        safe_text = str(text or "").strip()
-        option_key = "|".join(f"{key}={self.generate_options.get(key)}" for key in sorted(self.generate_options))
-        profile_key = "|".join(f"{key}={self.target_profile.get(key)}" for key in sorted(self.target_profile))
-        reference_key = self._get_reference_key()
-        return f"{safe_text}||{profile_key}||{option_key}||ref={reference_key[1]}"
-
-    def _get_cached_audio(self, text):
-        cache_key = self._make_cache_key(text)
-        if not cache_key:
-            return None
-
+    def _store_cached(self, text, wav_bytes):
+        key = self._cache_key(text)
         with self.lock:
-            cached = self.cache.get(cache_key)
-            if cached is None:
-                return None
-            self.cache.move_to_end(cache_key)
-            return cached
-
-    def _store_cached_audio(self, text, wav_bytes):
-        cache_key = self._make_cache_key(text)
-        if not cache_key or not wav_bytes:
-            return
-
-        with self.lock:
-            self.cache[cache_key] = wav_bytes
-            self.cache.move_to_end(cache_key)
+            self.cache[key] = wav_bytes
+            self.cache.move_to_end(key)
             while len(self.cache) > NARRATION_CACHE_LIMIT:
                 self.cache.popitem(last=False)
 
-    def synthesize(self, text):
-        safe_text = str(text or "").strip()
+    # ── Audio conversion ──────────────────────────────────────────────────────
+    @staticmethod
+    def _mp3_bytes_to_wav(mp3_bytes: bytes, target_sr: int = 24000) -> bytes:
+        """Convert MP3 bytes → 24 kHz mono PCM WAV using ffmpeg subprocess."""
+        import subprocess, tempfile, os
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_in:
+            tmp_in.write(mp3_bytes)
+            tmp_in_path = tmp_in.name
+        tmp_out_path = tmp_in_path.replace(".mp3", ".wav")
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-i",  tmp_in_path,
+                    "-ac", "1",
+                    "-ar", str(target_sr),
+                    "-sample_fmt", "s16",
+                    # Plain clean conversion — no filters.
+                    # Edge TTS ~175ms leading silence is handled by the text-sync
+                    # warmup in startNarrationLoop, not by audio processing.
+
+                    tmp_out_path,
+                ],
+                capture_output=True, check=True,
+            )
+            with open(tmp_out_path, "rb") as f:
+                return f.read()
+        finally:
+            for p in (tmp_in_path, tmp_out_path):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
+
+    # ── Core synthesis ────────────────────────────────────────────────────────
+    @staticmethod
+    def _clean_text_for_tts(text: str) -> str:
+        """
+        Strip every symbol or artefact that Edge TTS would read out loud.
+        Handles markdown, bullet points, math symbols, legacy prosody tokens.
+        """
+        import re
+        t = str(text or "").strip()
+
+        # ── Legacy Chatterbox prosody tokens ──
+        t = re.sub(r'\bPause\.\s*', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'\bPause\b', '', t, flags=re.IGNORECASE)
+
+        # ── Markdown headings (## Heading → Heading) ──
+        t = re.sub(r'^#{1,6}\s+', '', t, flags=re.MULTILINE)
+
+        # ── Bold / italic markers (** __ * _ ~~) ──
+        t = re.sub(r'[*_~]{1,3}', '', t)
+
+        # ── Bullet / list markers at line start ──
+        t = re.sub(r'^\s*[\u2022\u2023\u25E6\u2043\u2219\-\*\+]\s+', '', t, flags=re.MULTILINE)
+
+        # ── Numbered list markers (1. 2. a. etc.) ──
+        t = re.sub(r'^\s*\d+[.)]\s+', '', t, flags=re.MULTILINE)
+        t = re.sub(r'^\s*[a-zA-Z][.)]\s+', '', t, flags=re.MULTILINE)
+
+        # ── Horizontal rules (--- === ___) ──
+        t = re.sub(r'^[-=_]{3,}\s*$', '', t, flags=re.MULTILINE)
+
+        # ── Backticks / code markers ──
+        t = re.sub(r'`{1,3}[^`]*`{1,3}', '', t)   # inline/block code → remove
+        t = re.sub(r'`', '', t)
+
+        # ── Pipe / table markers ──
+        t = re.sub(r'\|', ' ', t)
+
+        # ── Angle brackets used as arrows or tags ──
+        t = re.sub(r'<[^>]+>', '', t)   # strip HTML-like tags
+        t = re.sub(r'[<>]', '', t)
+
+        # ── Remaining symbols Edge TTS might vocalize ──
+        # Keep: . , ! ? : ; ' " ( ) — these help natural prosody
+        # Remove: @ # $ % ^ & + = [ ] { } \ / ~ `
+        t = re.sub(r'[@#$%^&+=\[\]{}\\/~]', ' ', t)
+
+        # ── Collapse multiple punctuation ──
+        t = re.sub(r'([.!?])\s*\1+', r'\1', t)   # ... → .
+        t = re.sub(r',\s*,+', ',', t)
+
+        # ── Collapse whitespace ──
+        t = re.sub(r'[ \t]+', ' ', t)
+        t = re.sub(r'\n{3,}', '\n\n', t)
+        t = t.strip()
+
+        return t
+
+
+    def synthesize(self, text: str) -> bytes:
+        safe_text = self._clean_text_for_tts(text)
         if not safe_text:
             raise ValueError("Text is required.")
 
-        cached_bytes = self._get_cached_audio(safe_text)
-        if cached_bytes is not None:
-            return cached_bytes
+        cached = self._get_cached(safe_text)
+        if cached is not None:
+            return cached
 
-        model = self._ensure_model_loaded()
-        with self.lock:
-            model = self._ensure_conditionals_ready()
-            with torch.inference_mode():
-                wav = model.generate(
-                    safe_text,
-                    audio_prompt_path=None,
-                    repetition_penalty=float(self.generate_options.get("repetition_penalty", 1.12)),
-                    top_p=float(self.generate_options.get("top_p", 0.88)),
-                    temperature=float(self.generate_options.get("temperature", 0.58)),
-                    top_k=int(self.generate_options.get("top_k", 64)),
-                    cfg_weight=float(self.generate_options.get("cfg_weight", 0.0)),
-                    exaggeration=float(self.generate_options.get("exaggeration", 0.0)),
-                    min_p=float(self.generate_options.get("min_p", 0.0)),
-                    norm_loudness=bool(self.generate_options.get("norm_loudness", True)),
-                )
-
-            wav_np = wav.squeeze(0).detach().cpu().numpy()
-            wav_bytes = self._wav_array_to_bytes(wav_np, self.sample_rate)
-            del wav
-            del wav_np
-            del model
-            import gc
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-        self._store_cached_audio(safe_text, wav_bytes)
+        # Run async edge-tts in a fresh event loop (server is threaded)
+        mp3_bytes = asyncio.run(self._edge_synthesize(safe_text))
+        wav_bytes  = self._mp3_bytes_to_wav(mp3_bytes)
+        self._store_cached(safe_text, wav_bytes)
         return wav_bytes
 
+    async def _edge_synthesize(self, text: str) -> bytes:
+        """Call Edge TTS and return raw MP3 bytes."""
+        communicate = edge_tts.Communicate(
+            text,
+            voice=self.voice,
+            rate=self.rate,
+            pitch=self.pitch,
+            volume=self.volume,
+        )
+        chunks = []
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                chunks.append(chunk["data"])
 
-ENGINE = AnjaliCloneEngine()
+        if not chunks:
+            # Fallback to secondary voice
+            communicate = edge_tts.Communicate(
+                text,
+                voice=VOICE_FALLBACK,
+                rate=self.rate,
+                pitch=self.pitch,
+                volume=self.volume,
+            )
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+
+        if not chunks:
+            raise RuntimeError("Edge TTS returned no audio data.")
+
+        return b"".join(chunks)
+
+
+ENGINE = AnjaliEdgeEngine()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AnjaliChatterboxServer/1.0"
+    server_version = "AnjaliEdgeServer/2.0"
     CLIENT_DISCONNECT_ERRORS = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
 
     def log_message(self, format, *args):
@@ -388,7 +287,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 qs = parse_qs(urlparse(self.path).query)
                 tl = qs.get("tl", ["en"])[0]
-                q = qs.get("q", [""])[0]
+                q  = qs.get("q",  [""])[0]
                 url = f"https://translate.googleapis.com/translate_tts?ie=UTF-8&tl={tl}&client=tw-ob&q={urllib.parse.quote(q)}"
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req) as resp:
@@ -403,77 +302,68 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"error": "Route not found."}, status_code=404)
 
     def do_POST(self):
-        if self.path == '/api/vision/analyze':
+        # Vision analyze stub (kept for compatibility)
+        if self.path == "/api/vision/analyze":
             try:
                 content_length = int(self.headers.get("Content-Length", "0") or "0")
                 raw_body = self.rfile.read(content_length) if content_length else b"{}"
                 data = json.loads(raw_body.decode("utf-8"))
-                
-                # Check if it's the 1x1 blank image from the new "Auto Explain" feature
-                if data.get('image', '').startswith('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0'):
-                    import re
-                    prompt_text = data.get('prompt', '')
-                    match = re.search(r'Analyze this mathematical concept or equation: "([^"]+)"', prompt_text)
-                    if match:
-                        equation = match.group(1).strip()
-                        # Extract the numbers if it's addition
-                        eq_match = re.search(r'(\d+)\s*\+\s*(\d+)\s*=\s*(\d+)', equation)
-                        if eq_match:
-                            n1, n2, n3 = eq_match.groups()
-                            fake_response = f"Let's learn how to add! We start with the number {n1}. If we add {n2} more to it, we count up nicely until we reach {n3}. Isn't math magical?\n{n1} + {n2} = {n3}"
-                            self.send_response(200)
-                            self.send_header('Content-Type', 'application/json')
-                            self.end_headers()
-                            self.wfile.write(json.dumps({'text': fake_response}).encode('utf-8'))
-                            return
-                        else:
-                            fake_response = f"Let's learn about this cool math concept! When we look at {equation}, we can see how numbers work together beautifully to give us the answer.\n{equation}"
-                            self.send_response(200)
-                            self.send_header('Content-Type', 'application/json')
-                            self.end_headers()
-                            self.wfile.write(json.dumps({'text': fake_response}).encode('utf-8'))
-                            return
-                
-                fake_response = "We have an excellent visual exercise on the board! Since your system is running on a CPU instead of a dedicated graphics card, the heavy Vision AI is bypassed to keep your laptop cool and fast.\n2 + 2 = 4"
-                self._send_json({"text": fake_response})
+                import re
+                prompt_text = data.get("prompt", "")
+                match = re.search(r'Analyze this mathematical concept or equation: "([^"]+)"', prompt_text)
+                if match:
+                    equation = match.group(1).strip()
+                    eq_match = re.search(r"(\d+)\s*\+\s*(\d+)\s*=\s*(\d+)", equation)
+                    if eq_match:
+                        n1, n2, n3 = eq_match.groups()
+                        resp = f"Let's learn how to add! We start with {n1}. Adding {n2} more gives us {n3}. Maths is wonderful!\n{n1} + {n2} = {n3}"
+                    else:
+                        resp = f"Let's explore this concept: {equation}"
+                else:
+                    resp = "Great visual exercise! Let's keep learning."
+                self._send_json({"text": resp})
             except Exception as e:
-                self._send_json({"error": str(e), "traceback": traceback.format_exc(limit=3)}, status_code=500)
+                self._send_json({"error": str(e)}, status_code=500)
             return
-        if self.path == '/api/preload':
-            # Trigger model load in background so first narration is instant
-            threading.Thread(target=ENGINE.preload, daemon=True).start()
-            self._send_json({"ok": True, "message": "Model preload triggered."})
+
+        # Preload stub — Edge TTS needs no preloading
+        if self.path == "/api/preload":
+            self._send_json({"ok": True, "message": "Edge TTS needs no preload — ready instantly."})
             return
+
         if not self.path.startswith("/api/narrate"):
             self._send_json({"error": "Route not found."}, status_code=404)
             return
+
+        # ── Main narration endpoint ───────────────────────────────────────────
         try:
             content_length = int(self.headers.get("Content-Length", "0") or "0")
             raw_body = self.rfile.read(content_length) if content_length else b"{}"
-            payload = json.loads(raw_body.decode("utf-8"))
-            text = payload.get("text", "")
-            generation_options = payload.get("generationOptions")
-            if isinstance(generation_options, dict):
-                ENGINE.generate_options = {
-                    "repetition_penalty": float(generation_options.get("repetitionPenalty", generation_options.get("repetition_penalty", 1.04)) or 1.04),
-                    "top_p": float(generation_options.get("topP", generation_options.get("top_p", 0.92)) or 0.92),
-                    "temperature": float(generation_options.get("temperature", 0.82) or 0.82),
-                    "top_k": int(generation_options.get("topK", generation_options.get("top_k", 80)) or 80),
-                    "cfg_weight": float(generation_options.get("cfgWeight", generation_options.get("cfg_weight", 0.5)) or 0.5),
-                    "exaggeration": float(generation_options.get("exaggeration", 0.3) or 0.3),
-                    "min_p": float(generation_options.get("minP", generation_options.get("min_p", 0.0)) or 0.0),
-                    "norm_loudness": bool(generation_options.get("normLoudness", generation_options.get("norm_loudness", True))),
-                }
+            payload  = json.loads(raw_body.decode("utf-8"))
+            text     = payload.get("text", "")
+
+            # Allow caller to override prosody
+            gen_opts = payload.get("generationOptions") or {}
+            if isinstance(gen_opts, dict):
+                if gen_opts.get("rate"):
+                    ENGINE.rate = str(gen_opts["rate"])
+                if gen_opts.get("pitch"):
+                    ENGINE.pitch = str(gen_opts["pitch"])
+                if gen_opts.get("volume"):
+                    ENGINE.volume = str(gen_opts["volume"])
+                if gen_opts.get("voice"):
+                    ENGINE.voice = str(gen_opts["voice"])
+
             wav_bytes = ENGINE.synthesize(text)
             if not self._send_headers(status_code=200, content_type="audio/wav", content_length=len(wav_bytes)):
                 return
             self._safe_write(wav_bytes)
+
         except self.CLIENT_DISCONNECT_ERRORS:
             return
         except Exception as exc:
-            ENGINE.model_error = str(exc)
             error_payload = {
-                "error": str(exc),
+                "error":     str(exc),
                 "traceback": traceback.format_exc(limit=3),
             }
             try:
@@ -483,8 +373,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    print(f"Anjali clone server listening on http://127.0.0.1:{PORT}", flush=True)
-    threading.Thread(target=ENGINE.preload, daemon=True).start()
+    print(f"Anjali Edge TTS server listening on http://127.0.0.1:{PORT}", flush=True)
+    print(f"Voice: {VOICE_NAME}  |  Rate: {VOICE_RATE}  |  Engine: Microsoft Azure Neural (free)", flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.serve_forever()
 

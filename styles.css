@@ -921,7 +921,8 @@ h1 {
   padding: 18px 20px;
   border-radius: 20px;
   font-size: 0.98rem;
-  line-height: 1.65;
+  line-height: 2.1;
+  letter-spacing: 0.01em;
 }
 
 .display-style-card,

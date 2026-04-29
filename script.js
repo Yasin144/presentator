@@ -3,11 +3,11 @@ var logoConfig = {x: 1620, y: 920, w: 0, h: 0, scale: 0.54, initialized: false, 
 
 // ── Burned-in caption overlay ────────────────────────────────────────────────
 var captionConfig = {
-  x: 200, y: 950, w: 1520, h: 80,
+  x: 60, y: 910, w: 1840, h: 100,
   dragging: false, dragOffX: 0, dragOffY: 0, hovered: false,
-  fontSize: 40, fontFamily: '"Nunito", "Inter", sans-serif',
-  bgColor: "rgba(0,0,0,0.7)", textColor: "#ffffff",
-  outlineColor: "#000000", outlineWidth: 2
+  fontSize: 62, fontFamily: '"Nunito", "Inter", sans-serif',
+  bgColor: "rgba(0,0,0,0)", textColor: "#2d1faa",
+  outlineColor: "#ffffff", outlineWidth: 7
 };
 var captionOverlay = {
   enabled: false,
@@ -324,7 +324,7 @@ const EXPORT_NARRATION_VOICE = "anjali";
 const PRESENTATION_TEMPLATE_CLASSIC = "classic";
 const PRESENTATION_TEMPLATE_OUTCOMES = "learning-outcomes";
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
-const NARRATION_STYLE_PROMPT = "You are a warm, encouraging Indian female school teacher speaking clearly to primary and middle school students. Speak in a natural, conversational Indian English accent — the kind of teacher students love. Your tone is cheerful, calm, and confident. You emphasize important words gently and pause naturally between ideas. Pronounce every number, unit, and term clearly and completely. Never rush — speak at a steady, caring classroom pace. Sound fully human: breathe naturally, vary your pitch and rhythm, and give each idea its own moment.";
+const NARRATION_STYLE_PROMPT = "You are a fast, energetic Indian female teacher on an educational kids channel — like Info Kids. Speak quickly and clearly. Introduce each word or concept with excitement, then give the definition immediately with no delay. Keep the energy high and continuous. No long pauses. Sound enthusiastic and friendly like a YouTube kids educator.";
 const NARRATION_STYLE_CONFIG = Object.freeze({
   locale: "en-IN",
   accent: "indian-female-english",
@@ -342,12 +342,12 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const ANJALI_GENERATION_OPTIONS = Object.freeze({
-  repetitionPenalty: 1.04,   // slight penalty keeps natural speech without robotic repetition
-  topP: 0.92,                // balanced — human-like variety without wandering
-  temperature: 0.82,         // natural human rhythm and intonation variation
-  topK: 80,
-  cfgWeight: 0.5,            // style-anchor the voice to the reference — keeps Indian female teacher character
-  exaggeration: 0.3,         // adds warmth and expressiveness — sounds like a real encouraging teacher
+  repetitionPenalty: 1.02,
+  topP: 0.85,               // tighter = more consistent with reference
+  temperature: 0.75,        // lower = more deterministic = closer to reference voice
+  topK: 60,                 // narrower token selection = more like reference
+  cfgWeight: 0.85,          // HIGH = locks onto reference voice characteristics strongly
+  exaggeration: 0.35,       // LOW = minimal deviation from reference style/prosody
   minP: 0,
   normLoudness: true
 });
@@ -379,11 +379,11 @@ const SEGMENTED_EXPORT_THRESHOLD_MS = 75 * 1000;
 const EXPORT_SEGMENT_TARGET_DURATION_MS = 25 * 1000;
 const MUX_CHUNK_UPLOAD_THRESHOLD_BYTES = 96 * 1024 * 1024;
 const MUX_CHUNK_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
-const STRICT_INTER_WORD_PAUSE_MS = 250;
-const STRICT_SENTENCE_PAUSE_MS = 1000;
-const STRICT_SOFT_SENTENCE_PAUSE_MS = 300;
-const STRICT_HEADING_PAUSE_MS = 1000;
-const STRICT_SCENE_END_BUFFER_MS = 800;
+const STRICT_INTER_WORD_PAUSE_MS = 100;   // tight — Edge TTS natural prosody handles rhythm
+const STRICT_SENTENCE_PAUSE_MS = 350;     // short natural breath between sentences
+const STRICT_SOFT_SENTENCE_PAUSE_MS = 150;
+const STRICT_HEADING_PAUSE_MS = 450;
+const STRICT_SCENE_END_BUFFER_MS = 600;
 const DEFAULT_INTRO_TO_LESSON_DELAY_MS = 2500;
 const DEFAULT_INTRO_POSTER_DURATION_MS = 5000;
 const STAGE_VIDEO_START_DELAY_MS = 1200;
@@ -393,7 +393,7 @@ const STRICT_BACKGROUND_MUSIC_VOLUME = 0.15; // softer bg music so voice cuts th
 const LIVE_SCENE_RENDER_FPS = 60;   // 60fps during narration for butter-smooth animation
 const IDLE_SCENE_RENDER_FPS = 10;   // Throttle when idle to save CPU/GPU
 const EXPORT_SCENE_RENDER_FPS = 30; // 30fps export (broadcast standard)
-const NARRATION_CHUNK_JOIN_GAP_MS = 800;
+const NARRATION_CHUNK_JOIN_GAP_MS = 80;   // was 800 — that 800ms freeze WAS the "stuck first word"
 const ENABLE_PREPARED_LESSON_EXPORT = false;
 const SCENE_RENDER_MOUTH_DELTA = 0.025; // More sensitive mouth tracking at 60fps
 const NARRATION_CHUNK_FADE_MS = 32;
@@ -2578,10 +2578,15 @@ function waitForNextPaint() {
 
 function scheduleVisualLoopTick(tick) {
   if (state.exportingVideo) {
-    const intervalMs = Math.max(
-      8,
-      Math.round(Number(state.exportCapture.minFrameIntervalMs) || (1000 / 30))
-    );
+    // Realtime export (recordLessonVideoRealtimeForExport) never calls setExportCaptureRate,
+    // so minFrameIntervalMs stays 0. Use requestAnimationFrame for smooth 60fps rendering
+    // that perfectly mirrors live preview. Accelerated/segmented exports set minFrameIntervalMs
+    // to a positive value (e.g. 1000/240) and must use setTimeout to render faster than real-time.
+    if (!state.exportCapture.minFrameIntervalMs) {
+      state.animationFrame = requestAnimationFrame(tick);
+      return;
+    }
+    const intervalMs = Math.max(8, Math.round(state.exportCapture.minFrameIntervalMs));
     state.exportVisualTimerId = window.setTimeout(() => {
       state.exportVisualTimerId = 0;
       tick();
@@ -3366,20 +3371,16 @@ function expandNarrationShortcuts(text) {
 }
 
 function injectSentencePauses(text) {
-  // After every sentence-ending period (not decimals), insert ', pause,' so the TTS
-  // model produces a natural ~2-second breath pause before the next sentence.
-  // Matches: period followed by whitespace (not period followed by digit — that's decimal)
-  return text
-    .replace(/\.(?=\s+[A-Z])/g, '. Pause.')  // mid-text sentences
-    .replace(/([!?])(?=\s)/g, '$1 Pause.')    // exclamations and questions
-    .trim();
+  // Edge TTS handles pauses naturally from punctuation — no injected words needed.
+  // (The old 'Pause.' injection was for Chatterbox prosody only.)
+  return text.trim();
 }
 
 // ── Teacher pacing: comma every 5 words ──────────────────────────────────────
 // ChatterboxTurbo pauses naturally at commas — this makes Anjali sound like a
 // teacher explaining step-by-step, not rushing like a radio jockey.
 // Short chunks (≤5 words, e.g. glossary keys) are left completely untouched.
-function injectTeacherPauses(text, wordsPerPause = 5) {
+function injectTeacherPauses(text, wordsPerPause = 8) {  // Info Kids: fewer commas = faster flow
   const safeText = String(text || "").trim();
   if (!safeText) return safeText;
 
@@ -6139,6 +6140,34 @@ function syncPdfPlaybackPosition(now = performance.now()) {
   state.pdf.currentTimeMs = getPdfCurrentTimelinePosition(now);
   syncPdfPreviewPageFromTime(state.pdf.currentTimeMs);
   return state.pdf.currentTimeMs;
+}
+
+/**
+ * Canonical elapsed-time helper.
+ * - During export  → state.exportCapture.elapsedMs  (virtual clock driven by the export loop)
+ * - During live narration → activeAudio.currentTime * 1000  (audio clock, same source as the narration tick)
+ * - Idle / animation-only → 0  (callers that need a wall-clock fallback should use getPlaybackElapsedSec)
+ */
+function getPlaybackElapsedMs() {
+  if (state.exportVideoTrack?.readyState === "live") {
+    return state.exportCapture.elapsedMs;
+  }
+  return Math.max(0, (state.activeAudio?.currentTime || 0) * 1000);
+}
+
+/**
+ * Same as getPlaybackElapsedMs() but returns seconds.
+ * Falls back to performance.now()/1000 when nothing is playing so that
+ * looping animations (VFX, procedural) keep running even on idle frames.
+ */
+function getPlaybackElapsedSec() {
+  if (state.exportVideoTrack?.readyState === "live") {
+    return state.exportCapture.elapsedMs / 1000;
+  }
+  if (state.activeAudio) {
+    return state.activeAudio.currentTime || 0;
+  }
+  return performance.now() / 1000;
 }
 
 function resetPdfNarrationState() {
@@ -12628,32 +12657,27 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
   // fade-in in both templates without column-offset misalignment.
   const hasTextIndex = segment.textStartIndex !== undefined && Number.isFinite(segment.textStartIndex);
   const isAnimating = state.speaking && state.exactCharCountFloat !== undefined;
-  // Smooth fade range: each character fades in over 1.5 character-widths
-  // for a silky transition instead of hard pop-in
-  const FADE_RANGE = 1.5;
+  // Tight fade: each character fully appears within 0.5 char-widths of the speech cursor
+  // — text snaps in the instant the voice speaks it, with just a quick smooth pop-in.
+  const FADE_RANGE = 0.5;
 
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
     const characterWidth = ctx.measureText(character).width;
     const globalCharIndex = (state.drawnCharCount || 0);
-    
-    // Feed the segment's style color into the coloring engine to validate custom selections!
+
     ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
-    
+
     if (isAnimating) {
-      // Sub-character smooth alpha: ease-out curve over FADE_RANGE characters
-      // so each letter gently materializes instead of popping in.
-      // Glossary segments use textStartIndex for precise alignment with state.text.
       const charRef = hasTextIndex ? (segment.textStartIndex + index) : globalCharIndex;
       const rawAlpha = (state.exactCharCountFloat - charRef) / FADE_RANGE;
-      const easedAlpha = rawAlpha <= 0 ? 0 : rawAlpha >= 1 ? 1 : 1 - ((1 - rawAlpha) * (1 - rawAlpha));
+      // Sharp ease-out: snaps visible quickly then fully opaque — no lingering ghost
+      const easedAlpha = rawAlpha <= 0 ? 0 : rawAlpha >= 1 ? 1 : Math.sqrt(rawAlpha);
       ctx.globalAlpha = clamp(easedAlpha, 0, 1);
 
-      // Subtle glow on the character currently being typed (the "hot" character).
-      // Glossary segments use charRef (aligned to state.text position) for accuracy.
       const glowRef = hasTextIndex ? (segment.textStartIndex + index) : globalCharIndex;
       const distFromCursor = Math.abs(glowRef - state.exactCharCountFloat);
-      if (distFromCursor < 1.2 && easedAlpha > 0.1 && easedAlpha < 0.95) {
+      if (distFromCursor < 0.6 && easedAlpha > 0.05 && easedAlpha < 0.98) {
         ctx.shadowColor = "rgba(13, 126, 169, 0.5)";
         ctx.shadowBlur = 12;
         ctx.shadowOffsetY = 0;
@@ -12690,7 +12714,7 @@ function drawSceneVfx() {
     ? state.scene.palette
     : ["#0e84ad", "#4eb6de", "#ffb548"];
   const vfx = state.scene.vfx || "sparkles";
-  const rawTime = (state.activeAudio?.currentTime || performance.now() / 1000);
+  const rawTime = getPlaybackElapsedSec();
   const exportMotionScale = state.exportingVideo ? 0.45 : 1;
   const time = rawTime * exportMotionScale;
   const boardTop = 118;
@@ -14333,7 +14357,7 @@ function drawAutoQuizOverlay() {
   
   const [_, question, optA, optB, optC, optD, answer] = quizMatch;
   
-  const rawTime = (state.activeAudio?.currentTime || performance.now() / 1000);
+  const rawTime = getPlaybackElapsedSec();
   const currentMs = rawTime * 1000;
   
   const timeline = state.narration?.syncProfile?.timeline || [];
@@ -14418,7 +14442,7 @@ function drawProceduralConceptAnimations() {
   const isAnimatingContent = state.speaking || (state.displayedText && state.displayedText !== state.text);
   const boardSourceText = isAnimatingContent ? (state.displayedText || state.text) : state.text;
   if (!boardSourceText) return;
-  const rawTime = (state.activeAudio?.currentTime || performance.now() / 1000);
+  const rawTime = getPlaybackElapsedSec();
 
   // 1. Math Jumps / Addition
   const mathMatch = boardSourceText.match(/(?:let's\s*add|adding)?\s*(\d+)\s*\+\s*(\d+)\s*=\s*(\d+)/i) ||
@@ -14612,7 +14636,7 @@ function drawOptionalImages(currentPageIndex = 0, totalPageCount = 1) {
   let elapsedMs = 0;
   let durationMs = 0;
   if (state.speaking || state.exportVideoTrack?.readyState === "live") {
-    elapsedMs = state.exportVideoTrack?.readyState === "live" ? state.exportCapture.elapsedMs : state.playback.elapsedMs;
+    elapsedMs = getPlaybackElapsedMs();
     durationMs = state.narration?.syncProfile?.totalDurationMs || 0;
   }
   const totalImages = pageEntries.length;
@@ -15100,11 +15124,7 @@ function isSceneActuallyDirty(mouthOpen) {
   if (state.text !== _lastDrawnText) return true;
   if (state.displayedText !== _lastDrawnDisplayedText) return true;
   // Sub-character float changes trigger redraws for smooth alpha fade.
-  // Threshold is 0.01 (not 0.05) — at typical speech speed a character
-  // spans ~200 ms, so each 16 ms rAF moves the float ~0.08 units; we
-  // must not skip any frame or the fade looks choppy.
   if (state.speaking && Math.abs((state.exactCharCountFloat || 0) - _lastDrawnExactCharFloat) > 0.01) return true;
-  // The blinking cursor uses performance.now() — always dirty while it is visible.
   if (state.speaking && state.displayedText !== state.text) return true;
   if (state.previewPageIndex !== _lastDrawnPageIndex) return true;
   if (state.introPlayback.active || state.introPlayback.previewVisible) return true;
@@ -15318,17 +15338,7 @@ function drawScene(mouthOpen = 0.12) {
     y += currentRowHeight;
   });
 
-  if (state.speaking && state.displayedText !== state.text) {
-    // Smooth pulsing cursor with glow effect
-    const cursorPulse = 0.6 + Math.sin(performance.now() / 200) * 0.3;
-    ctx.save();
-    ctx.shadowColor = "rgba(13, 126, 169, 0.6)";
-    ctx.shadowBlur = 10;
-    ctx.globalAlpha = cursorPulse;
-    ctx.fillStyle = "#0d9ec9";
-    ctx.fillRect(contentArea.x + contentPaddingX, visibleCursorY - 4, 3, 30);
-    ctx.restore();
-  }
+  // Cursor removed — clean text reveal without blinking bar
 
   if (totalPageCount > 1) {
     ctx.fillStyle = "rgba(255,255,255,0.86)";
@@ -15361,64 +15371,110 @@ function drawBurnedCaptions() {
 
   const text = captionOverlay.currentText;
   const fs = captionConfig.fontSize;
-  const pad = 14;
+  const pad = 16;
+  const maxLineW = captionConfig.w || (canvas.width - 120);
 
   ctx.save();
-  ctx.font = `700 ${fs}px ${captionConfig.fontFamily}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  // Measure text to auto-size the background
-  const textWidth = ctx.measureText(text).width;
-  const boxW = Math.min(canvas.width - 40, textWidth + pad * 4);
-  const boxH = fs + pad * 2;
-  const boxX = captionConfig.x;
-  const boxY = captionConfig.y;
-  const centerX = boxX + boxW / 2;
-  const centerY = boxY + boxH / 2;
-
-  // Update captionConfig dimensions for hit-testing
-  captionConfig.w = boxW;
-  captionConfig.h = boxH;
-
-  // Semi-transparent background with rounded corners
+  ctx.font = `900 ${fs}px ${captionConfig.fontFamily}`;
+  ctx.textBaseline = "alphabetic";
   ctx.globalAlpha = 1.0;
-  ctx.fillStyle = captionConfig.bgColor;
-  const r = 12;
-  ctx.beginPath();
-  ctx.moveTo(boxX + r, boxY);
-  ctx.lineTo(boxX + boxW - r, boxY);
-  ctx.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + r);
-  ctx.lineTo(boxX + boxW, boxY + boxH - r);
-  ctx.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - r, boxY + boxH);
-  ctx.lineTo(boxX + r, boxY + boxH);
-  ctx.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - r);
-  ctx.lineTo(boxX, boxY + r);
-  ctx.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
-  ctx.closePath();
-  ctx.fill();
 
-  // Text outline for readability
-  if (captionConfig.outlineWidth > 0) {
-    ctx.strokeStyle = captionConfig.outlineColor;
-    ctx.lineWidth = captionConfig.outlineWidth;
-    ctx.lineJoin = "round";
-    ctx.strokeText(text, centerX, centerY);
+  // ── Word-wrap the text into lines that fit within maxLineW ──
+  const words = text.split(" ");
+  const lines = [];
+  let currentLine = "";
+  for (const word of words) {
+    const candidate = currentLine ? currentLine + " " + word : word;
+    if (ctx.measureText(candidate).width > maxLineW && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = candidate;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+
+  const lineHeight = fs * 1.25;
+  const totalH = lines.length * lineHeight;
+  const startY = captionConfig.y + fs; // baseline of first line
+
+  const isTransparentBg = !captionConfig.bgColor
+    || captionConfig.bgColor === "transparent"
+    || captionConfig.bgColor === "rgba(0,0,0,0)"
+    || captionConfig.bgColor.endsWith(",0)")
+    || captionConfig.bgColor.endsWith(", 0)");
+
+  // ── Background box (only when not transparent) ──
+  if (!isTransparentBg) {
+    const boxX = captionConfig.x;
+    const boxY = captionConfig.y - pad / 2;
+    const boxW = Math.min(canvas.width - 40, maxLineW + pad * 2);
+    const boxH = totalH + pad;
+    const r = 12;
+    ctx.fillStyle = captionConfig.bgColor;
+    ctx.beginPath();
+    ctx.moveTo(boxX + r, boxY);
+    ctx.lineTo(boxX + boxW - r, boxY);
+    ctx.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + r);
+    ctx.lineTo(boxX + boxW, boxY + boxH - r);
+    ctx.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - r, boxY + boxH);
+    ctx.lineTo(boxX + r, boxY + boxH);
+    ctx.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - r);
+    ctx.lineTo(boxX, boxY + r);
+    ctx.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
+    ctx.closePath();
+    ctx.fill();
+    captionConfig.w = boxW;
+    captionConfig.h = boxH;
   }
 
-  // Caption text
-  ctx.fillStyle = captionConfig.textColor;
-  ctx.fillText(text, centerX, centerY);
+  // ── Render each line centered ──
+  ctx.textAlign = "center";
+  const centreX = captionConfig.x + (maxLineW / 2);
 
-  // Drag handle indicator (only when hovered, not during export)
+  lines.forEach((line, i) => {
+    const y = startY + i * lineHeight;
+
+    // Drop-shadow for legibility over any background
+    if (isTransparentBg) {
+      ctx.shadowColor = "rgba(0,0,0,0.55)";
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 3;
+    }
+
+    // White stroke outline (info-kids style)
+    if (captionConfig.outlineWidth > 0) {
+      ctx.strokeStyle = captionConfig.outlineColor;
+      ctx.lineWidth = captionConfig.outlineWidth;
+      ctx.lineJoin = "round";
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.strokeText(line, centreX, y);
+    }
+
+    // Colored fill text
+    ctx.shadowColor = isTransparentBg ? "rgba(0,0,0,0.45)" : "transparent";
+    ctx.shadowBlur = isTransparentBg ? 8 : 0;
+    ctx.shadowOffsetY = isTransparentBg ? 2 : 0;
+    ctx.fillStyle = captionConfig.textColor;
+    ctx.fillText(line, centreX, y);
+  });
+
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  // ── Drag handle indicator (edit mode only) ──
   if (captionConfig.hovered && !state.exportingVideo) {
+    const boxX = captionConfig.x;
+    const boxY = captionConfig.y - pad / 2;
+    const boxW = maxLineW + pad * 2;
+    const boxH = totalH + pad;
     ctx.strokeStyle = "rgba(60,180,255,0.7)";
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
     ctx.strokeRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4);
     ctx.setLineDash([]);
-
-    // Move icon hint
     ctx.fillStyle = "rgba(60,180,255,0.9)";
     ctx.font = '600 12px "Nunito"';
     ctx.textAlign = "left";
@@ -19194,6 +19250,21 @@ function startNarrationLoop(audioElement) {
     const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, durationMs, {
       syncProfileData: state.narration?.syncProfile
     });
+
+    // ── First-word cold-start fix ──────────────────────────────────────────────
+    // The renderer uses `state.displayedText` when speaking (line ~4978).
+    // At t=0 getSpeechSyncFrame returns displayedText="" and exactCharCountFloat=0
+    // → nothing renders → screen looks STUCK for the ~175ms Edge TTS leading silence.
+    // Fix: pre-reveal the first word in BOTH displayedText AND exactCharCountFloat.
+    if (syncElapsedMs < 175 && !syncFrame.displayedText && state.text) {
+      // Show at least the first word so the renderer has content
+      const firstSpace = state.text.indexOf(' ');
+      syncFrame.displayedText = firstSpace > 0
+        ? state.text.slice(0, firstSpace + 1)
+        : state.text.slice(0, 1);
+      syncFrame.exactCharCountFloat = 0.5; // past FADE_RANGE → first char fully visible
+    }
+
     state.displayedText = syncFrame.displayedText;
     state.exactCharCountFloat = syncFrame.exactCharCountFloat;
     syncLessonPlaybackProgressUi(progress, true);
@@ -19214,11 +19285,14 @@ function startNarrationLoop(audioElement) {
     // and the blinking cursor pulse uses performance.now() so it changes every frame.
     const exactFloatChanged = Math.abs(syncFrame.exactCharCountFloat - (_lastDrawnExactCharFloat ?? -1)) > 0.01;
     const cursorPulseActive = state.speaking && state.displayedText !== state.text;
-    if (shouldRenderAnimatedSceneFrame(nowMs, {
-      force: state.exportingVideo || previousText !== state.displayedText || progress >= 0.995 || exactFloatChanged || cursorPulseActive,
+    // During export: always render every tick — the setTimeout already controls pacing.
+    // During live: use the frame-skip guard to avoid redundant renders.
+    const shouldDraw = state.exportingVideo || shouldRenderAnimatedSceneFrame(nowMs, {
+      force: previousText !== state.displayedText || progress >= 0.995 || exactFloatChanged || cursorPulseActive,
       lastRenderAt,
       mouthDelta: nextMouth - lastRenderedMouth
-    })) {
+    });
+    if (shouldDraw) {
       // Update burned-in caption text for this frame
       if (captionOverlay.enabled && captionOverlay.segments.length) {
         let captionText = "";
@@ -20325,6 +20399,11 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
   let audioUrl = "";
   let audioElement = null;
 
+  // Clear the capture rate so scheduleVisualLoopTick uses requestAnimationFrame (smooth 60fps)
+  // instead of a coarse setTimeout. Realtime export renders at the audio's real-time pace,
+  // so the rAF-driven loop is the correct choice here.
+  clearExportCaptureRate();
+
   try {
     canvasStream = createExportCanvasStream(captureRate, { preferTimedCapture: true });
     const videoTracks = canvasStream.getVideoTracks();
@@ -20396,7 +20475,9 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
     audioUrl = URL.createObjectURL(audioBlob);
     audioElement = await createLoadedAudio(audioUrl);
     applyNaturalVoicePlayback(audioElement, playbackRate);
-    audioElement.muted = true;
+    // Do NOT mute: muting can stall audioElement.currentTime in some browsers,
+    // breaking the animation sync. Use volume=0 to silence playback instead.
+    audioElement.muted = false;
     audioElement.volume = 0;
     state.activeAudio = audioElement;
     state.speaking = true;

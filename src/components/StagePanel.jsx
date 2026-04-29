@@ -1,9 +1,18 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { useStore } from "../store/useStore";
 
 function StagePanel() {
   const canvasRef = useRef(null);
   const actionLocks = useStore((state) => state.actionLocks);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Poll export status every 500 ms
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIsExporting(typeof window.ppIsExporting === 'function' ? window.ppIsExporting() : false);
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -230,6 +239,7 @@ function StagePanel() {
           </div>
         </details>
 
+
         <details className="stage-toolbar-group stage-toolbar-export stage-toolbar-card">
           <summary className="stage-toolbar-head stage-toolbar-summary">
             <div>
@@ -245,6 +255,30 @@ function StagePanel() {
                 style={{"background": "#facc15", "color": "#000", "border": "none", "marginTop": "4px"}}>✨ Captions & Export Video</button>
               <button id="downloadPdfContextBtn" className="primary-btn stage-download-btn hidden" type="button">&#8681;
                 Export PDF Context</button>
+
+              {/* Stop Export — visible only while exporting */}
+              {isExporting && (
+                <button
+                  type="button"
+                  onClick={() => typeof window.ppStopExport === 'function' && window.ppStopExport()}
+                  style={{
+                    marginTop: '8px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: 'linear-gradient(135deg,#ef4444,#b91c1c)',
+                    color: '#fff',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    width: '100%',
+                    letterSpacing: '0.03em',
+                    boxShadow: '0 0 14px rgba(239,68,68,0.55)',
+                  }}
+                  aria-label="Stop export">
+                  ⬛ Stop Export
+                </button>
+              )}
               <div className="stage-style-actions" aria-label="Quick stage text style">
                 <button id="stageBoldBtn" className="ghost-btn toggle-btn stage-icon-btn" type="button" aria-pressed="false"
                   aria-label="Bold" title="Bold"><span aria-hidden="true">B</span></button>
