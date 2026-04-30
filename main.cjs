@@ -176,11 +176,9 @@ function startAnjaliWatchdog() {
           try { entry.proc.kill('SIGTERM'); } catch(_) {}
           // 'exit' handler fires → scheduleRestart() → doSpawn()
         } else {
-          // Process already gone — call doSpawn directly through a hack:
-          // trigger scheduleRestart with 0 back-off
+          // Process already gone — re-launch after 1s
           entry.lastRestartAt = 0;
           entry.restartCount  = 0;
-          // Re-launch by simulating an exit event
           setTimeout(() => startAnjaliServer(), 1000);
         }
       }
@@ -192,11 +190,6 @@ function startAnjaliWatchdog() {
           message: 'Anjali AI server went offline — restarting automatically…'
         });
       });
-    } else {
-      // Optionally notify renderer that Anjali is alive (throttled)
-      // BrowserWindow.getAllWindows().forEach(w => {
-      //   w.webContents.send('server-status', { server: 'anjali', status: 'ok' });
-      // });
     }
   }, 20000); // every 20 seconds
 }
@@ -263,31 +256,44 @@ function startServers() {
 // ─── Free all server ports before launch ──────────────────────────────────────
 // Kills any stale process (leftover python, old Electron, etc.) that is already
 // holding one of our server ports. Without this, launching a second time while
-// a previous python process is still alive causes ALL servers to fail with
-// "port already in use" → the "Anjali voice server unavailable" error.
+// a previous python process is still alive causes "port already in use" →
+// the "Anjali voice server unavailable" error.
+//
+// Uses taskkill /F which is faster and more reliable than PowerShell Stop-Process.
+// Also kills any stale python.exe NOT from our venv to prevent duplicate servers.
 function freeServerPorts() {
   return new Promise((resolve) => {
     const ports = [5173, 8424, 8426, 8428, 8430];
-    const psCmd = `
-      $ports = ${JSON.stringify(ports)} -join ','
-      @(${ports.join(',')}) | ForEach-Object {
-        $p = $_
-        $lines = netstat -ano | Select-String ":\${p}\\s"
-        foreach ($line in $lines) {
-          $id = ($line -replace '.*\\s+(\\d+)\\s*$', '$1').Trim()
-          if ($id -match '^\\d+$' -and [int]$id -ne 0 -and [int]$id -ne $PID) {
-            try { Stop-Process -Id ([int]$id) -Force -ErrorAction SilentlyContinue } catch {}
-          }
-        }
-      }
-    `.replace(/\n/g, ' ');
-    const child = spawn(PS, ['-NoProfile', '-Command', psCmd], {
+    const venvPyEscaped = ANJALI_PYTHON.replace(/\\/g, '\\\\');
+
+    const psLines = [
+      `$myPid  = ${process.pid}`,
+      `$venvPy = '${venvPyEscaped}'`,
+      `$ports  = @(${ports.join(',')})`,
+      `foreach ($port in $ports) {`,
+      `  $lines = netstat -ano 2>$null | Select-String ":$port\\s"`,
+      `  foreach ($line in $lines) {`,
+      `    if ($line -match '\\s(\\d+)\\s*$') {`,
+      `      $pid = [int]$Matches[1]`,
+      `      if ($pid -ne 0 -and $pid -ne $myPid) {`,
+      `        taskkill /F /PID $pid 2>$null | Out-Null`,
+      `      }`,
+      `    }`,
+      `  }`,
+      `}`,
+      // Extra safety: kill any python.exe not from our venv
+      `Get-Process python,python3 -ErrorAction SilentlyContinue | Where-Object {`,
+      `  $_.Id -ne $myPid -and $_.Path -ne $venvPy`,
+      `} | ForEach-Object { taskkill /F /PID $_.Id 2>$null | Out-Null }`,
+    ].join('; ');
+
+    const child = spawn(PS, ['-NoProfile', '-NonInteractive', '-Command', psLines], {
       detached: false, stdio: 'ignore', windowsHide: true,
     });
     child.on('exit', () => resolve());
-    child.on('error', () => resolve());  // don't block on error
-    // Hard timeout: give it 5s max then proceed
-    setTimeout(resolve, 5000);
+    child.on('error', () => resolve());
+    // Hard timeout: 8s (was 5s — too short on slow machines/antivirus)
+    setTimeout(resolve, 8000);
   });
 }
 

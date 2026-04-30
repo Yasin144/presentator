@@ -351,7 +351,7 @@ const ANJALI_GENERATION_OPTIONS = Object.freeze({
   minP: 0,
   normLoudness: true
 });
-const STAGE_LEFT_CONTENT_GAP_PX = 132;
+const STAGE_LEFT_CONTENT_GAP_PX = 64; // Avatar removed — text now starts from the standard left margin
 const STAGE_RIGHT_CLEAR_GAP_PX = 380;
 const STAGE_TEXT_SIDE_MARGIN_PX = 64;
 const STAGE_TEXT_TOP_MARGIN_PX = 32;
@@ -666,7 +666,7 @@ const state = {
   narrationServerUrl: "http://127.0.0.1:8424",
   narrationServerReady: false,
   anjaliCloneServerUrl: "http://127.0.0.1:8426",
-  anjaliCloneServerReady: false,
+  anjaliCloneServerReady: true,  // Edge TTS is a cloud API — always ready instantly, no warmup needed
   transcribeServerUrl: "http://127.0.0.1:8428",
   transcribeServerReady: false,
   videoExportServerUrl: "http://127.0.0.1:8430",
@@ -3315,50 +3315,123 @@ function buildDisplayedLines(text) {
   return splitIntoLines(text);
 }
 
-// ── Shortcut expansion table: common informal/abbreviated words → full form ──
+// ── Full shortcut/abbreviation expansion — NOTHING goes to TTS unexpanded ───
 const NARRATION_SHORTCUT_MAP = [
-  // Chat shortcuts → full words
-  [/\bu\b/gi,           'you'],
-  [/\bur\b/gi,          'your'],
-  [/\bU\b/g,            'you'],
-  [/\br\b/gi,           'are'],
-  [/\byt\b/gi,          'your'],
-  [/\bim\b/gi,          'I am'],
-  [/\bwud\b/gi,         'would'],
-  [/\bcud\b/gi,         'could'],
-  [/\bshud\b/gi,        'should'],
-  [/\bthru\b/gi,        'through'],
-  [/\bbtw\b/gi,         'by the way'],
-  [/\bidk\b/gi,         'I do not know'],
-  [/\bomg\b/gi,         'oh my goodness'],
-  [/\blol\b/gi,         ''],
-  [/\bw\/\b/gi,         'with'],
-  [/\bw\/o\b/gi,        'without'],
-  [/\bwrt\b/gi,         'with respect to'],
-  [/\beg\b/gi,          'for example'],
-  [/\bie\b/gi,          'that is'],
-  [/\betc\b/gi,         'and so on'],
-  [/\bviz\b/gi,         'namely'],
-  [/\bapprox\b/gi,      'approximately'],
-  [/\bmax\b/gi,         'maximum'],
-  [/\bmin\b/gi,         'minimum'],
-  // Number abbreviations
-  [/\bno\.\s*(\d)/gi,   'number $1'],
-  [/\bvs\.?\b/gi,       'versus'],
-  [/\bamt\b/gi,         'amount'],
-  [/\bqty\b/gi,         'quantity'],
-  [/\bpls\b/gi,         'please'],
-  [/\bthx\b/gi,         'thanks'],
-  [/\binfo\b/gi,        'information'],
-  [/\bques\b/gi,        'question'],
-  [/\bans\b/gi,         'answer'],
-  [/\bsoln\b/gi,        'solution'],
-  [/\bdefn\b/gi,        'definition'],
-  [/\bprop\b/gi,        'property'],
-  [/\bstmt\b/gi,        'statement'],
-  [/\bthm\b/gi,         'theorem'],
-  [/\bprob\b/gi,        'problem'],
-  [/\bex\b/gi,          'example'],
+  // ── Chat / social-media shortforms ──────────────────────────────────────
+  [/\bu\b/gi,              'you'],
+  [/\bur\b/gi,             'your'],
+  [/\bU\b/g,               'you'],
+  [/\br\b/gi,              'are'],
+  [/\byt\b/gi,             'your'],
+  [/\bim\b/gi,             'I am'],
+  [/\bi'm\b/gi,            'I am'],
+  [/\bwud\b/gi,            'would'],
+  [/\bcud\b/gi,            'could'],
+  [/\bshud\b/gi,           'should'],
+  [/\bthru\b/gi,           'through'],
+  [/\bbtw\b/gi,            'by the way'],
+  [/\bidk\b/gi,            'I do not know'],
+  [/\bomg\b/gi,            'oh my goodness'],
+  [/\blol\b/gi,            ''],
+  [/\bw\/\b/gi,            'with'],
+  [/\bw\/o\b/gi,           'without'],
+  [/\bwrt\b/gi,            'with respect to'],
+  [/\bfyi\b/gi,            'for your information'],
+  [/\basap\b/gi,           'as soon as possible'],
+  [/\biow\b/gi,            'in other words'],
+  [/\bnb\b/gi,             'note well'],
+  [/\bps\b/gi,             'postscript'],
+  // ── Common English abbreviations ─────────────────────────────────────────
+  [/\beg\.?\b/gi,          'for example'],
+  [/\bie\.?\b/gi,          'that is'],
+  [/\betc\.?\b/gi,         'and so on'],
+  [/\bviz\.?\b/gi,         'namely'],
+  [/\bapprox\.?\b/gi,      'approximately'],
+  [/\bapx\.?\b/gi,         'approximately'],
+  [/\bmax\.?\b/gi,         'maximum'],
+  [/\bmin\.?\b/gi,         'minimum'],
+  [/\bavg\.?\b/gi,         'average'],
+  [/\bvs\.?\b/gi,          'versus'],
+  [/\bamt\b/gi,            'amount'],
+  [/\bqty\.?\b/gi,         'quantity'],
+  [/\bpls\b/gi,            'please'],
+  [/\bplz\b/gi,            'please'],
+  [/\bthx\b/gi,            'thanks'],
+  [/\bthnx\b/gi,           'thanks'],
+  [/\bty\b/gi,             'thank you'],
+  [/\binfo\b/gi,           'information'],
+  [/\bintro\b/gi,          'introduction'],
+  [/\bconc\b/gi,           'conclusion'],
+  [/\bdefn\b/gi,           'definition'],
+  [/\bdefns\b/gi,          'definitions'],
+  [/\bprop\b/gi,           'property'],
+  [/\bprops\b/gi,          'properties'],
+  [/\bstmt\b/gi,           'statement'],
+  [/\bstmts\b/gi,          'statements'],
+  [/\bthm\b/gi,            'theorem'],
+  [/\bprob\b/gi,           'problem'],
+  [/\bprobs\b/gi,          'problems'],
+  [/\bex\.?\b/gi,          'example'],
+  [/\bexs\.?\b/gi,         'examples'],
+  [/\bques\.?\b/gi,        'question'],
+  [/\bq\.\s*(\d+)/gi,      'question $1'],
+  [/\bans\.?\b/gi,         'answer'],
+  [/\bsoln\.?\b/gi,        'solution'],
+  [/\bsolns\.?\b/gi,       'solutions'],
+  [/\bpg\.?\s*(\d+)/gi,    'page $1'],
+  [/\bpgs\.?\b/gi,         'pages'],
+  [/\bch\.?\s*(\d+)/gi,    'chapter $1'],
+  [/\bchap\.?\b/gi,        'chapter'],
+  [/\bsec\.?\b/gi,         'section'],
+  [/\bfig\.?\s*(\d+)/gi,   'figure $1'],
+  [/\bfigs\.?\b/gi,        'figures'],
+  [/\btbl\.?\b/gi,         'table'],
+  [/\bno\.\s*(\d)/gi,      'number $1'],
+  [/\bnos?\.?\b/gi,        'numbers'],
+  [/\bqns?\.?\b/gi,        'questions'],
+  [/\bstd\.?\b/gi,         'standard'],
+  [/\bst\.?\b/gi,          'standard'],
+  [/\bwks\.?\b/gi,         'weeks'],
+  [/\bwk\.?\b/gi,          'week'],
+  [/\bdept\.?\b/gi,        'department'],
+  [/\bgovt\.?\b/gi,        'government'],
+  [/\binst\.?\b/gi,        'institution'],
+  [/\bprof\.?\b/gi,        'professor'],
+  [/\bdr\.?\b/gi,          'doctor'],
+  [/\bmr\.?\b/gi,          'mister'],
+  [/\bmrs\.?\b/gi,         'missis'],
+  [/\bms\.?\b/gi,          'miss'],
+  // ── Subject / academic abbreviations ────────────────────────────────────
+  [/\bLHS\b/g,             'left hand side'],
+  [/\bRHS\b/g,             'right hand side'],
+  [/\bHCF\b/g,             'highest common factor'],
+  [/\bLCM\b/g,             'lowest common multiple'],
+  [/\bGCD\b/g,             'greatest common divisor'],
+  [/\bLCD\b/g,             'lowest common denominator'],
+  [/\bPEMDAS\b/g,          'order of operations'],
+  [/\bBODMAS\b/g,          'order of operations'],
+  [/\bmrp\b/gi,            'M R P'],
+  // ── Symbol / special character expansions ────────────────────────────────
+  [/&/g,                   ' and '],
+  [/\u2192/g,              ' to '],
+  [/\u2190/g,              ' from '],
+  [/\u2194/g,              ' both ways '],
+  [/\u20B9/g,              ' rupees '],
+  [/\$/g,                  ' dollars '],
+  [/\u20AC/g,              ' euros '],
+  [/\u00A3/g,              ' pounds '],
+  [/_{2,}/g,               ' blank '],
+  [/\.{3,}/g,              ', '],
+  [/\u2026/g,              ', '],
+  [/\u2013/g,              ' to '],
+  [/\u2014/g,              ', '],
+  [/\u00B0/g,              ' degrees '],
+  [/\u00A9/g,              ' copyright '],
+  [/\u00AE/g,              ' registered '],
+  [/\u2122/g,              ' trademark '],
+  [/\u2022/g,              ''],
+  [/\u25CF/g,              ''],
+  [/\blike\s*&\s*unlike\b/gi, 'like and unlike'],
 ];
 
 function expandNarrationShortcuts(text) {
@@ -3592,8 +3665,8 @@ const DEFAULT_NARRATION_REQUEST_TIMEOUT_MS = 45000;
 const LONG_NARRATION_REQUEST_BASE_TIMEOUT_MS = 60000;
 const LONG_NARRATION_REQUEST_PER_WORD_TIMEOUT_MS = 35;
 const LONG_NARRATION_REQUEST_MAX_TIMEOUT_MS = 600000;
-const ANJALI_CLONE_HEALTH_TIMEOUT_MS = 15000;
-const ANJALI_CLONE_HEALTH_GRACE_MS = 45000;
+const ANJALI_CLONE_HEALTH_TIMEOUT_MS = 3000;   // localhost — if no response in 3s it's genuinely down
+const ANJALI_CLONE_HEALTH_GRACE_MS = 120000;   // 2 min grace — one blip never kills playback
 const revealWeightCache = new Map();
 const speechSyncProfileCache = new Map();
 
@@ -3669,7 +3742,7 @@ function estimatePauseMsFromText(text = "") {
   const sentencePauseCount = (safeText.match(/[.!?]/g) || []).length;
   const lineBreakCount = (safeText.match(/\n+/g) || []).length;
   return (
-    (commaCount * STRICT_INTER_WORD_PAUSE_MS)
+    (commaCount * 1000)   // 1000ms per comma — matches server-side PCM silence
     + (softPauseCount * STRICT_INTER_WORD_PAUSE_MS)
     + (sentencePauseCount * STRICT_SENTENCE_PAUSE_MS)
     + (lineBreakCount * STRICT_SENTENCE_PAUSE_MS)
@@ -3850,6 +3923,13 @@ function getSpeechSyncTokenPauseMs(chunkText = "") {
     return STRICT_SOFT_SENTENCE_PAUSE_MS;
   }
 
+  // ── 800ms pause when chunk contains special/symbolic characters ────────────
+  // These appear silently in TTS but need visual breathing room in the animation.
+  // Matches: arrows, currency, math operators, bullets, dashes, ellipsis, etc.
+  if (/[\u2192\u2190\u2194\u2013\u2014\u2026\u2022\u25CF\u20B9\u20AC\u00A3\u00B0&=\u00D7\u00F7]/.test(safeChunk)) {
+    return 800;
+  }
+
   return STRICT_INTER_WORD_PAUSE_MS;
 }
 
@@ -3984,7 +4064,31 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
   }
 
   if (/^,+$/.test(displayText)) {
-    return Math.round(STRICT_INTER_WORD_PAUSE_MS * 0.9); // 360ms — original calibrated comma pause
+    return 1000; // 1 second — matches the 1s PCM silence inserted by anjali-chatterbox-server after every comma
+  }
+
+  // ── 350ms AFTER a standalone hyphen ('-') ──────────────────────────────────
+  // Gives the animation breathing room after the dash before the next token
+  if (/^-+$/.test(displayText.trim())) {
+    return 350;
+  }
+
+  // ── 350ms BEFORE a hyphen ('-') ────────────────────────────────────────────
+  // When the NEXT unit is a standalone '-', add a 350ms pause to THIS unit first
+  if (nextUnit && /^-+$/.test(String(nextUnit.displayText || "").trim())) {
+    return 350;
+  }
+
+  // ── 800ms AFTER a standalone slash ('/') ───────────────────────────────────
+  // Matches the 1-second silence the Python server inserts at every '/' boundary
+  if (/^\/$/.test(displayText.trim())) {
+    return 800;
+  }
+
+  // ── 800ms BEFORE a slash ('/') ─────────────────────────────────────────────
+  // Pause the reveal on the token BEFORE '/' so the animation breathes with audio
+  if (nextUnit && /^\/$/.test(String(nextUnit.displayText || "").trim())) {
+    return 800;
   }
 
   if (!nextUnit || /^\r?\n+$/.test(nextUnit.displayText || "")) {
@@ -4053,8 +4157,8 @@ function getSpeechSyncProfile(text = "", targetDurationMs = 0) {
   // real teacher: speak a phrase, pause briefly, continue.
   // We only touch word units that don't already carry a meaningful pause
   // (≥ STRICT_SOFT_SENTENCE_PAUSE_MS) and that have a spoken word.
-  const PHRASE_SYLLABLE_THRESHOLD = 9;  // syllables between breath pauses
-  const PHRASE_BREATH_PAUSE_MS    = 380; // brief natural pause (~0.4 s)
+  const PHRASE_SYLLABLE_THRESHOLD = 13;  // syllables between breath pauses (raised → fewer interruptions)
+  const PHRASE_BREATH_PAUSE_MS    = 180; // brief natural pause — tightened so animation tracks voice closely
   let syllableAccumulator = 0;
 
   estimatedUnits.forEach((unit) => {
@@ -4083,7 +4187,7 @@ function getSpeechSyncProfile(text = "", targetDurationMs = 0) {
 
   let normalizedUnits = estimatedUnits.map((unit, index) => {
     const scaledSpeechMs = unit.spokenText
-      ? Math.max(140, Math.round(unit.speechMs * scale))
+      ? Math.max(75, Math.round(unit.speechMs * scale))  // was 140 — shorter min keeps crisp words tight
       : 0;
     const scaledPauseMs = Math.max(
       index === estimatedUnits.length - 1 ? 0 : 0,
@@ -4343,12 +4447,14 @@ function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, opti
     }
 
     if (safeElapsedMs >= unit.speechStartMs && safeElapsedMs <= unit.speechEndMs) {
-      const speechProgress = clamp(
+      const rawProgress = clamp(
         (safeElapsedMs - unit.speechStartMs) / Math.max(1, unit.speechEndMs - unit.speechStartMs),
         0,
         1
       );
-      
+      // smoothstep easing: fast burst at word-start (matching TTS articulation onset),
+      // decelerate toward word-end — feels like real speech instead of mechanical ticker.
+      const speechProgress = rawProgress * rawProgress * (3 - 2 * rawProgress);
       exactCharCountFloat = unit.startIndex + (unit.displayText.length * speechProgress);
       displayedText = safeText.slice(0, Math.ceil(exactCharCountFloat));
       mouthActive = true;
@@ -5006,8 +5112,11 @@ function getBaseTextStyle() {
 
   const style = cloneTextStyle(state.displayStyle);
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
-    if (String(style.color).toLowerCase() === "#ffffff") {
-        style.color = "#050709";
+    // Template 2 now has a dark cosmic background — force text to white.
+    // Previously this block turned white→black for the old light-blue bg; now reversed.
+    const c = String(style.color).toLowerCase();
+    if (!c || c === "#000000" || c === "#050709" || c === "#17191f" || c === "#1a1a1a") {
+      style.color = "#ffffff";
     }
   }
   return style;
@@ -8728,16 +8837,37 @@ async function ensureAnjaliCloneServer() {
     return keepReady;
   }
 
-  try {
-    const response = await fetchWithTimeout(`${state.anjaliCloneServerUrl}/health`, {
-      method: "GET",
-      cache: "no-store"
-    }, ANJALI_CLONE_HEALTH_TIMEOUT_MS);
-    const payload = response.ok ? await response.clone().json().catch(() => null) : null;
-    state.anjaliMonitor.modelLoaded = Boolean(payload?.modelLoaded);
-    state.anjaliMonitor.warming = Boolean(response.ok && payload && payload.modelLoaded === false);
-    state.anjaliMonitor.lastError = String(payload?.error || "").trim();
-    state.anjaliCloneServerReady = Boolean(response.ok && (payload?.modelLoaded ?? true));
+  // ── Health-check with up to 3 retries (1 s gap) ────────────────────────────
+  // One transient network blip must NEVER block playback.
+  const MAX_HEALTH_RETRIES = 3;
+  let lastHealthError = null;
+  let healthOk = false;
+  let healthPayload = null;
+
+  for (let attempt = 1; attempt <= MAX_HEALTH_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout(`${state.anjaliCloneServerUrl}/health`, {
+        method: "GET",
+        cache: "no-store"
+      }, ANJALI_CLONE_HEALTH_TIMEOUT_MS);
+      healthPayload = response.ok ? await response.clone().json().catch(() => null) : null;
+      if (response.ok) {
+        healthOk = true;
+        break;  // success — stop retrying
+      }
+    } catch (err) {
+      lastHealthError = err;
+      if (attempt < MAX_HEALTH_RETRIES) {
+        await delay(1000);  // wait 1s before next attempt
+      }
+    }
+  }
+
+  if (healthOk) {
+    state.anjaliMonitor.modelLoaded = Boolean(healthPayload?.modelLoaded);
+    state.anjaliMonitor.warming     = Boolean(healthPayload && healthPayload.modelLoaded === false);
+    state.anjaliMonitor.lastError   = String(healthPayload?.error || "").trim();
+    state.anjaliCloneServerReady    = Boolean(healthPayload?.modelLoaded ?? true);
     if (state.anjaliCloneServerReady) {
       state.anjaliMonitor.lastHealthyAt = now;
       state.anjaliMonitor.transientFailureCount = 0;
@@ -8745,12 +8875,13 @@ async function ensureAnjaliCloneServer() {
       state.anjaliCloneServerReady = true;
       state.anjaliMonitor.transientFailureCount = Math.max(1, Number(state.anjaliMonitor.transientFailureCount || 0) + 1);
     }
-  } catch (error) {
+  } else {
+    // All retries failed
     state.anjaliMonitor.modelLoaded = recentlyHealthy ? state.anjaliMonitor.modelLoaded : false;
-    state.anjaliMonitor.warming = false;
-    state.anjaliMonitor.lastError = String(error?.message || "").trim();
+    state.anjaliMonitor.warming     = false;
+    state.anjaliMonitor.lastError   = String(lastHealthError?.message || "health check failed").trim();
     state.anjaliMonitor.transientFailureCount = Math.max(1, Number(state.anjaliMonitor.transientFailureCount || 0) + 1);
-    state.anjaliCloneServerReady = recentlyHealthy;
+    state.anjaliCloneServerReady    = recentlyHealthy; // grace: if recently healthy, stay ready
   }
 
   // ── Warm-up wait: server is running but model is still loading ──────────
@@ -10332,15 +10463,14 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
     : (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
       ? Number(options.timeoutMs)
       : DEFAULT_NARRATION_REQUEST_TIMEOUT_MS);
+  // Edge TTS (port 8426) is a cloud API — no pre-flight health check needed.
+  // We simply fire the request; if the server is genuinely down the fetch
+  // will throw a network error and the catch block will handle it cleanly.
   if (typeof options.onProgress === "function") {
     options.onProgress({
-      label: isAnjaliClone ? "Checking Anjali voice server..." : "Checking narration server...",
+      label: "Preparing voice narration...",
       progress: 0.12
     });
-  }
-  const serverReady = isAnjaliClone ? await ensureAnjaliCloneServer() : await ensureNarrationServer();
-  if (!serverReady) {
-    throw new Error(isAnjaliClone ? "The local Anjali voice server is not running." : "The local narration server is not running.");
   }
 
   const narrationText = typeof options.prebuiltNarrationText === "string"
@@ -12391,8 +12521,8 @@ function paginateLayout(layout, maxHeight) {
 function getPresentationTemplateMetrics() {
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
     return {
-      contentTopInset: 150,
-      contentLeftInset: 378,
+      contentTopInset: 92,  // leave top row clear for animated title badge
+      contentLeftInset: 58, // Avatar removed — matches contentSideInset for symmetric layout
       contentRightInset: 38,
       contentSideInset: 58,
       contentBottomInset: 40 + STAGE_TEXT_BOTTOM_RESERVED_PX,
@@ -12584,36 +12714,139 @@ function drawClassicTeachingStageBackdrop() {
 }
 
 function drawLearningOutcomesBackdrop(mouthOpen = 0) {
-  const boardGradient = ctx.createLinearGradient(0, 118, 0, canvas.height);
-  boardGradient.addColorStop(0, "#c7e4ef");
-  boardGradient.addColorStop(0.56, "#b7ddea");
-  boardGradient.addColorStop(1, "#b0d7e4");
-  ctx.fillStyle = boardGradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const W = canvas.width, H = canvas.height;
+  const t = performance.now() / 1000;
 
-  drawHeaderBackdrop();
+  // ── 1. Deep cosmic base gradient ─────────────────────────────────────────
+  const base = ctx.createLinearGradient(0, 0, W, H);
+  base.addColorStop(0,    "#06001a");
+  base.addColorStop(0.30, "#0d0533");
+  base.addColorStop(0.60, "#0a1a3d");
+  base.addColorStop(1,    "#020818");
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, W, H);
 
+  // ── 2. Three large glowing nebula orbs ───────────────────────────────────
+  const orbs = [
+    { cx: 0.15, cy: 0.40, r: 420, c1: "rgba(0,220,180,0.28)",   c2: "rgba(0,220,180,0)" },
+    { cx: 0.75, cy: 0.35, r: 500, c1: "rgba(200,0,255,0.22)",   c2: "rgba(200,0,255,0)" },
+    { cx: 0.50, cy: 0.85, r: 380, c1: "rgba(255,160,0,0.20)",   c2: "rgba(255,160,0,0)" },
+  ];
+  for (const o of orbs) {
+    const pulse = 0.88 + 0.12 * Math.sin(t * 0.7 + o.cx * 6);
+    const rx = o.cx * W, ry = o.cy * H, rr = o.r * pulse;
+    const g = ctx.createRadialGradient(rx, ry, 0, rx, ry, rr);
+    g.addColorStop(0, o.c1); g.addColorStop(1, o.c2);
+    ctx.save(); ctx.globalAlpha = 1; ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(rx, ry, rr, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // ── 3. Hexagonal dot grid ────────────────────────────────────────────────
   ctx.save();
-  ctx.globalAlpha = 0.12;
-  for (let index = 0; index < 16; index += 1) {
-    const y = 150 + (index * 34);
-    ctx.fillStyle = index % 2 === 0 ? "rgba(255, 255, 255, 0.42)" : "rgba(98, 151, 175, 0.18)";
-    ctx.fillRect(0, y, canvas.width, 2);
+  const hexR = 5, hexGap = 64;
+  const cols = Math.ceil(W / hexGap) + 2, rows = Math.ceil(H / hexGap) + 2;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const hx = col * hexGap + (row % 2) * (hexGap / 2);
+      const hy = 130 + row * (hexGap * 0.866);
+      if (hy < 130) continue;
+      const twinkle = 0.06 + 0.04 * Math.sin(t * 1.8 + col * 0.9 + row * 1.3);
+      ctx.globalAlpha = twinkle;
+      ctx.fillStyle = "#a0c8ff";
+      ctx.beginPath();
+      for (let v = 0; v < 6; v++) {
+        const a = (v * Math.PI) / 3 - Math.PI / 6;
+        const vx = hx + hexR * Math.cos(a), vy = hy + hexR * Math.sin(a);
+        v === 0 ? ctx.moveTo(vx, vy) : ctx.lineTo(vx, vy);
+      }
+      ctx.closePath(); ctx.fill();
+    }
   }
   ctx.restore();
 
-  // Draw Anjali — if video not yet decoded, kick it to play and retry in 500ms
-  if (!transparentAnjaliCanvas && avatarVideoElement) {
-    if (avatarVideoElement.paused) avatarVideoElement.play().catch(() => {});
-    // Schedule a redraw once the video has a frame ready
-    if (!drawLearningOutcomesBackdrop._retryTimer) {
-      drawLearningOutcomesBackdrop._retryTimer = setTimeout(() => {
-        drawLearningOutcomesBackdrop._retryTimer = null;
-        markSceneDirty();
-      }, 500);
-    }
+  // ── 4. Shooting-star streaks ──────────────────────────────────────────────
+  ctx.save();
+  const shooters = [
+    { phase: 0.0, y: 0.22, len: 220, speed: 0.35 },
+    { phase: 1.7, y: 0.48, len: 160, speed: 0.28 },
+    { phase: 3.2, y: 0.68, len: 200, speed: 0.40 },
+  ];
+  for (const s of shooters) {
+    const prog = ((t * s.speed + s.phase) % 2.2) / 2.2;
+    const sx = prog * (W + s.len) - s.len;
+    const sy = 130 + s.y * (H - 150);
+    const sg = ctx.createLinearGradient(sx, sy, sx + s.len, sy);
+    sg.addColorStop(0, "rgba(255,255,255,0)");
+    sg.addColorStop(0.6, "rgba(180,220,255,0.7)");
+    sg.addColorStop(1, "rgba(255,255,255,0.95)");
+    ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = sg;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + s.len, sy);
+    ctx.stroke();
+    // star head dot
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath(); ctx.arc(sx + s.len, sy, 3.5, 0, Math.PI * 2); ctx.fill();
   }
-  drawPresenterFigure(mouthOpen);
+  ctx.restore();
+
+  // ── 5. Animated sparkle ring dots ────────────────────────────────────────
+  ctx.save();
+  const sparkles = [
+    { x:0.06,y:0.28,r:4,ph:0.0 },{x:0.14,y:0.60,r:3,ph:1.2},
+    {x:0.22,y:0.42,r:5,ph:2.1 },{x:0.35,y:0.78,r:3.5,ph:0.8},
+    {x:0.48,y:0.32,r:4,ph:1.9 },{x:0.58,y:0.70,r:5,ph:3.0},
+    {x:0.68,y:0.25,r:3,ph:0.5 },{x:0.80,y:0.55,r:4,ph:2.4},
+    {x:0.90,y:0.38,r:5,ph:1.5 },{x:0.94,y:0.72,r:3,ph:0.3},
+  ];
+  const sColors = ["#ffffff","#a8f0ff","#ffd6ff","#fff9a0","#b2ffdc"];
+  for (let i = 0; i < sparkles.length; i++) {
+    const sp = sparkles[i];
+    const pulse = 0.4 + 0.6 * Math.abs(Math.sin(t * 1.6 + sp.ph));
+    ctx.globalAlpha = pulse * 0.85;
+    ctx.fillStyle = sColors[i % sColors.length];
+    // 4-point star sparkle
+    ctx.beginPath();
+    const ox = sp.x * W, oy = 130 + sp.y * (H - 150), sr = sp.r, sr2 = sp.r * 0.3;
+    for (let p = 0; p < 8; p++) {
+      const ang = p * Math.PI / 4 + t * 0.5 + sp.ph;
+      const rad = p % 2 === 0 ? sr : sr2;
+      const px = ox + Math.cos(ang) * rad, py = oy + Math.sin(ang) * rad;
+      p === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  // ── 6. Aurora wave at bottom ─────────────────────────────────────────────
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  const aurora = ctx.createLinearGradient(0, H - 200, 0, H);
+  aurora.addColorStop(0, "rgba(0,255,160,0)");
+  aurora.addColorStop(0.5, "rgba(0,200,255,0.6)");
+  aurora.addColorStop(1, "rgba(120,0,255,0.4)");
+  ctx.fillStyle = aurora;
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  const waveSegs = 12;
+  for (let i = 0; i <= waveSegs; i++) {
+    const wx = (i / waveSegs) * W;
+    const wamp = 60 * Math.sin(t * 0.8 + i * 0.9);
+    const wy = H - 120 + wamp;
+    i === 0 ? ctx.moveTo(wx, wy) : ctx.lineTo(wx, wy);
+  }
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // ── 7 & 8: Rainbow stripe + header glow removed (header bar removed) ─────
+
+  // ── 9. Static header bar removed — title now uses animated badge (top-right) ──
+  // drawHeaderBackdrop() call removed; animated pill badge replaces it.
+
+  // Avatar permanently disabled.
+  // drawPresenterFigure(mouthOpen);
 }
 
 function drawTeachingStageBackdrop(mouthOpen = 0) {
@@ -12623,7 +12856,8 @@ function drawTeachingStageBackdrop(mouthOpen = 0) {
   }
 
   drawClassicTeachingStageBackdrop();
-  drawPresenterFigure(mouthOpen);
+  // Avatar permanently disabled — drawPresenterFigure is a no-op, skip the call.
+  // drawPresenterFigure(mouthOpen);
 }
 
 function isUsingDefaultStageStyle(style) {
@@ -12633,17 +12867,17 @@ function isUsingDefaultStageStyle(style) {
 function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIndex, characterIndex = 0) {
   const isOutcomes = normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES;
 
-  // Always preserve explicit custom colours (glossary key red, value dark, user highlights)
-  // Exception: on template 2 do NOT treat the default white as a custom colour.
-  if (segmentColor && segmentColor !== "#ffffff") {
-    return segmentColor;
+  // Preserve explicit custom colours (glossary red, user highlights) UNLESS we're on
+  // template 2 and the colour is one of the two defaults (#ffffff or #000000) —
+  // both need to be overridden to white on the new dark cosmic background.
+  const isDefaultColor = !segmentColor || segmentColor === "#ffffff" || segmentColor === "#000000";
+  if (!isDefaultColor) {
+    return segmentColor; // real custom color — keep it
   }
 
-  // Template 2 (Learning Outcomes) has a light-blue background — use BLACK for all
-  // plain text so it is legible. Key colour (#c81f25) and value colour (#17191f)
-  // are already preserved above since they are not white.
+  // Template 2: dark cosmic background — always force white text.
   if (isOutcomes) {
-    return "#000000";
+    return "#ffffff";
   }
 
   return getBaseTextStyle().color || "#ffffff";
@@ -12657,9 +12891,9 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
   // fade-in in both templates without column-offset misalignment.
   const hasTextIndex = segment.textStartIndex !== undefined && Number.isFinite(segment.textStartIndex);
   const isAnimating = state.speaking && state.exactCharCountFloat !== undefined;
-  // Tight fade: each character fully appears within 0.5 char-widths of the speech cursor
-  // — text snaps in the instant the voice speaks it, with just a quick smooth pop-in.
-  const FADE_RANGE = 0.5;
+  // Butter fade: each character glides in over 2 char-widths of the speech cursor
+  // — silky smooth reveal that flows with the voice, no abrupt pop-in.
+  const FADE_RANGE = 2.0;
 
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
@@ -12670,20 +12904,24 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
 
     if (isAnimating) {
       const charRef = hasTextIndex ? (segment.textStartIndex + index) : globalCharIndex;
-      const rawAlpha = (state.exactCharCountFloat - charRef) / FADE_RANGE;
-      // Sharp ease-out: snaps visible quickly then fully opaque — no lingering ghost
-      const easedAlpha = rawAlpha <= 0 ? 0 : rawAlpha >= 1 ? 1 : Math.sqrt(rawAlpha);
-      ctx.globalAlpha = clamp(easedAlpha, 0, 1);
+      const rawAlpha = clamp((state.exactCharCountFloat - charRef) / FADE_RANGE, 0, 1);
+      // Smoothstep S-curve: slow start → fast mid → slow finish — butter smooth, no pop
+      const easedAlpha = rawAlpha * rawAlpha * (3 - 2 * rawAlpha);
+      ctx.globalAlpha = easedAlpha;
 
       const glowRef = hasTextIndex ? (segment.textStartIndex + index) : globalCharIndex;
       const distFromCursor = Math.abs(glowRef - state.exactCharCountFloat);
-      if (distFromCursor < 0.6 && easedAlpha > 0.05 && easedAlpha < 0.98) {
-        ctx.shadowColor = "rgba(13, 126, 169, 0.5)";
-        ctx.shadowBlur = 12;
+      // Wide glow trail: chars within 2 char-widths of the cursor shimmer with a
+      // flowing blue-white typewriter-light wash as the voice moves through them.
+      if (distFromCursor < 2.0 && easedAlpha > 0.01 && easedAlpha < 0.99) {
+        const glowStrength = clamp(1 - distFromCursor / 2.0, 0, 1);
+        const glowOpacity = Math.round(glowStrength * 72);
+        ctx.shadowColor = `rgba(13, 126, 169, ${(glowOpacity / 100).toFixed(2)})`;
+        ctx.shadowBlur = 8 + glowStrength * 14;
         ctx.shadowOffsetY = 0;
       } else {
-        ctx.shadowColor = "rgba(8, 30, 39, 0.24)";
-        ctx.shadowBlur = 6;
+        ctx.shadowColor = "rgba(8, 30, 39, 0.20)";
+        ctx.shadowBlur = 5;
         ctx.shadowOffsetY = 1;
       }
     } else {
@@ -13950,369 +14188,181 @@ function drawInfoKidsLogo() {
      }
   }
 
-  // ── Draw header title — auto-shrink to always fit on one line ───────────────
+  // ── Animated title badge — slides in from right at playback start, out at end ──
   const titleText = normalizeOutcomesTitle(state.outcomesTitle) ||
                     normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value) ||
                     "LEARNING OUTCOMES";
 
-  // Auto-shrink font until title fits within canvas width
-  const titleMaxW  = canvas.width - 100; // 50px padding each side
-  const fontSizes  = [72, 64, 56, 48, 40, 34];
+  // ── Timing constants ──────────────────────────────────────────────────────
+  const BADGE_IN_MS   = 1400;  // slower, cinematic entrance (ms)
+  const BADGE_OUT_MS  = 1100;  // slide-out duration — long enough to fully hide (ms)
+  // Narration total duration (ms) — used to decide when to start slide-out
+  const narrationMs   = (state.narration?.durationMs) || 0;
+
+  // ── Initialise anim state on first draw ──────────────────────────────────
+  if (!state.titleAnim) {
+    state.titleAnim = { startedAt: null, exitStartedAt: null };
+  }
+
+  const now = performance.now();
+
+  // Arm slide-in the moment narration starts
+  if (state.speaking && !state.titleAnim.startedAt) {
+    state.titleAnim.startedAt    = now;
+    state.titleAnim.exitStartedAt = null;
+  }
+
+  // ── Arm slide-out (timestamp-based so it keeps running after audio ends) ─
+  // Trigger when either:
+  //   (a) narration has < BADGE_OUT_MS remaining, OR
+  //   (b) speaking just stopped (audio ended) and exit hasn't been armed yet
+  if (state.titleAnim.startedAt && !state.titleAnim.exitStartedAt) {
+    const audioEl  = state.activeAudio;
+    const elapsed  = (audioEl && state.speaking) ? (audioEl.currentTime || 0) * 1000 : 0;
+    const remaining = narrationMs > 0 ? narrationMs - elapsed : Infinity;
+    if (remaining < BADGE_OUT_MS || (!state.speaking && state.titleAnim.startedAt)) {
+      state.titleAnim.exitStartedAt = now;
+    }
+  }
+
+  // ── Compute slide-in progress (0→1) — smoothstep ─────────────────────────
+  let inProgress = 0;
+  if (state.titleAnim.startedAt) {
+    inProgress = clamp((now - state.titleAnim.startedAt) / BADGE_IN_MS, 0, 1);
+  } else if (!state.speaking) {
+    // Authoring preview (not yet played): show badge fully docked
+    inProgress = 1;
+  }
+  const inEased = inProgress * inProgress * (3 - 2 * inProgress);
+
+  // ── Compute slide-out progress (0→1) — timestamp-driven ──────────────────
+  let outProgress = 0;
+  if (state.titleAnim.exitStartedAt) {
+    outProgress = clamp((now - state.titleAnim.exitStartedAt) / BADGE_OUT_MS, 0, 1);
+  }
+  const outEased = outProgress * outProgress * (3 - 2 * outProgress);
+
+  // ── Badge layout ──────────────────────────────────────────────────────────
+  const BADGE_PAD_X  = 22;  // horizontal padding inside pill
+  const BADGE_PAD_Y  = 9;   // vertical padding
+  const BADGE_TOP_Y  = 18;  // top edge Y on canvas
+  const BADGE_RIGHT  = 28;  // gap from right canvas edge when docked
+
+  // Auto-shrink font so badge stays compact (title-like, not huge)
+  const fontSizes = [34, 30, 26, 22, 18];
   let titleFontSize = fontSizes[0];
+  ctx.save();
   for (const fs of fontSizes) {
-    ctx.font = `900 ${fs}px "League Spartan", sans-serif`;
-    if (ctx.measureText(titleText).width <= titleMaxW) {
+    ctx.font = `800 ${fs}px "League Spartan", sans-serif`;
+    if (ctx.measureText(titleText).width <= canvas.width * 0.38) {
       titleFontSize = fs;
       break;
     }
   }
+  ctx.font = `800 ${titleFontSize}px "League Spartan", sans-serif`;
+  const textW  = ctx.measureText(titleText).width;
+  const badgeW = textW + BADGE_PAD_X * 2;
+  const badgeH = titleFontSize + BADGE_PAD_Y * 2;
 
-  const titleY = 36 + (80 - titleFontSize) / 2;
+  // Badge resting position at top-right corner
+  const targetX     = canvas.width - badgeW - BADGE_RIGHT;
+  // Entry start position: fully off-screen to the LEFT
+  const offscreenLeft  = -(badgeW + 8);
+  // Exit end position: fully off-screen to the RIGHT
+  const offscreenRight = canvas.width + 8;
+
+  let slideX;
+  if (outEased > 0) {
+    // Slide-OUT: move from docked position rightward off-screen
+    slideX = targetX + (offscreenRight - targetX) * outEased;
+  } else {
+    // Slide-IN: come from left, land at top-right corner
+    slideX = offscreenLeft + (targetX - offscreenLeft) * inEased;
+  }
+
+  const badgeX = slideX;
+  const badgeY = BADGE_TOP_Y;
+
+  ctx.restore();
+
+  // ── Draw badge ────────────────────────────────────────────────────────────
   ctx.save();
-  ctx.globalAlpha = 1.0;
-  ctx.fillStyle = "#cc0000";
-  ctx.font = `900 ${titleFontSize}px "League Spartan", sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-  ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
-  ctx.shadowBlur = 4;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 2;
-  ctx.fillText(titleText, canvas.width / 2, Math.max(8, titleY));
+
+  // Clip so badge never bleeds off either canvas edge during animation
+  ctx.beginPath();
+  ctx.rect(0, 0, canvas.width, canvas.height);
+  ctx.clip();
+
+  const bx = badgeX, by = badgeY, bw = badgeW, bh = badgeH, br = bh / 2;
+
+  // Unique gradient: deep amber (gold-orange) → electric indigo/violet
+  // — vibrant against the dark cosmic background, totally distinctive
+  const bg = ctx.createLinearGradient(bx, by, bx + bw, by);
+  bg.addColorStop(0,    "#FF8C00");  // deep amber / golden orange
+  bg.addColorStop(0.45, "#E8460A");  // burnt-orange mid
+  bg.addColorStop(1,    "#7B10C8");  // electric indigo-violet
+
+  // Subtle outer glow
+  ctx.shadowColor   = "rgba(255,140,0,0.55)";
+  ctx.shadowBlur    = 22;
+  ctx.shadowOffsetY = 4;
+
+  // Pill shape
+  ctx.beginPath();
+  ctx.moveTo(bx + br, by);
+  ctx.arcTo(bx + bw, by,       bx + bw, by + bh, br);
+  ctx.arcTo(bx + bw, by + bh,  bx,      by + bh, br);
+  ctx.arcTo(bx,      by + bh,  bx,      by,      br);
+  ctx.arcTo(bx,      by,       bx + bw, by,      br);
+  ctx.closePath();
+  ctx.fillStyle = bg;
+  ctx.fill();
+
+  // Thin frosted-glass border
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur  = 0;
+  ctx.strokeStyle = "rgba(255,255,255,0.28)";
+  ctx.lineWidth   = 1.5;
+  ctx.stroke();
+
+  // Badge text
+  ctx.font          = `800 ${titleFontSize}px "League Spartan", sans-serif`;
+  ctx.textAlign     = "center";
+  ctx.textBaseline  = "middle";
+  ctx.fillStyle     = "#ffffff";
+  ctx.shadowColor   = "rgba(0,0,0,0.40)";
+  ctx.shadowBlur    = 5;
+  ctx.shadowOffsetY = 1;
+  ctx.fillText(titleText, bx + bw / 2, by + bh / 2);
+
   ctx.restore();
 }
 
 let transparentAnjaliCanvas = null;
 
-// We are switching from a static Anjali image to a live transparent video
+// ── Avatar permanently disabled ─────────────────────────────────────────────
+// Anjali avatar has been removed. The video element is intentionally NOT
+// loaded or played — no src, no decode, no GPU memory, no CPU overhead.
 avatarVideoElement = document.createElement('video');
-avatarVideoElement.style.position = "fixed";
-avatarVideoElement.style.top = "0";
-avatarVideoElement.style.width = "1px";
-avatarVideoElement.style.height = "1px";
-avatarVideoElement.style.opacity = "0";
-avatarVideoElement.style.pointerEvents = "none";
-document.body.appendChild(avatarVideoElement); // Required for Chrome to honor infinite looping
-
-// Use the exact path requested by the user!
-avatarVideoElement.src = "teacher_video_blue_bg.mp4"; 
-avatarVideoElement.loop = true;
+avatarVideoElement.style.display = "none";
 avatarVideoElement.muted = true;
-avatarVideoElement.crossOrigin = "anonymous";
-avatarVideoElement.autoplay = true;
-avatarVideoElement.setAttribute("playsinline", "");
-avatarVideoElement.playbackRate = 1.8; // Ensure 1.8x speed as requested
+// DO NOT set .src — prevents browser from fetching or decoding any video file.
 
-// Immediately sync the UI to the element
-(function() {
-    const speedRange = document.getElementById("avatarSpeedRange");
-    const speedLabel = document.getElementById("avatarSpeedLabel");
-    
-    function applySpeed(val) {
-        avatarVideoElement.playbackRate = val;
-        avatarVideoElement.defaultPlaybackRate = val; // Crucial for Chrome to preserve speed across loops
-        if (speedLabel) speedLabel.textContent = val.toFixed(1) + "x";
-    }
+// Avatar speed UI wiring removed — avatar is permanently disabled.
 
-    if (speedRange) {
-        applySpeed(parseFloat(speedRange.value) || 1.8);
-        speedRange.addEventListener('input', (e) => applySpeed(parseFloat(e.target.value)));
-    }
-})();
+// Avatar decode loop permanently disabled — no video is loaded so no frames to decode.
+// The 60fps flood-fill chroma-key pipeline is completely skipped.
+// All avatar decode machinery removed — no video, no flood-fill, no step() loop.
 
-// Grace-period counter: after a manual seek (loop reset), skip this many
-// step() ticks so blank/transitional frames are never written to transparentAnjaliCanvas.
-let _avatarPostSeekGraceTicks = 0;
-
-// Seek 1.5 s before the end — gives step() plenty of time to see grace ticks
-// before the video arrives at the loopback position.
-avatarVideoElement.addEventListener('timeupdate', () => {
-    if (avatarVideoElement.duration && avatarVideoElement.currentTime >= avatarVideoElement.duration - 1.5) {
-        // Set grace ticks FIRST, then seek — prevents race with step()
-        _avatarPostSeekGraceTicks = state.exportingVideo ? 60 : 18; // ~1 s during export
-        avatarVideoElement.currentTime = 0.05;
-    }
-});
-
-// Because it's an mp4, we MUST run flood-fill background removal on every single video frame before drawing it
-avatarVideoElement.addEventListener('play', function() {
-let videoW = 0;
-let videoH = 0;
-let floodStack = null;
-let floodVisited = null;
-let erosionMask = null;
-const scratchCvs = document.createElement('canvas');
-const sCtx = scratchCvs.getContext('2d', { willReadFrequently: true });
-
-    function step() {
-        if (_avatarPostSeekGraceTicks > 0) {
-            // Burn off grace ticks after a seek — don't capture a transitional blank frame
-            _avatarPostSeekGraceTicks -= 1;
-            setTimeout(step, 1000 / 60);
-            return;
-        }
-        if (avatarVideoElement.readyState >= 2) { // Read frame safely instantly if video is ready!
-            const sourceWidth = avatarVideoElement.videoWidth || 720;
-            const sourceHeight = avatarVideoElement.videoHeight || 1280;
-            const w = sourceWidth;
-            const h = sourceHeight;
-            
-            if (w === 0) {
-               setTimeout(step, 50); 
-               return;
-            }
-            
-            if (videoW !== w || videoH !== h) {
-                videoW = w;
-                videoH = h;
-                scratchCvs.width = w;
-                scratchCvs.height = h;
-                floodStack = new Int32Array(w * h * 2);
-                floodVisited = new Uint8Array(w * h);
-                erosionMask = new Uint8Array(w * h);
-            }
-            
-            sCtx.drawImage(avatarVideoElement, 0, 0, w, h);
-            
-            const frameData = sCtx.getImageData(0, 0, w, h);
-            const d = frameData.data;
-            
-            floodVisited.fill(0);
-            
-            let stackPtr = 0;
-            function push(x, y) {
-                if (stackPtr < floodStack.length - 2) {
-                    floodStack[stackPtr++] = x;
-                    floodStack[stackPtr++] = y;
-                }
-            }
-            
-            const cx = w >> 1; const cy = h >> 1;
-            // Sample light blue background from the top middle of the frame
-            const idxBg = (Math.floor(h * 0.1) * w + cx) * 4;
-            const bgR = d[idxBg];
-            const bgG = d[idxBg+1];
-            const bgB = d[idxBg+2];
-            
-            // Seeds on the edges (for black letterbox) and top middle (for light blue bg)
-            const seeds = [
-                [0, 0], [w-1, 0], [0, h-1], [w-1, h-1], // corners for black letterbox
-                [cx, Math.floor(h * 0.1)], // top middle for light blue bg
-                [cx, h-1] // bottom middle
-            ];
-            for (const [sx, sy] of seeds) { push(sx, sy); floodVisited[sy * w + sx] = 1; }
-            
-            function isBgEdge(x, y) {
-                if (x < 0 || x >= w || y < 0 || y >= h) return false;
-                const r = d[(y * w + x) * 4], g = d[(y * w + x) * 4 + 1], b = d[(y * w + x) * 4 + 2];
-                
-                // Match the dynamic light blue background (like 197, 231, 240)
-                if (Math.abs(r-bgR) <= 60 && Math.abs(g-bgG) <= 60 && Math.abs(b-bgB) <= 60) return true;
-                
-                // Also always strip the black letterboxing
-                if (r < 25 && g < 25 && b < 25) return true;
-                
-                return false;
-            }
-            
-            while(stackPtr > 0) {
-                const y = floodStack[--stackPtr];
-                const x = floodStack[--stackPtr];
-                if (isBgEdge(x, y)) {
-                    d[(y * w + x) * 4 + 3] = 0; // Vaporize
-                    if (x+1 < w && !floodVisited[y*w + x+1]) { floodVisited[y*w + x+1] = 1; push(x+1, y); }
-                    if (x-1 >= 0 && !floodVisited[y*w + x-1]) { floodVisited[y*w + x-1] = 1; push(x-1, y); }
-                    if (y+1 < h && !floodVisited[(y+1)*w + x]) { floodVisited[(y+1)*w + x] = 1; push(x, y+1); }
-                    if (y-1 >= 0 && !floodVisited[(y-1)*w + x]) { floodVisited[(y-1)*w + x] = 1; push(x, y-1); }
-                }
-            }
-            
-            erosionMask.fill(0);
-            for (let y = 1; y < h - 1; y++) {
-                for (let x = 1; x < w - 1; x++) {
-                    const idx = (y * w + x) * 4;
-                    if (d[idx + 3] > 0) {
-                        if (d[idx - 4 + 3] === 0 || d[idx + 4 + 3] === 0 || 
-                            d[idx - w*4 + 3] === 0 || d[idx + w*4 + 3] === 0) {
-                            erosionMask[y * w + x] = 1; 
-                        }
-                    }
-                }
-            }
-            for (let i = 0; i < erosionMask.length; i++) {
-                if (erosionMask[i] === 1) d[i * 4 + 3] = 0;
-            }
-            
-            for(let y=0; y<12; y++) { for(let x=0; x<w; x++) { d[(y*w+x)*4 + 3] = 0; } }
-            for(let y=h-12; y<h; y++) { for(let x=0; x<w; x++) { d[(y*w+x)*4 + 3] = 0; } }
-            for(let y=12; y<h-12; y++) { 
-                for(let x=0; x<12; x++) { d[(y*w+x)*4 + 3] = 0; }
-                for(let x=w-12; x<w; x++) { d[(y*w+x)*4 + 3] = 0; }
-            }
-            
-            sCtx.putImageData(frameData, 0, 0);
-
-            // Blank-frame guard: if >98% of pixels are transparent after removal,
-            // this is a seek/decode gap frame — hold the last valid canvas instead.
-            let visiblePixels = 0;
-            const totalPx = w * h;
-            for (let pi = 3; pi < d.length; pi += 4) {
-                if (d[pi] > 10) visiblePixels++;
-            }
-            if (visiblePixels < totalPx * 0.02) {
-                // Blank frame — do NOT update transparentAnjaliCanvas; keep last good frame.
-                setTimeout(step, 1000 / 60);
-                return;
-            }
-
-            transparentAnjaliCanvas = scratchCvs;
-            if (typeof drawScene === 'function') requestAnimationFrame(() => drawScene());
-        }
-        // Sync perfectly at ~60fps securely (setTimeout prevents browser background tab freezing during exports)
-        setTimeout(step, 1000/60);
-    }
-    
-    // Start secure non-dropping loop
-    setTimeout(step, 1000/60);
-});
-
-// Autoplay policy bypass helper
-document.addEventListener('click', () => {
-   if (avatarVideoElement && avatarVideoElement.paused) avatarVideoElement.play(); 
-}, {once: true});
-
-
-
-
-// Cached last good Anjali frame — used as fallback if canvas is momentarily null during export
-let _lastGoodAnjaliCanvas = null;
+// ── Avatar permanently disabled — all video decode machinery skipped ─────────
+// drawPresenterFigure is a true no-op: no DOM query, no canvas draw, no overhead.
+let _lastGoodAnjaliCanvas = null; // kept for reference safety only
 
 function drawPresenterFigure(mouthOpen = 0) {
-  const enableCheck = document.getElementById("avatarEnableCheck");
-  if (enableCheck && !enableCheck.checked) return;
-
-  // If the live canvas is momentarily unavailable (video decode gap), use the last
-  // known-good frame instead of skipping Anjali — prevents the 1-frame blank flicker.
-  const canvasToDraw = transparentAnjaliCanvas || _lastGoodAnjaliCanvas;
-  if (!canvasToDraw) {
-    if (state.exportingVideo) {
-      setTimeout(() => markSceneDirty(), 16);
-    }
-    return;
-  }
-  if (transparentAnjaliCanvas) {
-    _lastGoodAnjaliCanvas = transparentAnjaliCanvas;
-  }
-
-  const baseHeight = 1110;
-  avatarConfig.h = baseHeight * avatarConfig.scale;
-  const aspect_scale = avatarConfig.h / canvasToDraw.height;
-  avatarConfig.w = canvasToDraw.width * aspect_scale;
-
-  if (!avatarConfig.initialized) {
-    avatarConfig.x = 0;
-    avatarConfig.y = canvasToDraw.height ? canvas.height - avatarConfig.h : 0;
-    avatarConfig.initialized = true;
-  }
-
-  ctx.save();
-
-  // No breathing, no sway, no animation — perfectly stable position
-  const finalX = avatarConfig.x;
-  const finalY = avatarConfig.y;
-  const finalWidth  = avatarConfig.w;
-  const finalHeight = avatarConfig.h;
-
-  ctx.shadowColor = "transparent";
-  ctx.shadowBlur = 28;
-  ctx.shadowOffsetX = 14;
-  ctx.shadowOffsetY = 18;
-
-  ctx.drawImage(canvasToDraw, finalX, finalY, finalWidth, finalHeight);
-  
-  // Draw hover/drag indicator — never show during export
-  if (avatarConfig.hovered && !avatarConfig.dragging && !state.exportingVideo) {
-    ctx.save();
-    ctx.strokeStyle = "rgba(60,180,255,0.55)";
-    ctx.lineWidth = 3;
-    ctx.setLineDash([8, 5]);
-    ctx.strokeRect(avatarConfig.x - 4, avatarConfig.y - 4, avatarConfig.w + 8, avatarConfig.h + 8);
-    // Corner resize handles
-    const hs = 14;
-    const corners = [
-      [avatarConfig.x - 4,                    avatarConfig.y - 4],
-      [avatarConfig.x + avatarConfig.w - hs + 4, avatarConfig.y - 4],
-      [avatarConfig.x - 4,                    avatarConfig.y + avatarConfig.h - hs + 4],
-      [avatarConfig.x + avatarConfig.w - hs + 4, avatarConfig.y + avatarConfig.h - hs + 4],
-    ];
-    ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(60,180,255,0.85)";
-    corners.forEach(([cx, cy]) => {
-      ctx.fillRect(cx, cy, hs, hs);
-    });
-    ctx.restore();
-  }
-
-  // ── Lip sync (idle mouth flicker + narration sync) ───────────────────
-  const now = performance.now() / 1000; // needed for mouth sine calculations
-  const idleMouth  = Math.max(0, Math.sin(now * 2.3) * 0.07 + Math.sin(now * 7.1) * 0.04);
-  let effectiveMouthOpen = Math.max(mouthOpen, idleMouth);
-  if (state.speaking && state.displayedText !== state.text && mouthOpen < 0.05) {
-    effectiveMouthOpen = (Math.sin(now * 22) + 1) * 0.5;
-  }
-  
-  let isTalking = effectiveMouthOpen > 0.05 || state.speaking;
-  if (isTalking) {
-      const mouthYPercent = parseFloat(document.getElementById('avatarJawYRange')?.value || "16.5") / 100;
-      const mouthWPercent = parseFloat(document.getElementById('avatarJawWidthRange')?.value || "4.5") / 100;
-      const mouthXPercent = parseFloat(document.getElementById('avatarJawXRange')?.value || "28.5") / 100;
-      const mouthHPercent = parseFloat(document.getElementById('avatarJawHeightRange')?.value || "3.0") / 100;
-      
-      const lipOpenPixels = effectiveMouthOpen * 3.5 * avatarConfig.scale; 
-      
-      const destMouthWidth = finalWidth * mouthWPercent;
-      const destMouthHeight = finalHeight * mouthHPercent; 
-      const destMouthX = finalX + finalWidth * (mouthXPercent - mouthWPercent / 2);
-      const destMouthY = finalY + finalHeight * mouthYPercent;
-      
-      const srcMouthX = transparentAnjaliCanvas.width * (mouthXPercent - mouthWPercent / 2);
-      const srcMouthY = transparentAnjaliCanvas.height * mouthYPercent;
-      const srcMouthW = transparentAnjaliCanvas.width * mouthWPercent;
-      const srcMouthH = transparentAnjaliCanvas.height * mouthHPercent;
-      
-      ctx.shadowColor = "transparent"; 
-      
-      // Draw the dropped jaw cleanly
-      ctx.drawImage(
-         transparentAnjaliCanvas,
-         srcMouthX, srcMouthY, srcMouthW, srcMouthH,
-         destMouthX, destMouthY + lipOpenPixels, destMouthWidth, destMouthHeight
-      );
-      
-      // Paint realistic soft drop shadow deep inside the mouth cavity 
-      ctx.fillStyle = "rgba(10, 2, 2, 0.7)"; 
-      ctx.fillRect(destMouthX, destMouthY, destMouthWidth, lipOpenPixels * 1.0);
-  }
-  
-  // Debug Jaw Calibrator view
-  if (document.getElementById('showJawDebugCheck')?.checked) {
-      const dbgYPercent = parseFloat(document.getElementById('avatarJawYRange').value) / 100;
-      const dbgWPercent = parseFloat(document.getElementById('avatarJawWidthRange').value) / 100;
-      const dbgXPercent = parseFloat(document.getElementById('avatarJawXRange').value) / 100;
-      const dbgHPercent = parseFloat(document.getElementById('avatarJawHeightRange').value) / 100;
-      
-      const dbgW = finalWidth * dbgWPercent;
-      const dbgH = finalHeight * dbgHPercent;
-      const dbgX = finalX + finalWidth * (dbgXPercent - dbgWPercent / 2);
-      const dbgY = finalY + finalHeight * dbgYPercent;
-      
-      ctx.strokeStyle = "#5cb85c";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(dbgX, dbgY, dbgW, dbgH);
-  }
-  
-  ctx.restore();
+  // Avatar permanently off — instant return, zero cost.
+  return;
 }
+// All lip-sync, jaw-calibration, and canvas-draw code removed — dead code cleaned up.
 
 function drawWhiteboardStrokes() {
   if (!state.whiteboard.strokes.length && !state.whiteboard.currentStroke.length) {
@@ -15124,7 +15174,8 @@ function isSceneActuallyDirty(mouthOpen) {
   if (state.text !== _lastDrawnText) return true;
   if (state.displayedText !== _lastDrawnDisplayedText) return true;
   // Sub-character float changes trigger redraws for smooth alpha fade.
-  if (state.speaking && Math.abs((state.exactCharCountFloat || 0) - _lastDrawnExactCharFloat) > 0.01) return true;
+  // Lower threshold → more continuous redraws for butter-smooth sub-pixel alpha fading
+  if (state.speaking && Math.abs((state.exactCharCountFloat || 0) - _lastDrawnExactCharFloat) > 0.005) return true;
   if (state.speaking && state.displayedText !== state.text) return true;
   if (state.previewPageIndex !== _lastDrawnPageIndex) return true;
   if (state.introPlayback.active || state.introPlayback.previewVisible) return true;
@@ -19050,14 +19101,12 @@ async function connectAudioGraph(audioElement, includeExportTrack = false, monit
     teardownAudioGraph();
 
     const sourceNode = audioContext.createMediaElementSource(audioElement);
-    const analyser = audioContext.createAnalyser();
+    // Avatar permanently off — no lip-sync analyser needed.
+    // Audio routes directly: source → gain → destination (no FFT tap).
     const gainNode = audioContext.createGain();
     gainNode.gain.value = monitorGain;
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.82;
 
-    sourceNode.connect(analyser);
-    analyser.connect(gainNode);
+    sourceNode.connect(gainNode);
     gainNode.connect(audioContext.destination);
 
     let exportDestination = null;
@@ -19068,7 +19117,7 @@ async function connectAudioGraph(audioElement, includeExportTrack = false, monit
 
     state.audioGraph = {
       sourceNode,
-      analyser,
+      analyser: null,  // No analyser — avatar off, lip-sync skipped
       gainNode,
       exportDestination
     };
@@ -19256,17 +19305,41 @@ function startNarrationLoop(audioElement) {
     // At t=0 getSpeechSyncFrame returns displayedText="" and exactCharCountFloat=0
     // → nothing renders → screen looks STUCK for the ~175ms Edge TTS leading silence.
     // Fix: pre-reveal the first word in BOTH displayedText AND exactCharCountFloat.
-    if (syncElapsedMs < 175 && !syncFrame.displayedText && state.text) {
-      // Show at least the first word so the renderer has content
+    // TTS leading silence is now ~80ms with rate=1; tightened from 175ms so first
+    // word doesn't flash in too early on longer texts.
+    if (syncElapsedMs < 80 && !syncFrame.displayedText && state.text) {
       const firstSpace = state.text.indexOf(' ');
       syncFrame.displayedText = firstSpace > 0
         ? state.text.slice(0, firstSpace + 1)
         : state.text.slice(0, 1);
-      syncFrame.exactCharCountFloat = 0.5; // past FADE_RANGE → first char fully visible
+      syncFrame.exactCharCountFloat = 0.5;
     }
 
     state.displayedText = syncFrame.displayedText;
     state.exactCharCountFloat = syncFrame.exactCharCountFloat;
+
+    // ── Page-transition sync ──────────────────────────────────────────────────
+    // Keep state.previewPageIndex in sync with the narration-driven displayedText
+    // so getCachedTextOnlyContent / getCachedFullContent always use the correct
+    // page and never render stale layouts on the first frames of a new page.
+    if (state.text && state.displayedText !== undefined) {
+      const textOnlyForPage = getCachedTextOnlyContent(state.text, state.previewPageIndex);
+      const correctPageIndex = clamp(
+        getStableAnimatedPageIndex(textOnlyForPage, state.displayedText),
+        0,
+        Math.max(0, (textOnlyForPage.pageCount || 1) - 1)
+      );
+      if (correctPageIndex !== state.previewPageIndex) {
+        // Page boundary crossed — reset exactCharCountFloat to the start of the
+        // new page so the bloom/fade reveals from char 0 of page 2, not from
+        // wherever page 1 left off.
+        const prevPageEndIndex = (textOnlyForPage.pages[correctPageIndex - 1]?.textEndIndex) || 0;
+        state.previewPageIndex = correctPageIndex;
+        // Re-anchor the float: offset from new-page start for clean per-page fade
+        state.exactCharCountFloat = Math.max(0, syncFrame.exactCharCountFloat - prevPageEndIndex);
+      }
+    }
+
     syncLessonPlaybackProgressUi(progress, true);
 
     if (state.exportingVideo) {
@@ -19283,7 +19356,7 @@ function startNarrationLoop(audioElement) {
     // Always force render during active narration — sub-character alpha
     // fading needs continuous redraws even between character boundaries,
     // and the blinking cursor pulse uses performance.now() so it changes every frame.
-    const exactFloatChanged = Math.abs(syncFrame.exactCharCountFloat - (_lastDrawnExactCharFloat ?? -1)) > 0.01;
+    const exactFloatChanged = Math.abs(syncFrame.exactCharCountFloat - (_lastDrawnExactCharFloat ?? -1)) > 0.005;
     const cursorPulseActive = state.speaking && state.displayedText !== state.text;
     // During export: always render every tick — the setTimeout already controls pacing.
     // During live: use the frame-skip guard to avoid redundant renders.
@@ -19609,6 +19682,10 @@ async function ensureNarrationReadyForSlide(options = {}) {
 
 async function playSlide() {
   clearPlayLoadingOverlay(); // clear any stale overlay from a previous stopped play
+
+  // ── Reset badge animation so it re-enters on EVERY press of Play ──────────
+  state.titleAnim = { startedAt: null, exitStartedAt: null };
+
   const currentText = commitLatestLessonText();
   const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
   const posterRequested = Boolean(state.introPoster.available);
@@ -19695,12 +19772,8 @@ async function playSlide() {
     state.preparedLessonExport.prepareAfterPlayback = false;
     resetTaskProgressUi();
     clearPlayLoadingOverlay();
-    const isWarmingUp = state.anjaliMonitor?.warming;
-    if (isWarmingUp) {
-      setStatus("⏳ Anjali model is still warming up. Please wait a moment and try again — it will be ready soon.");
-    } else {
-      setStatus("The Anjali voice server is unavailable. Make sure the app launched via the Electron shortcut and give it 2–4 minutes after first start.");
-    }
+    const errMsg = error?.message || "Unknown error during narration generation.";
+    setStatus(`⚠️ Narration failed: ${errMsg} — Check that the voice server is running on port 8426 and try again.`);
     return;
   }
 }
@@ -21271,7 +21344,7 @@ async function exportVideo(options = {}) {
       }
     }
     await restoreAvatarAfterExport(frozenAvatarSnapshot);
-    state.displayedText = state.text;
+    // Do NOT sync displayedText after export — leave the canvas as-is
     drawScene(0.12);
     setRecordingUi(false);
     updateNarrationUi();
@@ -22025,6 +22098,7 @@ async function showScreen() {
   state.displayedText = text;
   state.contentScrollOffset = 0;
   state.previewPageIndex = 0;
+  state.titleAnim = { startedAt: null, exitStartedAt: null }; // reset badge so it re-enters on next Play
   updatePlaybackProgressUi(0, false);
   syncImageLayouts();
   const currentInputPanel = document.getElementById("inputPanel");
@@ -24033,27 +24107,20 @@ previewCanvas.addEventListener('wheel', (e) => {
     }
 }, {passive: false});
 
+// ── Avatar default-OFF guard ─────────────────────────────────────────────────
+// Anjali avatar is DISABLED by default. Force the checkbox unchecked on every
+// page load so browser form-restore and any stale state never re-enable it.
+(function enforceAvatarDefaultOff() {
+  const chk = document.getElementById("avatarEnableCheck");
+  if (chk) { chk.checked = false; }
+})();
+
 document.getElementById("avatarEnableCheck")?.addEventListener('change', () => { markSceneDirty(); });
 document.getElementById("logoEnableCheck")?.addEventListener('change',   () => { markSceneDirty(); });
 
-// ── Continuous idle animation loop for Anjali breathing/sway ────────────────
-// Runs only when there's an avatar visible; low-cost rAF at ~20fps
-(function startIdleAnimLoop() {
-    let _lastIdleTick = 0;
-    const IDLE_FPS = 30;
-    function idleTick(ts) {
-        requestAnimationFrame(idleTick);
-        if (ts - _lastIdleTick < 1000 / IDLE_FPS) return;
-        _lastIdleTick = ts;
-        // Only animate when avatar is visible AND we are NOT exporting
-        // (export has its own frame loop — idle loop must not interfere)
-        if (document.getElementById("avatarEnableCheck")?.checked &&
-            transparentAnjaliCanvas && !state.exportingVideo) {
-            markSceneDirty();
-        }
-    }
-    requestAnimationFrame(idleTick);
-})();
+// ── Idle avatar animation loop permanently disabled ──────────────────────────
+// Avatar is gone — the rAF idle loop that checked for it is no longer needed.
+// (function startIdleAnimLoop() { ... })();  // ← dead code, removed for perf
 
 
 // -- FLOATING COLOR PALETTE FOR QUICK DRAG & DROP COLORING --

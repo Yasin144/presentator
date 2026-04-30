@@ -9,6 +9,45 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=League+Spartan:wght@400;600;700;800&family=Nunito:wght@500;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
     <noscript><link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=League+Spartan:wght@400;600;700;800&family=Nunito:wght@500;700;800&display=swap" rel="stylesheet"></noscript>
+
+    <!-- ── Electron-only access gate ─────────────────────────────────────────
+         window.electronAPI is injected ONLY by preload.cjs inside Electron.
+         Any normal browser hitting port 5173 will NOT have it, so they see
+         the lock page below and the real app never initialises.
+    ──────────────────────────────────────────────────────────────────────── -->
+    <script>
+      (function () {
+        // Give preload a tiny tick to inject electronAPI, then check
+        function checkAccess() {
+          if (window.electronAPI && window.electronAPI.isElectron) return; // ✅ allowed
+
+          // ── Not running inside Electron — show lock screen ──────────────
+          document.documentElement.style.cssText =
+            'margin:0;padding:0;height:100%;background:#0a0a14;font-family:system-ui,sans-serif;';
+          document.body.style.cssText =
+            'margin:0;display:flex;align-items:center;justify-content:center;height:100vh;';
+          document.body.innerHTML = `
+            <div style="text-align:center;color:#fff;padding:40px;max-width:460px;">
+              <div style="font-size:64px;margin-bottom:16px;">🔒</div>
+              <h1 style="font-size:26px;font-weight:700;margin:0 0 12px;color:#f97316;">
+                Electron Access Only
+              </h1>
+              <p style="font-size:15px;color:#94a3b8;line-height:1.6;margin:0 0 24px;">
+                This application is restricted to the
+                <strong style="color:#fff;">Pattan Presentator</strong>
+                desktop app.<br>Open it using the Electron shortcut — not a browser.
+              </p>
+              <div style="background:#1e293b;border-radius:10px;padding:14px 20px;font-size:13px;color:#64748b;">
+                Close this tab and launch the app from your desktop shortcut.
+              </div>
+            </div>`;
+          // Block the rest of the page from loading
+          throw new Error('[Presentator] Browser access blocked — Electron only.');
+        }
+        // Defer one tick so preload.cjs has time to set window.electronAPI
+        setTimeout(checkAccess, 0);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

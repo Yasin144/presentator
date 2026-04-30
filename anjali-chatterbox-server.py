@@ -24,7 +24,7 @@ VOICE_NAME     = "en-IN-NeerjaExpressiveNeural"
 VOICE_FALLBACK = "en-IN-NeerjaNeural"
 
 # Prosody tuning — matches the energetic Info-Kids educational style
-VOICE_RATE   = "+0%"    # default speed — clearest pronunciation
+VOICE_RATE   = "-12%"   # slightly slower — clearer, more teacher-like pacing
 VOICE_PITCH  = "+0Hz"   # natural pitch
 VOICE_VOLUME = "+0%"    # natural volume
 
@@ -174,6 +174,7 @@ class AnjaliEdgeEngine:
         # ── Remaining symbols Edge TTS might vocalize ──
         # Keep: . , ! ? : ; ' " ( ) — these help natural prosody
         # Remove: @ # $ % ^ & + = [ ] { } \ / ~ `
+        # NOTE: / and standalone - are handled BEFORE cleaning in synthesize()
         t = re.sub(r'[@#$%^&+=\[\]{}\\/~]', ' ', t)
 
         # ── Collapse multiple punctuation ──
@@ -188,23 +189,169 @@ class AnjaliEdgeEngine:
         return t
 
 
-    def synthesize(self, text: str) -> bytes:
-        safe_text = self._clean_text_for_tts(text)
-        if not safe_text:
-            raise ValueError("Text is required.")
+    # ── Silence / WAV helpers ─────────────────────────────────────────────────
+    @staticmethod
+    def _make_silence_wav(duration_s: float, sample_rate: int = 24000) -> bytes:
+        """Return a silent mono 16-bit PCM WAV of the given duration."""
+        n_frames = int(duration_s * sample_rate)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)          # 16-bit
+            wf.setframerate(sample_rate)
+            wf.writeframes(b"\x00\x00" * n_frames)
+        return buf.getvalue()
 
-        cached = self._get_cached(safe_text)
+    @staticmethod
+    def _concat_wavs(wavs: list) -> bytes:
+        """Concatenate a list of mono WAV byte-strings (same sample rate)."""
+        if not wavs:
+            raise ValueError("No WAV chunks to concatenate.")
+        buf = io.BytesIO()
+        all_frames = b""
+        params = None
+        for w in wavs:
+            with wave.open(io.BytesIO(w)) as wf:
+                if params is None:
+                    params = wf.getparams()
+                all_frames += wf.readframes(wf.getnframes())
+        with wave.open(buf, "wb") as wout:
+            wout.setparams(params)
+            wout.writeframes(all_frames)
+        return buf.getvalue()
+
+    # ── Core synthesis ────────────────────────────────────────────────────────
+    def synthesize(self, text: str) -> bytes:
+        """
+        Synthesize text with per-character pause durations that MATCH the JS
+        text-reveal animation exactly:
+
+          ,   →  1000ms silence
+          /   →   800ms silence  (before + after, matching JS 800ms each side)
+          - (standalone, space-dash-space)  →  350ms silence before + after
+
+        Each text segment is synthesized separately and stitched with WAV silence.
+        Any segment that fails is replaced with 300ms silence so one bad chunk
+        never crashes the whole narration.
+        """
+        import re
+
+        # Pause durations (seconds) — must mirror JS getSpeechSyncUnitPauseMs
+        PAUSE_COMMA  = 1.00   # 1000ms — comma breath
+        PAUSE_SLASH  = 0.80   #  800ms — fraction / separator
+        PAUSE_HYPHEN = 0.35   #  350ms — range / dash (each side)
+
+        # ── Step 1: tag pause positions BEFORE cleaning ───────────────────────
+        # We split the RAW text on pause characters first, then clean each
+        # text fragment individually.  This preserves the pause semantics
+        # even after _clean_text_for_tts strips symbols.
+        #
+        # Split pattern: comma | slash | standalone hyphen (space-dash-space)
+        # Standalone hyphen = not part of a hyphenated word like "co-opted".
+        raw_parts = re.split(r'(,|/|(?<=\s)-(?=\s)|^-(?=\s)|(?<=\s)-$)', text)
+
+        # Build tagged unit list: ('text', cleaned_str) | ('pause', seconds)
+        units: list = []
+        for part in raw_parts:
+            if part == ',':
+                units.append(('pause', PAUSE_COMMA))
+            elif part == '/':
+                # Insert pause BEFORE and AFTER the slash
+                units.append(('pause', PAUSE_SLASH))
+            elif re.match(r'^-$', part.strip()):
+                # Standalone hyphen: insert pause before (already added by previous
+                # iteration's trailing pause) and pause after
+                units.append(('pause', PAUSE_HYPHEN))
+            else:
+                cleaned = self._clean_text_for_tts(part)
+                if cleaned and len(cleaned.split()) >= 1:
+                    units.append(('text', cleaned))
+
+        # Also add a pre-slash pause: scan and insert PAUSE_SLASH before each slash-pause
+        # (The slash is in audio as: text … 800ms … text, so we need it on both sides)
+        expanded: list = []
+        for i, unit in enumerate(units):
+            if unit == ('pause', PAUSE_SLASH):
+                # Ensure there's a pause BEFORE the slash too
+                if expanded and expanded[-1][0] == 'text':
+                    expanded.append(('pause', PAUSE_SLASH))
+                expanded.append(unit)  # pause AFTER slash
+            elif unit == ('pause', PAUSE_HYPHEN):
+                # Ensure there's a pause BEFORE the hyphen too
+                if expanded and expanded[-1][0] == 'text':
+                    expanded.append(('pause', PAUSE_HYPHEN))
+                expanded.append(unit)  # pause AFTER hyphen
+            else:
+                expanded.append(unit)
+        units = expanded
+
+        # ── Step 2: cache check on the full cleaned text ──────────────────────
+        cache_key = self._clean_text_for_tts(text)
+        if not cache_key:
+            raise ValueError("Text is required.")
+        cached = self._get_cached(cache_key)
         if cached is not None:
             return cached
 
-        # Run async edge-tts in a fresh event loop (server is threaded)
-        mp3_bytes = asyncio.run(self._edge_synthesize(safe_text))
-        wav_bytes  = self._mp3_bytes_to_wav(mp3_bytes)
-        self._store_cached(safe_text, wav_bytes)
-        return wav_bytes
+        # ── Step 3: synthesize each text segment, stitch silences ────────────
+        wav_chunks: list = []
+        for kind, value in units:
+            if kind == 'pause':
+                wav_chunks.append(self._make_silence_wav(value))
+            else:
+                seg_cached = self._get_cached(value)
+                if seg_cached is not None:
+                    wav_chunks.append(seg_cached)
+                else:
+                    try:
+                        mp3 = self._run_async(self._edge_synthesize(value))
+                        wav = self._mp3_bytes_to_wav(mp3)
+                        self._store_cached(value, wav)
+                        wav_chunks.append(wav)
+                    except Exception as seg_err:
+                        print(f"[Anjali] Segment skipped ({seg_err!r}): {value[:60]!r}", flush=True)
+                        wav_chunks.append(self._make_silence_wav(0.3))
+
+        if not wav_chunks:
+            raise ValueError("No audio generated.")
+
+        final_wav = self._concat_wavs(wav_chunks)
+        self._store_cached(cache_key, final_wav)
+        return final_wav
+
+
+    # ── Persistent async event loop (thread-safe) ─────────────────────────────
+    # asyncio.run() creates a NEW event loop per call — this causes
+    # "This event loop is already running" errors inside ThreadingHTTPServer.
+    # Instead we spin up ONE background loop and submit coroutines to it.
+    _loop: "asyncio.AbstractEventLoop | None" = None
+    _loop_lock = threading.Lock()
+
+    @classmethod
+    def _get_loop(cls) -> "asyncio.AbstractEventLoop":
+        with cls._loop_lock:
+            if cls._loop is None or not cls._loop.is_running():
+                import concurrent.futures
+                ready = concurrent.futures.Future()
+                def _run():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    cls._loop = loop
+                    ready.set_result(True)
+                    loop.run_forever()
+                t = threading.Thread(target=_run, daemon=True, name="AnjaliAsyncLoop")
+                t.start()
+                ready.result(timeout=5)   # wait until loop is running
+            return cls._loop
+
+    def _run_async(self, coro) -> bytes:
+        """Submit a coroutine to the persistent background event loop and wait."""
+        import concurrent.futures
+        future = asyncio.run_coroutine_threadsafe(coro, self._get_loop())
+        return future.result(timeout=60)   # 60 s hard timeout per TTS call
 
     async def _edge_synthesize(self, text: str) -> bytes:
-        """Call Edge TTS and return raw MP3 bytes."""
+        """Call Edge TTS and return raw MP3 bytes (plain text, no SSML)."""
         communicate = edge_tts.Communicate(
             text,
             voice=self.voice,
@@ -218,7 +365,6 @@ class AnjaliEdgeEngine:
                 chunks.append(chunk["data"])
 
         if not chunks:
-            # Fallback to secondary voice
             communicate = edge_tts.Communicate(
                 text,
                 voice=VOICE_FALLBACK,
@@ -237,6 +383,7 @@ class AnjaliEdgeEngine:
 
 
 ENGINE = AnjaliEdgeEngine()
+
 
 
 class Handler(BaseHTTPRequestHandler):
