@@ -577,14 +577,25 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <button id="previewAnjaliBtn" class="ghost-btn" type="button">Anjali Voice</button>
                 </div>
               </div>
-              <label class="style-field" for="slideVoiceSelect">
-                <span class="style-label">Saved Slide Voice</span>
-                <select id="slideVoiceSelect" class="theme-select text-style-select"
-                  aria-label="Choose saved slide voice">
-                  <option value="anjali" selected>Anjali Narration</option>
-                </select>
-              </label>
-              <p class="upload-copy">Play Slide and Export Video use Anjali automatically.</p>
+
+              <!-- ── Voice Picker ─────────────────────────────────────────── -->
+              <div class="voice-picker-card" id="voicePickerCard">
+                <div class="voice-picker-head">
+                  <span class="module-icon" style="font-size:11px;padding:4px 7px;">VOX</span>
+                  <span class="voice-picker-title">Narration Voice</span>
+                  <span class="voice-active-badge" id="voiceActiveBadge">Loading…</span>
+                </div>
+                <input
+                  id="voiceSearchInput"
+                  class="voice-search-input"
+                  type="search"
+                  placeholder="Search voices…"
+                  autocomplete="off"
+                />
+                <div class="voice-list-scroll" id="voiceListScroll">
+                  <p class="upload-copy" style="padding:10px 14px;opacity:.6">Loading voices…</p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1124,21 +1135,21 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
           <summary class="stage-toolbar-head stage-toolbar-summary">
             <div>
               <p class="stage-toolbar-label">Visuals</p>
-              <p class="stage-toolbar-meta">Toggle Anjali avatar and InfoKids logo</p>
+              <p class="stage-toolbar-meta">Toggle InfoKids logo</p>
             </div>
             <span class="stage-toolbar-badge">VIS</span>
           </summary>
           <div class="stage-toolbar-body">
             <div style="display: flex; flex-direction: column; gap: 8px; padding: 4px 8px;">
               <label style="display:flex; align-items:center; gap:8px; cursor: pointer;">
-                <input type="checkbox" id="avatarEnableCheck" checked style="width: 16px; height: 16px;">
+                <input type="checkbox" id="avatarEnableCheck" style="width: 16px; height: 16px;">
                 <span style="font-size: 0.75rem; color: #fff; font-weight:600;">Show Anjali Avatar</span>
               </label>
               <label style="display:flex; align-items:center; gap:8px; cursor: pointer;">
                 <input type="checkbox" id="logoEnableCheck" checked style="width: 16px; height: 16px;">
                 <span style="font-size: 0.75rem; color: #fff; font-weight:600;">Show InfoKids Logo</span>
               </label>
-              <label style="display:flex; flex-direction:column; gap:4px; margin-top: 10px;">
+              <label style="display:flex; flex-direction:column; gap:4px; margin-top: 10px; display:none;" aria-hidden="true">
                 <span style="font-size: 0.75rem; color: #fff; font-weight:600;">Anjali Video Speed</span>
                 <input type="range" id="avatarSpeedRange" min="0.5" max="4.0" step="0.1" value="2.5" style="width: 100%;">
                 <span id="avatarSpeedLabel" style="font-size: 0.75rem; color: #fff; font-weight:600; align-self: flex-end;">2.5x</span>
@@ -1249,6 +1260,111 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                     aria-hidden="true">U</span></button>
               </div>
             </div>
+          </div>
+        </details>
+
+        <!-- ── Styles Module ──────────────────────────────────────── -->
+        <details class="stage-toolbar-group stage-toolbar-card" id="stageStylesCard">
+          <summary class="stage-toolbar-head stage-toolbar-summary">
+            <div>
+              <p class="stage-toolbar-label">Styles</p>
+              <p class="stage-toolbar-meta">Alignment, colors and text look</p>
+            </div>
+            <span class="stage-toolbar-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);">STYLE</span>
+          </summary>
+          <div class="stage-toolbar-body" style="display:flex;flex-direction:column;gap:10px;padding:10px 12px;">
+
+            <!-- Alignment -->
+            <div>
+              <p class="stage-styles-label">Alignment</p>
+              <div class="stage-styles-row">
+                <button id="stageAlignLeftBtn"   class="ghost-btn stage-icon-btn stage-align-btn" type="button" aria-pressed="true"  title="Align left">⬅ Left</button>
+                <button id="stageAlignCenterBtn" class="ghost-btn stage-icon-btn stage-align-btn" type="button" aria-pressed="false" title="Align center">↔ Centre</button>
+                <button id="stageAlignRightBtn"  class="ghost-btn stage-icon-btn stage-align-btn" type="button" aria-pressed="false" title="Align right">➡ Right</button>
+              </div>
+            </div>
+
+            <!-- Text weight -->
+            <div>
+              <p class="stage-styles-label">Weight</p>
+              <div class="stage-styles-row">
+                <button id="stageWeightNormalBtn" class="ghost-btn stage-icon-btn stage-align-btn" type="button" aria-pressed="true"  title="Normal">Normal</button>
+                <button id="stageWeightBoldBtn"   class="ghost-btn stage-icon-btn stage-align-btn" type="button" aria-pressed="false" title="Bold">Bold</button>
+                <button id="stageWeightXBoldBtn"  class="ghost-btn stage-icon-btn stage-align-btn" type="button" aria-pressed="false" title="Extra bold">X-Bold</button>
+              </div>
+            </div>
+
+            <!-- Color swatches -->
+            <div>
+              <p class="stage-styles-label">Text Color</p>
+              <div class="stage-swatch-row">
+                <div class="stage-swatch" data-color="#ffffff" style="background:#ffffff;" title="White"></div>
+                <div class="stage-swatch" data-color="#facc15" style="background:#facc15;" title="Yellow"></div>
+                <div class="stage-swatch" data-color="#f97316" style="background:#f97316;" title="Orange"></div>
+                <div class="stage-swatch" data-color="#fb7185" style="background:#fb7185;" title="Coral"></div>
+                <div class="stage-swatch" data-color="#dc2626" style="background:#dc2626;" title="Red"></div>
+                <div class="stage-swatch" data-color="#16a34a" style="background:#16a34a;" title="Green"></div>
+                <div class="stage-swatch" data-color="#06b6d4" style="background:#06b6d4;" title="Cyan"></div>
+                <div class="stage-swatch" data-color="#2563eb" style="background:#2563eb;" title="Blue"></div>
+                <div class="stage-swatch" data-color="#a78bfa" style="background:#a78bfa;" title="Violet"></div>
+                <div class="stage-swatch" data-color="#ec4899" style="background:#ec4899;" title="Pink"></div>
+                <div class="stage-swatch" data-color="#fef9c3" style="background:#fef9c3;" title="Cream"></div>
+                <div class="stage-swatch" data-color="#000000" style="background:#000000;" title="Black"></div>
+              </div>
+            </div>
+
+            <!-- Quick style presets -->
+            <div>
+              <p class="stage-styles-label">Quick Presets</p>
+              <div class="stage-model-row">
+                <button class="stage-model-btn ghost-btn stage-icon-btn" data-model="classic"    type="button">Classic</button>
+                <button class="stage-model-btn ghost-btn stage-icon-btn" data-model="bold-center" type="button">Bold Centre</button>
+                <button class="stage-model-btn ghost-btn stage-icon-btn" data-model="headline"   type="button">Headline</button>
+                <button class="stage-model-btn ghost-btn stage-icon-btn" data-model="glossary"   type="button">Glossary</button>
+                <button class="stage-model-btn ghost-btn stage-icon-btn" data-model="neon"       type="button">Neon</button>
+                <button class="stage-model-btn ghost-btn stage-icon-btn" data-model="chalk"      type="button">Chalk</button>
+                <button class="stage-model-btn ghost-btn stage-icon-btn" data-model="ocean"      type="button">Ocean</button>
+                <button class="stage-model-btn ghost-btn stage-icon-btn" data-model="royal"      type="button">Royal</button>
+              </div>
+            </div>
+
+            <p class="stage-voice-status" id="stageStylesStatus">Choose alignment, color or a quick preset.</p>
+          </div>
+        </details>
+
+        <!-- ── Voices Module ─────────────────────────────────────── -->
+        <details class="stage-toolbar-group stage-toolbar-card" id="stageVoicesCard">
+          <summary class="stage-toolbar-head stage-toolbar-summary">
+            <div>
+              <p class="stage-toolbar-label">Voices</p>
+              <p class="stage-toolbar-meta">Pick the narration voice for this session</p>
+            </div>
+            <span class="stage-toolbar-badge stage-voices-badge" id="stageVoiceBadge">Loading…</span>
+          </summary>
+          <div class="stage-toolbar-body stage-voices-body">
+
+            <!-- Pinned default voice row -->
+            <div class="voice-default-row" id="voiceDefaultRow">
+              <span class="voice-default-star">⭐</span>
+              <span class="voice-default-name" id="voiceDefaultName">Neerja Expressive</span>
+              <span class="voice-default-label">DEFAULT</span>
+            </div>
+
+            <!-- Dropdown + preview row -->
+            <div class="voice-select-row">
+              <select id="stageVoiceSelect" class="stage-voice-select">
+                <option disabled selected>Loading voices…</option>
+              </select>
+              <button id="stageVoicePreviewBtn" class="voice-preview-btn" type="button" title="Preview selected voice" aria-label="Preview voice">▶</button>
+            </div>
+
+            <!-- Actions -->
+            <div class="voice-action-row">
+              <button id="stageVoiceUseBtn" class="voice-use-btn" type="button">✔ Use This Voice</button>
+              <button id="stageVoiceDefaultBtn" class="voice-default-btn" type="button">⭐ Set as Default</button>
+            </div>
+
+            <p class="stage-voice-status" id="stageVoiceStatus">Choose a voice from the dropdown, preview it, then click Use.</p>
           </div>
         </details>
       </div>
@@ -1404,65 +1520,77 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
   <!-- Floating panel -->
   <div id="inputStylePanel" style="
     position:fixed; bottom:86px; right:24px; z-index:9001;
-    width:300px; padding:20px 22px 16px;
+    width:280px;
     background:#1a1f2e;
-    border-radius:16px;
+    border-radius:14px;
     border:1px solid rgba(255,255,255,0.1);
     box-shadow:0 20px 60px rgba(0,0,0,0.7);
     font-family:'Segoe UI',system-ui,sans-serif;
-    display:none; flex-direction:column; gap:16px;
+    display:none; flex-direction:column;
+    overflow:hidden;
+    max-height:65vh;
   ">
-    <!-- Header -->
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <span style="color:#fff; font-weight:700; font-size:0.95rem; letter-spacing:0.02em;">⚙ Input Style</span>
+    <!-- Sticky Header -->
+    <div style="display:flex; justify-content:space-between; align-items:center;
+      padding:12px 16px 10px; border-bottom:1px solid rgba(255,255,255,0.07);
+      flex-shrink:0; background:#1a1f2e; position:sticky; top:0; z-index:1;">
+      <span style="color:#fff; font-weight:700; font-size:0.88rem; letter-spacing:0.02em;">⚙ Input Style</span>
       <button id="inputStylePanelClose" style="
         background:none; border:none; color:rgba(255,255,255,0.45);
         font-size:1.1rem; cursor:pointer; padding:0 4px; line-height:1;
       ">✕</button>
     </div>
 
-    <!-- Line Spacing -->
-    <div style="display:flex; flex-direction:column; gap:6px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="color:rgba(255,255,255,0.7); font-size:0.83rem;">↕ Line Spacing</span>
-        <span id="inputLineHeightVal" style="color:#a5b4fc; font-weight:700; font-size:0.85rem;">2.1</span>
-      </div>
-      <input id="inputLineHeight" type="range" min="1.2" max="3.2" step="0.1" value="2.1"
-        style="width:100%; accent-color:#6366f1; cursor:pointer; height:5px;">
-    </div>
+    <!-- Scrollable body -->
+    <div style="overflow-y:auto; flex:1 1 auto; padding:12px 16px; display:flex; flex-direction:column; gap:14px;
+      scrollbar-width:thin; scrollbar-color:rgba(99,102,241,0.5) transparent;">
 
-    <!-- Font Size -->
-    <div style="display:flex; flex-direction:column; gap:6px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="color:rgba(255,255,255,0.7); font-size:0.83rem;">Aa Font Size</span>
-        <span id="inputFontSizeVal" style="color:#a5b4fc; font-weight:700; font-size:0.85rem;">0.98rem</span>
+      <!-- Line Spacing -->
+      <div style="display:flex; flex-direction:column; gap:5px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="color:rgba(255,255,255,0.7); font-size:0.8rem;">↕ Line Spacing</span>
+          <span id="inputLineHeightVal" style="color:#a5b4fc; font-weight:700; font-size:0.82rem;">2.1</span>
+        </div>
+        <input id="inputLineHeight" type="range" min="1.2" max="3.2" step="0.1" value="2.1"
+          style="width:100%; accent-color:#6366f1; cursor:pointer; height:4px;">
       </div>
-      <input id="inputFontSize" type="range" min="0.7" max="1.6" step="0.05" value="0.98"
-        style="width:100%; accent-color:#6366f1; cursor:pointer; height:5px;">
-    </div>
 
-    <!-- Letter Spacing -->
-    <div style="display:flex; flex-direction:column; gap:6px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="color:rgba(255,255,255,0.7); font-size:0.83rem;">A→Z Letter Spacing</span>
-        <span id="inputLetterSpacingVal" style="color:#a5b4fc; font-weight:700; font-size:0.85rem;">0.010em</span>
+      <!-- Font Size -->
+      <div style="display:flex; flex-direction:column; gap:5px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="color:rgba(255,255,255,0.7); font-size:0.8rem;">Aa Font Size</span>
+          <span id="inputFontSizeVal" style="color:#a5b4fc; font-weight:700; font-size:0.82rem;">0.98rem</span>
+        </div>
+        <input id="inputFontSize" type="range" min="0.7" max="1.6" step="0.05" value="0.98"
+          style="width:100%; accent-color:#6366f1; cursor:pointer; height:4px;">
       </div>
-      <input id="inputLetterSpacing" type="range" min="0" max="0.15" step="0.005" value="0.01"
-        style="width:100%; accent-color:#6366f1; cursor:pointer; height:5px;">
-    </div>
 
-    <!-- Reset -->
-    <button id="inputStyleResetBtn" type="button" style="
-      padding:8px; border-radius:8px;
-      border:1px solid rgba(255,255,255,0.12);
-      background:rgba(255,255,255,0.04);
-      color:rgba(255,255,255,0.5); font-size:0.82rem;
-      cursor:pointer; width:100%; letter-spacing:0.03em;
-    ">↺ Reset to Default</button>
+      <!-- Letter Spacing -->
+      <div style="display:flex; flex-direction:column; gap:5px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="color:rgba(255,255,255,0.7); font-size:0.8rem;">A→Z Letter Spacing</span>
+          <span id="inputLetterSpacingVal" style="color:#a5b4fc; font-weight:700; font-size:0.82rem;">0.010em</span>
+        </div>
+        <input id="inputLetterSpacing" type="range" min="0" max="0.15" step="0.005" value="0.01"
+          style="width:100%; accent-color:#6366f1; cursor:pointer; height:4px;">
+      </div>
+
+    </div><!-- /scroll body -->
+
+    <!-- Sticky Footer -->
+    <div style="flex-shrink:0; padding:8px 16px 12px; border-top:1px solid rgba(255,255,255,0.07); background:#1a1f2e;">
+      <button id="inputStyleResetBtn" type="button" style="
+        padding:7px; border-radius:8px;
+        border:1px solid rgba(255,255,255,0.12);
+        background:rgba(255,255,255,0.04);
+        color:rgba(255,255,255,0.5); font-size:0.79rem;
+        cursor:pointer; width:100%; letter-spacing:0.03em;
+      ">↺ Reset to Default</button>
+    </div>
   </div>
 
   <script>
-    // Floating Input Style Module — toggle, sliders, localStorage
+    // Floating Input Style Module — toggle, sliders, localStorage + canvas sync
     (function () {
       const fab       = document.getElementById('inputStyleFab');
       const panel     = document.getElementById('inputStylePanel');
@@ -1498,6 +1626,16 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         catch (_) { return DEFAULTS; }
       }
 
+      // Canvas sync helper — calls global functions exposed by script.js
+      function syncCanvas(opts) {
+        try {
+          if (typeof updateDisplayStyle === 'function') updateDisplayStyle(opts);
+          if (typeof invalidateDrawSceneLayoutCache === 'function') invalidateDrawSceneLayoutCache();
+          if (typeof markSceneDirty === 'function') markSceneDirty();
+          if (typeof drawScene === 'function' && typeof state !== 'undefined') drawScene(state.mouthOpen || 0);
+        } catch(e) { /* canvas not ready yet */ }
+      }
+
       // Boot
       const init = load();
       sliderLH.value = init.lineHeight;
@@ -1523,18 +1661,23 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         if (textarea) textarea.style.lineHeight = String(v);
         valLH.textContent = String(v);
         save(v, parseFloat(sliderFS.value), parseFloat(sliderLS.value));
+        // Canvas: line spacing multiplier
+        syncCanvas({ canvasLineSpacing: v / DEFAULTS.lineHeight });
       });
       sliderFS.addEventListener('input', () => {
         const v = parseFloat(sliderFS.value);
         if (textarea) textarea.style.fontSize = v + 'rem';
         valFS.textContent = v + 'rem';
         save(parseFloat(sliderLH.value), v, parseFloat(sliderLS.value));
+        // Font size only affects textarea, not canvas (canvas uses fontScale)
       });
       sliderLS.addEventListener('input', () => {
         const v = parseFloat(sliderLS.value);
         if (textarea) textarea.style.letterSpacing = v + 'em';
         valLS.textContent = v.toFixed(3) + 'em';
         save(parseFloat(sliderLH.value), parseFloat(sliderFS.value), v);
+        // Canvas: letter spacing in em
+        syncCanvas({ canvasLetterSpacing: v });
       });
 
       // Reset
@@ -1544,6 +1687,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         applyStyle(lineHeight, fontSize, letterSpacing);
         syncDisplays(lineHeight, fontSize, letterSpacing);
         save(lineHeight, fontSize, letterSpacing);
+        syncCanvas({ canvasLineSpacing: 1.0, canvasLetterSpacing: 0.0 });
       });
 
       // Hover glow on FAB

@@ -5,6 +5,7 @@ function InputPanel() {
   const actionLocks = useStore((state) => state.actionLocks);
 
   return (
+    <>
     <section className="panel panel-input" id="inputPanel">
       <div className="panel-head">
         <div className="panel-copy">
@@ -388,6 +389,352 @@ plz open ur books!"></textarea>
             <p className="upload-copy" id="selectionStyleStatus">Select a word or phrase in the lesson text to give it its
               own look on the slide.</p>
           </div>
+
+          {/* ── ALIGNMENT & CONTEXT STYLE MODEL CARD ──────────────────── */}
+          <div id="alignmentModelCard" className="display-style-card alignment-model-card">
+            <div className="alignment-model-header">
+              <span className="module-icon" style={{background:"#6d28d9"}}>ALN</span>
+              <div>
+                <p className="field-label" style={{margin:0}}>Alignment &amp; Context Style</p>
+                <p className="upload-copy" style={{margin:0}}>Pick a model below — it applies alignment, spacing, and color to the whole slide instantly.</p>
+              </div>
+            </div>
+
+            {/* ── Text Alignment Row ─────────────────────────────────── */}
+            <p className="field-label" style={{marginTop:"12px",marginBottom:"6px"}}>Text Alignment</p>
+            <div className="alignment-btn-row" role="group" aria-label="Text alignment">
+              <button id="alignLeftBtn" className="align-btn align-btn-active" type="button" aria-pressed="true" title="Left align">
+                <span className="align-icon">&#9776;</span>
+                <span>Left</span>
+              </button>
+              <button id="alignCenterBtn" className="align-btn" type="button" aria-pressed="false" title="Center align">
+                <span className="align-icon">&#9776;</span>
+                <span>Center</span>
+              </button>
+              <button id="alignRightBtn" className="align-btn" type="button" aria-pressed="false" title="Right align">
+                <span className="align-icon">&#9776;</span>
+                <span>Right</span>
+              </button>
+            </div>
+
+            {/* ── Context Style Models ───────────────────────────────── */}
+            <p className="field-label" style={{marginTop:"14px",marginBottom:"8px"}}>Context Style Models</p>
+            <p className="upload-copy" style={{marginBottom:"10px"}}>Tap a model card to select it — a ✓ appears and your text is converted to that style instantly.</p>
+            <div className="context-model-grid" role="group" aria-label="Context style models">
+
+              <button id="modelClassicBtn" className="context-model-card context-model-active" type="button" data-model="classic">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-classic">Aa</span>
+                <span className="context-model-name">Classic</span>
+                <span className="context-model-desc">Left, white, balanced</span>
+              </button>
+
+              <button id="modelBoldCenterBtn" className="context-model-card" type="button" data-model="bold-center">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-bold-center">Aa</span>
+                <span className="context-model-name">Bold Center</span>
+                <span className="context-model-desc">Centered, bold, yellow</span>
+              </button>
+
+              <button id="modelHeadlineBtn" className="context-model-card" type="button" data-model="headline">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-headline">AA</span>
+                <span className="context-model-name">Headline</span>
+                <span className="context-model-desc">Uppercase, center, sky blue</span>
+              </button>
+
+              <button id="modelGlossaryBtn" className="context-model-card" type="button" data-model="glossary">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-glossary">Aa</span>
+                <span className="context-model-name">Glossary</span>
+                <span className="context-model-desc">Left, italic, green</span>
+              </button>
+
+              <button id="modelCompactBtn" className="context-model-card" type="button" data-model="compact">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-compact">aa</span>
+                <span className="context-model-name">Compact</span>
+                <span className="context-model-desc">Left, lowercase flow</span>
+              </button>
+
+              <button id="modelPosterBtn" className="context-model-card" type="button" data-model="poster">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-poster">A</span>
+                <span className="context-model-name">Poster</span>
+                <span className="context-model-desc">Right, bold, red</span>
+              </button>
+
+              <button id="modelNeonBtn" className="context-model-card" type="button" data-model="neon">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-neon">Aa</span>
+                <span className="context-model-name">Neon</span>
+                <span className="context-model-desc">Center, fuchsia, bold glow</span>
+              </button>
+
+              <button id="modelChalkBtn" className="context-model-card" type="button" data-model="chalk">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-chalk">Aa</span>
+                <span className="context-model-name">Chalk</span>
+                <span className="context-model-desc">Left, cream, chalkboard feel</span>
+              </button>
+
+              <button id="modelSunriseBtn" className="context-model-card" type="button" data-model="sunrise">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-sunrise">Tt</span>
+                <span className="context-model-name">Sunrise</span>
+                <span className="context-model-desc">Center, orange, title case</span>
+              </button>
+
+              <button id="modelOceanBtn" className="context-model-card" type="button" data-model="ocean">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-ocean">Aa</span>
+                <span className="context-model-name">Ocean</span>
+                <span className="context-model-desc">Left, cyan, italic</span>
+              </button>
+
+              <button id="modelRoyalBtn" className="context-model-card" type="button" data-model="royal">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-royal">Tt</span>
+                <span className="context-model-name">Royal</span>
+                <span className="context-model-desc">Center, gold, title case</span>
+              </button>
+
+              <button id="modelFireBtn" className="context-model-card" type="button" data-model="fire">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-fire">AA</span>
+                <span className="context-model-name">Fire</span>
+                <span className="context-model-desc">Center, coral, uppercase bold</span>
+              </button>
+
+              <button id="modelForestBtn" className="context-model-card" type="button" data-model="forest">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-forest">Tt</span>
+                <span className="context-model-name">Forest</span>
+                <span className="context-model-desc">Left, lime, title case</span>
+              </button>
+
+              <button id="modelNightBtn" className="context-model-card" type="button" data-model="night">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-night">Aa</span>
+                <span className="context-model-name">Night</span>
+                <span className="context-model-desc">Right, violet, italic</span>
+              </button>
+
+              <button id="modelCandyBtn" className="context-model-card" type="button" data-model="candy">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-candy">Aa</span>
+                <span className="context-model-name">Candy</span>
+                <span className="context-model-desc">Center, pink, bold fun</span>
+              </button>
+
+              <button id="modelMatrixBtn" className="context-model-card" type="button" data-model="matrix">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-matrix">aa</span>
+                <span className="context-model-name">Matrix</span>
+                <span className="context-model-desc">Left, lime green, lowercase</span>
+              </button>
+
+              <button id="modelIceBtn" className="context-model-card" type="button" data-model="ice">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-ice">Aa</span>
+                <span className="context-model-name">Ice</span>
+                <span className="context-model-desc">Center, mint, italic cool</span>
+              </button>
+
+              <button id="modelTealBtn" className="context-model-card" type="button" data-model="teal">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-teal">Aa</span>
+                <span className="context-model-name">Teal</span>
+                <span className="context-model-desc">Left, teal, underlined bold</span>
+              </button>
+
+            </div>
+
+            {/* ── Key-Value Models ─────────────────────────────────────── */}
+            <p className="field-label" style={{marginTop:"16px",marginBottom:"4px"}}>Key : Value Layout</p>
+            <p className="upload-copy" style={{marginBottom:"8px"}}>Write lines like <strong>Term: definition</strong>. The part before <code>:</code> is the key color, the rest is the value color.</p>
+            <div className="context-model-grid" role="group" aria-label="Key-Value style models">
+
+              <button id="modelKvClassicBtn" className="context-model-card" type="button" data-model="kv-classic">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-kv-classic"><span style={{color:"#facc15",fontWeight:800}}>K</span><span style={{color:"rgba(255,255,255,0.5)"}}>:</span><span style={{color:"#ffffff",fontWeight:400,fontSize:"0.9rem"}}>V</span></span>
+                <span className="context-model-name">KV Classic</span>
+                <span className="context-model-desc">Yellow key, white value</span>
+              </button>
+
+              <button id="modelKvOceanBtn" className="context-model-card" type="button" data-model="kv-ocean">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-kv-ocean"><span style={{color:"#06b6d4",fontWeight:700}}>K</span><span style={{color:"rgba(255,255,255,0.4)"}}>:</span><span style={{color:"#6ee7b7",fontStyle:"italic",fontSize:"0.9rem"}}>V</span></span>
+                <span className="context-model-name">KV Ocean</span>
+                <span className="context-model-desc">Cyan key, mint value</span>
+              </button>
+
+              <button id="modelKvFireBtn" className="context-model-card" type="button" data-model="kv-fire">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-kv-fire"><span style={{color:"#fb7185",fontWeight:900}}>K</span><span style={{color:"rgba(255,255,255,0.4)"}}>:</span><span style={{color:"#fef9c3",fontSize:"0.9rem"}}>V</span></span>
+                <span className="context-model-name">KV Fire</span>
+                <span className="context-model-desc">Coral key, cream value</span>
+              </button>
+
+              <button id="modelKvRoyalBtn" className="context-model-card" type="button" data-model="kv-royal">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-kv-royal"><span style={{color:"#fbbf24",fontWeight:800}}>K</span><span style={{color:"rgba(255,255,255,0.4)"}}>:</span><span style={{color:"#ffffff",fontSize:"0.9rem"}}>V</span></span>
+                <span className="context-model-name">KV Royal</span>
+                <span className="context-model-desc">Gold key, white value</span>
+              </button>
+
+            </div>
+
+            {/* KV manual toggle + color pickers */}
+            <div className="kv-toggle-row">
+              <label className="kv-toggle-label" htmlFor="kvModeCheck">
+                <input type="checkbox" id="kvModeCheck" />
+                <span>Enable Key:Value Mode (manual)</span>
+              </label>
+              <div className="kv-color-pickers">
+                <label className="kv-color-field" htmlFor="kvKeyColorPicker">
+                  <span>Key</span>
+                  <input type="color" id="kvKeyColorPicker" defaultValue="#facc15" />
+                </label>
+                <label className="kv-color-field" htmlFor="kvValueColorPicker">
+                  <span>Value</span>
+                  <input type="color" id="kvValueColorPicker" defaultValue="#ffffff" />
+                </label>
+              </div>
+            </div>
+
+            {/* ── Narration Type Models ─────────────────────────────────── */}
+            <p className="field-label" style={{marginTop:"16px",marginBottom:"4px"}}>Narration Type</p>
+            <p className="upload-copy" style={{marginBottom:"8px"}}>Pick a narration feel — each applies a matching visual tone to your slide.</p>
+            <div className="context-model-grid" role="group" aria-label="Narration type models">
+
+              <button id="modelStorytellerBtn" className="context-model-card" type="button" data-model="storyteller">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-storyteller">Once</span>
+                <span className="context-model-name">Storyteller</span>
+                <span className="context-model-desc">Warm, italic, flowing</span>
+              </button>
+
+              <button id="modelQuizBtn" className="context-model-card" type="button" data-model="quiz">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-quiz">Q?</span>
+                <span className="context-model-name">Quiz</span>
+                <span className="context-model-desc">Center, cyan, bold title</span>
+              </button>
+
+              <button id="modelDialogueBtn" className="context-model-card" type="button" data-model="dialogue">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-dialogue">"Aa"</span>
+                <span className="context-model-name">Dialogue</span>
+                <span className="context-model-desc">Left, pink, italic voice</span>
+              </button>
+
+              <button id="modelBroadcastBtn" className="context-model-card" type="button" data-model="broadcast">
+                <span className="context-model-check">✓</span>
+                <span className="context-model-preview context-model-preview-broadcast">NEWS</span>
+                <span className="context-model-name">Broadcast</span>
+                <span className="context-model-desc">Center, bold, uppercase</span>
+              </button>
+
+            </div>
+
+            {/* ── Font Weight Quick Row ───────────────────────────────── */}
+            <p className="field-label" style={{marginTop:"14px",marginBottom:"6px"}}>Font Weight</p>
+            <div className="alignment-btn-row" role="group" aria-label="Font weight">
+              <button id="weightNormalBtn" className="align-btn" type="button" aria-pressed="false" title="Normal weight" style={{fontWeight:400}}>Normal</button>
+              <button id="weightBoldBtn" className="align-btn" type="button" aria-pressed="false" title="Bold weight" style={{fontWeight:700}}>Bold</button>
+              <button id="weightXBoldBtn" className="align-btn" type="button" aria-pressed="false" title="Extra Bold" style={{fontWeight:900}}>X Bold</button>
+            </div>
+
+            {/* ── Color Presets ──────────────────────────────────────── */}
+            <p className="field-label" style={{marginTop:"14px",marginBottom:"8px"}}>Quick Color Presets</p>
+            <p className="upload-copy" style={{marginBottom:"10px"}}>Click a swatch to apply it as the slide text color. A ✓ marks the active choice.</p>
+            <div className="color-preset-row" role="group" aria-label="Color presets" id="colorPresetRow">
+              <button className="color-swatch color-swatch-active" data-color="#ffffff" id="swatchWhite" type="button" title="White" aria-label="White text">
+                <span className="swatch-dot" style={{background:"#ffffff"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">White</span>
+              </button>
+              <button className="color-swatch" data-color="#facc15" id="swatchYellow" type="button" title="Yellow" aria-label="Yellow text">
+                <span className="swatch-dot" style={{background:"#facc15"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Yellow</span>
+              </button>
+              <button className="color-swatch" data-color="#0d7ea9" id="swatchSkyBlue" type="button" title="Sky Blue" aria-label="Sky blue text">
+                <span className="swatch-dot" style={{background:"#0d7ea9"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Sky Blue</span>
+              </button>
+              <button className="color-swatch" data-color="#16a34a" id="swatchGreen" type="button" title="Bright Green" aria-label="Bright green text">
+                <span className="swatch-dot" style={{background:"#16a34a"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Green</span>
+              </button>
+              <button className="color-swatch" data-color="#dc2626" id="swatchRed" type="button" title="Red" aria-label="Red text">
+                <span className="swatch-dot" style={{background:"#dc2626"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Red</span>
+              </button>
+              <button className="color-swatch" data-color="#f97316" id="swatchOrange" type="button" title="Orange" aria-label="Orange text">
+                <span className="swatch-dot" style={{background:"#f97316"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Orange</span>
+              </button>
+              <button className="color-swatch" data-color="#a78bfa" id="swatchViolet" type="button" title="Violet" aria-label="Violet text">
+                <span className="swatch-dot" style={{background:"#a78bfa"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Violet</span>
+              </button>
+              <button className="color-swatch" data-color="#000000" id="swatchBlack" type="button" title="Black" aria-label="Black text">
+                <span className="swatch-dot" style={{background:"#000000",border:"1px solid rgba(255,255,255,0.25)"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Black</span>
+              </button>
+              <button className="color-swatch" data-color="#06b6d4" id="swatchCyan" type="button" title="Cyan" aria-label="Cyan text">
+                <span className="swatch-dot" style={{background:"#06b6d4"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Cyan</span>
+              </button>
+              <button className="color-swatch" data-color="#ec4899" id="swatchPink" type="button" title="Pink" aria-label="Pink text">
+                <span className="swatch-dot" style={{background:"#ec4899"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Pink</span>
+              </button>
+              <button className="color-swatch" data-color="#84cc16" id="swatchLime" type="button" title="Lime" aria-label="Lime text">
+                <span className="swatch-dot" style={{background:"#84cc16"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Lime</span>
+              </button>
+              <button className="color-swatch" data-color="#fbbf24" id="swatchGold" type="button" title="Gold" aria-label="Gold text">
+                <span className="swatch-dot" style={{background:"#fbbf24"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Gold</span>
+              </button>
+              <button className="color-swatch" data-color="#14b8a6" id="swatchTeal" type="button" title="Teal" aria-label="Teal text">
+                <span className="swatch-dot" style={{background:"#14b8a6"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Teal</span>
+              </button>
+              <button className="color-swatch" data-color="#fb7185" id="swatchCoral" type="button" title="Coral" aria-label="Coral text">
+                <span className="swatch-dot" style={{background:"#fb7185"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Coral</span>
+              </button>
+              <button className="color-swatch" data-color="#fef9c3" id="swatchCream" type="button" title="Cream" aria-label="Cream text">
+                <span className="swatch-dot" style={{background:"#fef9c3",border:"1px solid rgba(255,255,255,0.15)"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Cream</span>
+              </button>
+              <button className="color-swatch" data-color="#6ee7b7" id="swatchMint" type="button" title="Mint" aria-label="Mint text">
+                <span className="swatch-dot" style={{background:"#6ee7b7"}}></span>
+                <span className="swatch-check">✓</span>
+                <span className="swatch-label">Mint</span>
+              </button>
+            </div>
+
+            <p className="upload-copy" id="alignmentModelStatus" style={{marginTop:"10px"}}>Classic model active. Left-aligned, white text.</p>
+          </div>
+
         </div>
       </details>
 
@@ -1097,6 +1444,25 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
       </details>
 
     </section>
+
+    {/* \u2500\u2500 Floating Show Screen Button \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */}
+    <button
+      id="floatingShowScreenBtn"
+      className="floating-screen-btn"
+      type="button"
+      aria-label="Show presentation screen"
+      title="Show Screen"
+    >
+      <svg className="floating-screen-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="3" width="20" height="14" rx="2.5" stroke="currentColor" strokeWidth="2"/>
+        <path d="M8 21h8M12 17v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        <path d="M9 9.5 L12 7.5 L15 9.5 L12 11.5 Z" fill="currentColor" opacity="0.85"/>
+      </svg>
+      <span className="floating-screen-label">Show Screen</span>
+      <span className="floating-screen-pulse"></span>
+    </button>
+
+    </>
   );
 }
 

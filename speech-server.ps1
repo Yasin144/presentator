@@ -212,9 +212,9 @@ function Get-VoiceProfile {
         Key = "male"
         Gender = "Male"
         PreferredPattern = "David|Mark|Guy|Daniel|Alex|James|Matthew|George|Ryan|Aaron"
-        ProsodyRate = "-9%"
-        ProsodyPitch = "default"
-        BreakTime = "420ms"
+        ProsodyRate = "-4%"       # Crisp, clear male pace
+        ProsodyPitch = "+2%"      # Slight lift = more presence
+        BreakTime = "320ms"       # Tight, precise pauses
         FileName = "male-narration.wav"
       }
     }
@@ -223,9 +223,9 @@ function Get-VoiceProfile {
         Key = "fresh"
         Gender = "Female"
         PreferredPattern = "Hazel|Jenny|Aria|Samantha|Eva|Zira|Sonia|Heera"
-        ProsodyRate = "-12%"
-        ProsodyPitch = "+8%"
-        BreakTime = "380ms"
+        ProsodyRate = "-5%"       # Natural pace, not sluggish
+        ProsodyPitch = "+10%"     # Higher = brighter, clearer
+        BreakTime = "280ms"       # Snappy pauses
         FileName = "fresh-narration.wav"
       }
     }
@@ -234,9 +234,9 @@ function Get-VoiceProfile {
         Key = "indian-female"
         Gender = "Female"
         PreferredPattern = "Heera|Sonia|Swara|Veena|Ananya|Priya|India|Indian|en-IN|hi-IN|Hazel|Jenny|Zira"
-        ProsodyRate = "-22%"
-        ProsodyPitch = "+3%"
-        BreakTime = "620ms"
+        ProsodyRate = "-10%"      # Was -22% (too slow) — now crisp
+        ProsodyPitch = "+6%"      # Lift for clarity
+        BreakTime = "400ms"       # Was 620ms — snappier
         FileName = "indian-female-narration.wav"
       }
     }
@@ -245,9 +245,9 @@ function Get-VoiceProfile {
         Key = "anjali"
         Gender = "Female"
         PreferredPattern = "Heera|Sonia|Swara|Veena|Ananya|Priya|India|Indian|en-IN|hi-IN|Hazel|Jenny|Zira"
-        ProsodyRate = "-20%"
-        ProsodyPitch = "+4%"
-        BreakTime = "540ms"
+        ProsodyRate = "-8%"       # Was -20% — much crisper now
+        ProsodyPitch = "+6%"      # Lift for clarity & presence
+        BreakTime = "360ms"       # Was 540ms — precise pauses
         FileName = "anjali-narration.wav"
       }
     }
@@ -256,9 +256,9 @@ function Get-VoiceProfile {
         Key = "female"
         Gender = "Female"
         PreferredPattern = "Hazel|Jenny|Aria|Samantha|Eva|Zira|Sonia|Heera"
-        ProsodyRate = "-18%"
-        ProsodyPitch = "+5%"
-        BreakTime = "560ms"
+        ProsodyRate = "-6%"       # Was -18% — now natural & clear
+        ProsodyPitch = "+7%"      # Bright, articulate
+        BreakTime = "320ms"       # Crisp pauses
         FileName = "female-narration.wav"
       }
     }
@@ -375,8 +375,8 @@ function Invoke-Narration {
 
   try {
     $speaker.SelectVoice($voiceName)
-    $speaker.Rate = 0
-    $speaker.Volume = 100
+    $speaker.Rate   = 1       # 1 = slightly faster than neutral — sharper articulation vs 0
+    $speaker.Volume = 100     # Full volume for clean signal
     $speaker.SetOutputToWaveFile($tempPath)
     $chunks = Split-NarrationText -Text $Text
     foreach ($chunk in $chunks) {

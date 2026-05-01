@@ -1,4 +1,4 @@
-var avatarConfig = {x: 35, y: 35, w: 0, h: 0, scale: 0.85, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
+﻿var avatarConfig = {x: 35, y: 35, w: 0, h: 0, scale: 0.85, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 var logoConfig = {x: 1620, y: 920, w: 0, h: 0, scale: 0.54, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 
 // ── Burned-in caption overlay ────────────────────────────────────────────────
@@ -949,7 +949,14 @@ const state = {
     bold: false,
     italic: false,
     underline: false,
-    caseMode: "original"
+    caseMode: "original",
+    textAlign: "left",
+    contextModel: "classic",
+    kvMode: false,
+    kvKeyColor: "#facc15",
+    kvValueColor: "#ffffff",
+    canvasLineSpacing: 1.0,
+    canvasLetterSpacing: 0.0
   },
   rawInput: {
     enabled: false,
@@ -3250,7 +3257,9 @@ function verbalizeMathForSpeech(text) {
       .replace(/%/g, " ")
       .replace(/\^/g, " ")
       .replace(/\u221A/g, " ")
-      .replace(/:/g, " ")
+      // NOTE: colon (:) intentionally NOT removed here — it must reach the
+      // anjali-chatterbox-server so the Python synthesize() can split on it
+      // and insert 800ms PCM silence. Edge TTS handles the colon naturally.
       .replace(/\(/g, " ")
       .replace(/\)/g, " ")
       .replace(/\[/g, " ")
@@ -3738,11 +3747,13 @@ function splitNarrationChunkForRetry(narrationText = "") {
 function estimatePauseMsFromText(text = "") {
   const safeText = String(text || "");
   const commaCount = (safeText.match(/,/g) || []).length;
-  const softPauseCount = (safeText.match(/[;:]/g) || []).length;
+  const colonCount = (safeText.match(/:/g) || []).length;
+  const softPauseCount = (safeText.match(/;/g) || []).length;
   const sentencePauseCount = (safeText.match(/[.!?]/g) || []).length;
   const lineBreakCount = (safeText.match(/\n+/g) || []).length;
   return (
     (commaCount * 1000)   // 1000ms per comma — matches server-side PCM silence
+    + (colonCount * 800)  // 800ms per colon  — matches server-side PCM silence
     + (softPauseCount * STRICT_INTER_WORD_PAUSE_MS)
     + (sentencePauseCount * STRICT_SENTENCE_PAUSE_MS)
     + (lineBreakCount * STRICT_SENTENCE_PAUSE_MS)
@@ -3919,7 +3930,11 @@ function getSpeechSyncTokenPauseMs(chunkText = "") {
     return STRICT_SENTENCE_PAUSE_MS;
   }
 
-  if (/[,:;]["')\]]*\s*$/i.test(safeChunk)) {
+  if (/:[^"'\])]]*\s*$/i.test(safeChunk)) {
+    return 800; // 800ms — matches server PCM silence after colon
+  }
+
+  if (/[,;]["')\]]*\s*$/i.test(safeChunk)) {
     return STRICT_SOFT_SENTENCE_PAUSE_MS;
   }
 
@@ -4059,7 +4074,11 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
     return STRICT_SENTENCE_PAUSE_MS;
   }
 
-  if (/^[:;]+$/.test(displayText)) {
+  if (/^:+$/.test(displayText)) {
+    return 800; // 800ms — matches the PCM silence the server inserts after every colon
+  }
+
+  if (/^;+$/.test(displayText)) {
     return STRICT_SOFT_SENTENCE_PAUSE_MS;
   }
 
@@ -5095,7 +5114,14 @@ function cloneTextStyle(style) {
     bold: Boolean(style?.bold),
     italic: Boolean(style?.italic),
     underline: Boolean(style?.underline),
-    caseMode: style?.caseMode || "original"
+    caseMode: style?.caseMode || "original",
+    textAlign: style?.textAlign || "left",
+    contextModel: style?.contextModel || "classic",
+    kvMode: Boolean(style?.kvMode),
+    kvKeyColor: style?.kvKeyColor || "#facc15",
+    kvValueColor: style?.kvValueColor || "#ffffff",
+    canvasLineSpacing: style?.canvasLineSpacing ?? 1.0,
+    canvasLetterSpacing: style?.canvasLetterSpacing ?? 0.0
   };
 }
 
@@ -5345,7 +5371,7 @@ function getContentFont(size, style = state.displayStyle) {
       return `${fontStyle} ${fontWeight} ${size}px "Nunito", "Segoe UI", sans-serif`;
     }
 
-    return `normal 500 ${size}px Consolas, "Courier New", monospace`;
+    return `normal 500 ${size}px "Baloo 2", "League Spartan", sans-serif`;
   }
 
   const resolvedStyle = getResolvedTextStyle(style);
@@ -11286,9 +11312,10 @@ function tokenizeStyledRuns(runs) {
 }
 
 function measureStyledRuns(ctxRef, runs, fontSize) {
+  const lsPx = (state.displayStyle?.canvasLetterSpacing ?? 0) * (fontSize || 32);
   return runs.reduce((totalWidth, run) => {
     ctxRef.font = getContentFont(fontSize, run.style);
-    return totalWidth + ctxRef.measureText(run.text).width;
+    return totalWidth + ctxRef.measureText(run.text).width + (run.text.length * lsPx);
   }, 0);
 }
 
@@ -11763,7 +11790,7 @@ function getPureInputGlossaryPairs(text = getPureInputText()) {
   }
 
   const normalizedText = sourceText.replace(/\r/g, "").trim();
-  if (!normalizedText || !/=/.test(normalizedText)) {
+  if (!normalizedText || (!/=/.test(normalizedText) && !/^.+\s*:\s*.+/m.test(normalizedText))) {
     _pureInputGlossaryCache.key = sourceText;
     _pureInputGlossaryCache.pairs = null;
     return null;
@@ -11875,7 +11902,8 @@ function getPureInputExplicitGlossaryPairs(text = "", options = {}) {
       continue;
     }
 
-    const match = rawLine.match(/^(.+?)\s*=\s*(.*)$/);
+    // Match "Key = Value" or "Key : Value" (dialogue / script format)
+    const match = rawLine.match(/^(.+?)\s*(?:=|(?<!\w):\s)\s*(.*)$/) || rawLine.match(/^(.+?)\s*:\s*(.+)$/);
     if (!match) {
       const continuation = normalizeGlossaryChunk(rawLine);
       if (!continuation) {
@@ -12055,7 +12083,7 @@ function buildPureInputGlossaryRows(ctxRef, pairs, maxWidth, fontSize) {
     return [];
   }
 
-  const valueColor = "#17191f";
+  const valueColor = "#ffffff";
   const termStyle = {
     color: "#c81f25",
     bold: true,
@@ -12382,7 +12410,8 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
 
   const buildLayout = (size) => {
     const rows = [];
-    const rowHeight = Math.max(size + 4, Math.round(size * 1.2));
+    const _lineMul = Math.max(0.7, Math.min(3.0, state.displayStyle?.canvasLineSpacing ?? 1.0));
+    const rowHeight = Math.max(size + 4, Math.round(size * 1.2 * _lineMul));
     const groupGap = Math.max(6, Math.round(size * 0.24));
 
     if (glossaryPairs?.length) {
@@ -12865,6 +12894,15 @@ function isUsingDefaultStageStyle(style) {
 }
 
 function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIndex, characterIndex = 0) {
+  // ── Key-Value mode: color chars before ':' as key, after as value ──────────
+  if (state.displayStyle.kvMode && window._kvState && window._kvState.colonGlobal >= 0) {
+    const currentChar = state.drawnCharCount || 0;
+    if (currentChar <= window._kvState.colonGlobal) {
+      return window._kvState.keyColor;
+    }
+    return window._kvState.valueColor;
+  }
+
   const isOutcomes = normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES;
 
   // Preserve explicit custom colours (glossary red, user highlights) UNLESS we're on
@@ -12934,7 +12972,13 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
 
     ctx.globalAlpha = 1.0;
     state.drawnCharCount = (state.drawnCharCount || 0) + 1;
-    cursorX += characterWidth;
+    // letter spacing: em units → pixels relative to current font size
+    const _lsPx = (state.displayStyle?.canvasLetterSpacing ?? 0) * fontSize;
+    // KV gap: after the separator character (':' or '='), inject a visual gap
+    const _isSep = state.displayStyle?.kvMode && window._kvState &&
+      (character === ":" || character === "=");
+    const _kvGap = _isSep ? Math.round(fontSize * 0.35) : 0;
+    cursorX += characterWidth + _lsPx + _kvGap;
   }
 
   ctx.shadowColor = "transparent";
@@ -14229,8 +14273,9 @@ function drawInfoKidsLogo() {
   let inProgress = 0;
   if (state.titleAnim.startedAt) {
     inProgress = clamp((now - state.titleAnim.startedAt) / BADGE_IN_MS, 0, 1);
-  } else if (!state.speaking) {
-    // Authoring preview (not yet played): show badge fully docked
+  } else if (!state.speaking && !state.titleAnim.exitStartedAt) {
+    // Authoring preview (never played yet): show badge fully docked.
+    // Once exit has been armed (exitStartedAt set), don't override — let it slide out.
     inProgress = 1;
   }
   const inEased = inProgress * inProgress * (3 - 2 * inProgress);
@@ -15331,9 +15376,11 @@ function drawScene(mouthOpen = 0.12) {
   ctx.rect(contentArea.x - 12, contentArea.y - 12, contentArea.width + 18, contentArea.height + 24);
   ctx.clip();
 
-  ctx.textAlign = "left";
   ctx.textBaseline = "top";
   let y = contentArea.y + contentPaddingY - contentScrollOffset;
+
+  const _stageTextAlign = state.displayStyle.textAlign || "left";
+  const _kvModeOn = state.displayStyle.kvMode;
 
   (currentPage?.rows || []).forEach((row, rowIndex) => {
     if (row.spacer) {
@@ -15343,11 +15390,53 @@ function drawScene(mouthOpen = 0.12) {
 
     const rowText = row.segments.map((segment) => segment.text).join("");
     const rowWidth = measureStyledRuns(ctx, row.segments, currentFontSize);
-    const rowStartX = contentArea.x + contentPaddingX + (row.bullet ? 18 : 0);
+    const bulletIndent = row.bullet ? 18 : 0;
+
+    // ── Key-Value mode: set up per-row colon/equals tracking ────────────────────
+    if (_kvModeOn) {
+      // Support both ':' (KV classic) and '=' (glossary format) as separators.
+      // Use whichever appears first in the row.
+      const colonIdx  = rowText.indexOf(":");
+      const equalsIdx = rowText.indexOf("=");
+      const sepIdxInRow = (colonIdx >= 0 && (equalsIdx < 0 || colonIdx <= equalsIdx))
+        ? colonIdx
+        : equalsIdx;
+
+      if (sepIdxInRow >= 0) {
+        window._kvState = {
+          colonGlobal: (state.drawnCharCount || 0) + sepIdxInRow,
+          sepChar: rowText[sepIdxInRow],   // ':' or '='
+          colonDone: false,
+          keyColor: state.displayStyle.kvKeyColor || "#facc15",
+          valueColor: state.displayStyle.kvValueColor || "#ffffff"
+        };
+      } else {
+        // No separator in this row — treat entire row as key color
+        window._kvState = {
+          colonGlobal: Infinity,
+          sepChar: null,
+          colonDone: false,
+          keyColor: state.displayStyle.kvKeyColor || "#facc15",
+          valueColor: state.displayStyle.kvValueColor || "#ffffff"
+        };
+      }
+    } else {
+      window._kvState = null;
+    }
+
+    // ── Alignment offset ───────────────────────────────────────────────────
+    let alignOffsetX = 0;
+    if (_stageTextAlign === "center") {
+      alignOffsetX = Math.max(0, (contentArea.width - rowWidth - bulletIndent) / 2);
+    } else if (_stageTextAlign === "right") {
+      alignOffsetX = Math.max(0, contentArea.width - rowWidth - bulletIndent - contentPaddingX * 2);
+    }
+
+    const rowStartX = contentArea.x + contentPaddingX + bulletIndent + alignOffsetX;
 
     if (row.bullet) {
       ctx.beginPath();
-      ctx.arc(contentArea.x + contentPaddingX + 6, y + Math.round(currentFontSize * 0.42), 6, 0, Math.PI * 2);
+      ctx.arc(contentArea.x + contentPaddingX + alignOffsetX + 6, y + Math.round(currentFontSize * 0.42), 6, 0, Math.PI * 2);
       ctx.fillStyle = getAnimatedTeachingTextColor(null, rowText, rowIndex, 0);
       ctx.fill();
     }
@@ -22467,6 +22556,409 @@ selectedUnderlineToggleBtn.addEventListener("click", () => {
 });
 applySelectedStyleBtn.addEventListener("click", applySelectedTextStyle);
 clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
+
+// ── Alignment Buttons ─────────────────────────────────────────────────────
+(function wireAlignmentButtons() {
+  const alignBtns = [
+    { id: "alignLeftBtn",   align: "left"   },
+    { id: "alignCenterBtn", align: "center" },
+    { id: "alignRightBtn",  align: "right"  }
+  ];
+
+  function setActiveAlignBtn(activeAlign) {
+    alignBtns.forEach(({ id, align }) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const isActive = align === activeAlign;
+      btn.classList.toggle("align-btn-active", isActive);
+      btn.setAttribute("aria-pressed", String(isActive));
+    });
+  }
+
+  alignBtns.forEach(({ id, align }) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      updateDisplayStyle({ textAlign: align });
+      setActiveAlignBtn(align);
+      const statusEl = document.getElementById("alignmentModelStatus");
+      if (statusEl) {
+        const cap = align.charAt(0).toUpperCase() + align.slice(1);
+        statusEl.textContent = `Text alignment set to ${cap}.`;
+      }
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      scheduleLessonInputChange(0);
+    });
+  });
+})();
+
+// ── Context Style Models ───────────────────────────────────────────────────
+(function wireContextModels() {
+  const CONTEXT_MODELS = {
+    "classic":     { label: "Classic — left, white, balanced.",          style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", contextModel: "classic" } },
+    "bold-center": { label: "Bold Center — centered, yellow, bold.",       style: { textAlign: "center", color: "#facc15", bold: true,  italic: false, caseMode: "original", contextModel: "bold-center" } },
+    "headline":    { label: "Headline — centered, sky blue, uppercase.",    style: { textAlign: "center", color: "#0d7ea9", bold: true,  italic: false, caseMode: "upper",    contextModel: "headline" } },
+    "glossary":    { label: "Glossary — left, italic, bright green.",       style: { textAlign: "left",   color: "#16a34a", bold: false, italic: true,  caseMode: "original", contextModel: "glossary" } },
+    "compact":     { label: "Compact — left, lowercase flow.",              style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "lower",    contextModel: "compact" } },
+    "poster":      { label: "Poster — right, bold, red.",                   style: { textAlign: "right",  color: "#dc2626", bold: true,  italic: false, caseMode: "original", contextModel: "poster" } },
+    "neon":        { label: "Neon — centered, fuchsia, extra bold.",        style: { textAlign: "center", color: "#d946ef", bold: true,  italic: false, caseMode: "original", contextModel: "neon" } },
+    "chalk":       { label: "Chalk — left, cream, chalkboard feel.",        style: { textAlign: "left",   color: "#fef9c3", bold: false, italic: false, caseMode: "original", contextModel: "chalk" } },
+    "sunrise":     { label: "Sunrise — centered, orange, title case.",      style: { textAlign: "center", color: "#f97316", bold: true,  italic: false, caseMode: "title",    contextModel: "sunrise" } },
+    "ocean":       { label: "Ocean — left, cyan, italic.",                  style: { textAlign: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", contextModel: "ocean" } },
+    "royal":       { label: "Royal — centered, gold, title case.",          style: { textAlign: "center", color: "#fbbf24", bold: true,  italic: false, caseMode: "title",    contextModel: "royal" } },
+    "fire":        { label: "Fire — centered, coral, bold uppercase.",      style: { textAlign: "center", color: "#fb7185", bold: true,  italic: false, caseMode: "upper",    contextModel: "fire" } },
+    "forest":      { label: "Forest — left, lime, title case.",             style: { textAlign: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "title",    contextModel: "forest" } },
+    "night":       { label: "Night — right, violet, italic.",               style: { textAlign: "right",  color: "#a78bfa", bold: false, italic: true,  caseMode: "original", contextModel: "night" } },
+    "candy":       { label: "Candy — centered, pink, bold fun.",            style: { textAlign: "center", color: "#ec4899", bold: true,  italic: false, caseMode: "original", contextModel: "candy" } },
+    "matrix":      { label: "Matrix — left, lime green, lowercase.",        style: { textAlign: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "lower",    contextModel: "matrix" } },
+    "ice":         { label: "Ice — centered, mint, italic cool.",           style: { textAlign: "center", color: "#6ee7b7", bold: false, italic: true,  caseMode: "original", contextModel: "ice" } },
+    "teal":        { label: "Teal — left, teal, underlined bold.",          style: { textAlign: "left",   color: "#14b8a6", bold: true,  italic: false, caseMode: "original", contextModel: "teal" } },
+    // ── Key-Value Models ──────────────────────────────────────────────────
+    "kv-classic":  { label: "KV Classic — yellow key, white value.",        style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", contextModel: "kv-classic",  kvMode: true, kvKeyColor: "#facc15", kvValueColor: "#ffffff" } },
+    "kv-ocean":    { label: "KV Ocean — cyan key, mint value.",            style: { textAlign: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", contextModel: "kv-ocean",    kvMode: true, kvKeyColor: "#06b6d4", kvValueColor: "#6ee7b7" } },
+    "kv-fire":     { label: "KV Fire — coral key, cream value.",           style: { textAlign: "left",   color: "#fb7185", bold: true,  italic: false, caseMode: "original", contextModel: "kv-fire",     kvMode: true, kvKeyColor: "#fb7185", kvValueColor: "#fef9c3" } },
+    "kv-royal":    { label: "KV Royal — gold key, white value.",           style: { textAlign: "left",   color: "#fbbf24", bold: true,  italic: false, caseMode: "original", contextModel: "kv-royal",    kvMode: true, kvKeyColor: "#fbbf24", kvValueColor: "#ffffff" } },
+    // ── Narration Type Models ────────────────────────────────────────────
+    "storyteller":  { label: "Storyteller — warm, flowing narrative.",      style: { textAlign: "left",   color: "#fef9c3", bold: false, italic: true,  caseMode: "original", contextModel: "storyteller" } },
+    "quiz":         { label: "Quiz — energetic, bold question style.",       style: { textAlign: "center", color: "#06b6d4", bold: true,  italic: false, caseMode: "title",    contextModel: "quiz" } },
+    "dialogue":     { label: "Dialogue — conversational, pink italic.",      style: { textAlign: "left",   color: "#ec4899", bold: false, italic: true,  caseMode: "original", contextModel: "dialogue" } },
+    "broadcast":    { label: "Broadcast — news-style, bold uppercase.",      style: { textAlign: "center", color: "#ffffff", bold: true,  italic: false, caseMode: "upper",    contextModel: "broadcast" } }
+  };
+
+  const modelBtns = document.querySelectorAll(".context-model-card[data-model]");
+
+  function setActiveModel(modelKey) {
+    modelBtns.forEach((btn) => {
+      const isActive = btn.dataset.model === modelKey;
+      btn.classList.toggle("context-model-active", isActive);
+    });
+  }
+
+  modelBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.model;
+      const modelDef = CONTEXT_MODELS[key];
+      if (!modelDef) return;
+
+      setActiveModel(key);
+      updateDisplayStyle(modelDef.style);
+
+      // Sync alignment buttons
+      const activeAlign = modelDef.style.textAlign || "left";
+      ["alignLeftBtn","alignCenterBtn","alignRightBtn"].forEach((id) => {
+        const ab = document.getElementById(id);
+        if (!ab) return;
+        const abAlign = id.replace("align","").replace("Btn","").toLowerCase();
+        const isActive = abAlign === activeAlign;
+        ab.classList.toggle("align-btn-active", isActive);
+        ab.setAttribute("aria-pressed", String(isActive));
+      });
+
+      // Sync textColorSelect
+      if (textColorSelect) {
+        const colorOpts = Array.from(textColorSelect.options);
+        const matchOpt = colorOpts.find(o => o.value === modelDef.style.color);
+        if (matchOpt) textColorSelect.value = modelDef.style.color;
+      }
+
+      // Sync color swatches
+      document.querySelectorAll(".color-swatch[data-color]").forEach((sw) => {
+        const isActive = sw.dataset.color === modelDef.style.color;
+        sw.classList.toggle("color-swatch-active", isActive);
+      });
+
+      const statusEl = document.getElementById("alignmentModelStatus");
+      if (statusEl) statusEl.textContent = modelDef.label;
+
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      scheduleLessonInputChange(0);
+    });
+  });
+})();
+
+// ── Color Preset Swatches ─────────────────────────────────────────────────
+(function wireColorSwatches() {
+  const swatches = document.querySelectorAll(".color-swatch[data-color]");
+
+  function setActiveSwatch(color) {
+    swatches.forEach((sw) => {
+      sw.classList.toggle("color-swatch-active", sw.dataset.color === color);
+    });
+  }
+
+  swatches.forEach((sw) => {
+    sw.addEventListener("click", () => {
+      const color = sw.dataset.color;
+      setActiveSwatch(color);
+      updateDisplayStyle({ color });
+      // Sync the main textColorSelect if the option exists
+      if (textColorSelect) {
+        const found = Array.from(textColorSelect.options).find(o => o.value === color);
+        if (found) textColorSelect.value = color;
+      }
+      const statusEl = document.getElementById("alignmentModelStatus");
+      if (statusEl) {
+        const label = sw.querySelector(".swatch-label")?.textContent || color;
+        statusEl.textContent = `Text color set to ${label}.`;
+      }
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      scheduleLessonInputChange(0);
+    });
+  });
+
+  // Keep swatches in sync when textColorSelect changes
+  if (textColorSelect) {
+    textColorSelect.addEventListener("change", (event) => {
+      setActiveSwatch(event.target.value);
+    });
+  }
+})();
+
+// ── Stage Styles Module — Alignment, Models, Colors ───────────────────────
+(function wireStageStylesModule() {
+  const STAGE_CONTEXT_MODELS = {
+    "classic":     { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", label: "Classic — left, white text." },
+    "bold-center": { align: "center", color: "#facc15", bold: true,  italic: false, caseMode: "original", label: "Bold Center — centered, yellow, bold." },
+    "headline":    { align: "center", color: "#0d7ea9", bold: true,  italic: false, caseMode: "upper",    label: "Headline — centered, sky blue, caps." },
+    "glossary":    { align: "left",   color: "#16a34a", bold: false, italic: true,  caseMode: "original", label: "Glossary — left, italic, green." },
+    "compact":     { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "lower",    label: "Compact — left, lowercase." },
+    "poster":      { align: "right",  color: "#dc2626", bold: true,  italic: false, caseMode: "original", label: "Poster — right, bold, red." },
+    "neon":        { align: "center", color: "#d946ef", bold: true,  italic: false, caseMode: "original", label: "Neon — centered, fuchsia, bold." },
+    "chalk":       { align: "left",   color: "#fef9c3", bold: false, italic: false, caseMode: "original", label: "Chalk — left, cream, chalkboard." },
+    "sunrise":     { align: "center", color: "#f97316", bold: true,  italic: false, caseMode: "title",    label: "Sunrise — centered, orange, title case." },
+    "ocean":       { align: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", label: "Ocean — left, cyan, italic." },
+    "royal":       { align: "center", color: "#fbbf24", bold: true,  italic: false, caseMode: "title",    label: "Royal — centered, gold, title case." },
+    "fire":        { align: "center", color: "#fb7185", bold: true,  italic: false, caseMode: "upper",    label: "Fire — centered, coral, bold uppercase." },
+    "forest":      { align: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "title",    label: "Forest — left, lime, title case." },
+    "night":       { align: "right",  color: "#a78bfa", bold: false, italic: true,  caseMode: "original", label: "Night — right, violet, italic." },
+    "candy":       { align: "center", color: "#ec4899", bold: true,  italic: false, caseMode: "original", label: "Candy — centered, pink, bold." },
+    "matrix":      { align: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "lower",    label: "Matrix — left, lime green, lowercase." },
+    "ice":         { align: "center", color: "#6ee7b7", bold: false, italic: true,  caseMode: "original", label: "Ice — centered, mint, italic." },
+    "teal":        { align: "left",   color: "#14b8a6", bold: true,  italic: false, caseMode: "original", label: "Teal — left, teal, underlined bold." },
+    // KV Models
+    "kv-classic":  { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#facc15", kvValueColor: "#ffffff", label: "KV Classic — yellow key, white value." },
+    "kv-ocean":    { align: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", kvMode: true, kvKeyColor: "#06b6d4", kvValueColor: "#6ee7b7", label: "KV Ocean — cyan key, mint value." },
+    "kv-fire":     { align: "left",   color: "#fb7185", bold: true,  italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#fb7185", kvValueColor: "#fef9c3", label: "KV Fire — coral key, cream value." },
+    "kv-royal":    { align: "left",   color: "#fbbf24", bold: true,  italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#fbbf24", kvValueColor: "#ffffff", label: "KV Royal — gold key, white value." },
+    // Narration Types
+    "storyteller":  { align: "left",   color: "#fef9c3", bold: false, italic: true,  caseMode: "original", label: "Storyteller — warm, flowing narrative." },
+    "quiz":         { align: "center", color: "#06b6d4", bold: true,  italic: false, caseMode: "title",    label: "Quiz — energetic, bold question style." },
+    "dialogue":     { align: "left",   color: "#ec4899", bold: false, italic: true,  caseMode: "original", label: "Dialogue — conversational, pink italic." },
+    "broadcast":    { align: "center", color: "#ffffff", bold: true,  italic: false, caseMode: "upper",    label: "Broadcast — news-style, bold uppercase." }
+  };
+
+  // ── Shared sync: updates BOTH stage and input-panel indicator elements ──
+  function syncStageAlignBtns(align) {
+    ["stageAlignLeftBtn","stageAlignCenterBtn","stageAlignRightBtn"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const btnAlign = id.replace("stageAlign","").replace("Btn","").toLowerCase();
+      btn.classList.toggle("stage-align-active", btnAlign === align);
+      btn.setAttribute("aria-pressed", String(btnAlign === align));
+    });
+    // Also sync input panel align buttons
+    ["alignLeftBtn","alignCenterBtn","alignRightBtn"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const btnAlign = id.replace("align","").replace("Btn","").toLowerCase();
+      btn.classList.toggle("align-btn-active", btnAlign === align);
+      btn.setAttribute("aria-pressed", String(btnAlign === align));
+    });
+  }
+
+  function syncStageModelBtns(modelKey) {
+    // Stage cards
+    document.querySelectorAll(".stage-model-btn[data-model]").forEach((btn) => {
+      btn.classList.toggle("stage-model-active", btn.dataset.model === modelKey);
+    });
+    // Input panel cards
+    document.querySelectorAll(".context-model-card[data-model]").forEach((btn) => {
+      btn.classList.toggle("context-model-active", btn.dataset.model === modelKey);
+    });
+  }
+
+  function syncStageSwatch(color) {
+    // Stage swatches
+    document.querySelectorAll(".stage-swatch[data-color]").forEach((sw) => {
+      sw.classList.toggle("stage-swatch-active", sw.dataset.color === color);
+    });
+    // Input panel swatches
+    document.querySelectorAll(".color-swatch[data-color]").forEach((sw) => {
+      sw.classList.toggle("color-swatch-active", sw.dataset.color === color);
+    });
+    // textColorSelect
+    if (textColorSelect) {
+      const found = Array.from(textColorSelect.options).find(o => o.value === color);
+      if (found) textColorSelect.value = color;
+    }
+  }
+
+  function setStageStatus(text) {
+    const el = document.getElementById("stageStylesStatus");
+    if (el) el.textContent = text;
+    const el2 = document.getElementById("alignmentModelStatus");
+    if (el2) el2.textContent = text;
+  }
+
+  // ── Stage Alignment buttons ─────────────────────────────────────────────
+  ["stageAlignLeftBtn","stageAlignCenterBtn","stageAlignRightBtn"].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const align = id.replace("stageAlign","").replace("Btn","").toLowerCase();
+      updateDisplayStyle({ textAlign: align });
+      syncStageAlignBtns(align);
+      setStageStatus(`Text alignment set to ${align.charAt(0).toUpperCase() + align.slice(1)}.`);
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      drawScene(state.mouthOpen);
+    });
+  });
+
+  // ── Stage Context Model buttons ─────────────────────────────────────────
+  document.querySelectorAll(".stage-model-btn[data-model]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.model;
+      const def = STAGE_CONTEXT_MODELS[key];
+      if (!def) return;
+      updateDisplayStyle({ textAlign: def.align, color: def.color, bold: def.bold, italic: def.italic, caseMode: def.caseMode, contextModel: key,
+        kvMode: Boolean(def.kvMode), kvKeyColor: def.kvKeyColor || "#facc15", kvValueColor: def.kvValueColor || "#ffffff" });
+      syncStageModelBtns(key);
+      syncStageAlignBtns(def.align);
+      syncStageSwatch(def.color);
+      setStageStatus(def.label);
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      drawScene(state.mouthOpen);
+    });
+  });
+
+  // ── Stage Color Swatches ────────────────────────────────────────────────
+  document.querySelectorAll(".stage-swatch[data-color]").forEach((sw) => {
+    sw.addEventListener("click", () => {
+      const color = sw.dataset.color;
+      updateDisplayStyle({ color });
+      syncStageSwatch(color);
+      const titleAttr = sw.getAttribute("title") || color;
+      setStageStatus(`Text color set to ${titleAttr}.`);
+      drawScene(state.mouthOpen);
+    });
+  });
+
+  // ── Stage Font Weight buttons ───────────────────────────────────────────
+  [
+    { id: "stageWeightNormalBtn", bold: false,  label: "Normal weight applied." },
+    { id: "stageWeightBoldBtn",   bold: true,   label: "Bold weight applied." },
+    { id: "stageWeightXBoldBtn",  bold: true,   label: "Extra bold weight applied." }
+  ].forEach(({ id, bold, label }) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      updateDisplayStyle({ bold });
+      ["stageWeightNormalBtn","stageWeightBoldBtn","stageWeightXBoldBtn"].forEach((bid) => {
+        const b = document.getElementById(bid);
+        if (b) { b.classList.toggle("stage-align-active", bid === id); b.setAttribute("aria-pressed", String(bid === id)); }
+      });
+      setStageStatus(label);
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      drawScene(state.mouthOpen);
+    });
+  });
+})();
+
+// ── Input Panel Font Weight Buttons ─────────────────────────────────────────
+(function wireFontWeightButtons() {
+  [
+    { id: "weightNormalBtn", bold: false, label: "Normal weight applied." },
+    { id: "weightBoldBtn",   bold: true,  label: "Bold applied." },
+    { id: "weightXBoldBtn",  bold: true,  label: "Extra bold applied." }
+  ].forEach(({ id, bold, label }) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      updateDisplayStyle({ bold });
+      ["weightNormalBtn","weightBoldBtn","weightXBoldBtn"].forEach((bid) => {
+        const b = document.getElementById(bid);
+        if (b) { b.classList.toggle("align-btn-active", bid === id); b.setAttribute("aria-pressed", String(bid === id)); }
+      });
+      const statusEl = document.getElementById("alignmentModelStatus");
+      if (statusEl) statusEl.textContent = label;
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      scheduleLessonInputChange(0);
+    });
+  });
+})();
+
+// ── Key-Value Mode Controls ──────────────────────────────────────────────────
+(function wireKvModeControls() {
+  const kvCheck = document.getElementById("kvModeCheck");
+  const kvKeyPicker = document.getElementById("kvKeyColorPicker");
+  const kvValuePicker = document.getElementById("kvValueColorPicker");
+
+  if (kvCheck) {
+    kvCheck.addEventListener("change", () => {
+      const on = kvCheck.checked;
+      updateDisplayStyle({ kvMode: on });
+      const statusEl = document.getElementById("alignmentModelStatus");
+      if (statusEl) statusEl.textContent = on
+        ? `Key:Value mode on. Key = ${kvKeyPicker?.value || "#facc15"}, Value = ${kvValuePicker?.value || "#ffffff"}.`
+        : "Key:Value mode off.";
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      scheduleLessonInputChange(0);
+    });
+  }
+
+  if (kvKeyPicker) {
+    kvKeyPicker.addEventListener("input", () => {
+      updateDisplayStyle({ kvKeyColor: kvKeyPicker.value });
+      scheduleLessonInputChange(0);
+    });
+  }
+
+  if (kvValuePicker) {
+    kvValuePicker.addEventListener("input", () => {
+      updateDisplayStyle({ kvValueColor: kvValuePicker.value });
+      scheduleLessonInputChange(0);
+    });
+  }
+})();
+
+// ── Floating Show-Screen Button ──────────────────────────────────────────────
+(function wireFloatingScreenBtn() {
+  const btn = document.getElementById("floatingShowScreenBtn");
+  if (!btn) return;
+
+  function syncVisibility() {
+    const ipHidden = document.getElementById("inputPanel")?.classList.contains("hidden");
+    btn.style.display = ipHidden ? "none" : "";
+  }
+
+  btn.addEventListener("click", () => {
+    // Animate press
+    btn.classList.add("floating-screen-btn-pressed");
+    setTimeout(() => btn.classList.remove("floating-screen-btn-pressed"), 220);
+
+    // Trigger the play/stage button — it handles saving + switching panels
+    const play = document.getElementById("playBtn");
+    if (play && !play.disabled) {
+      play.click();
+    } else {
+      // Fallback: manual panel switch + draw
+      const ip = document.getElementById("inputPanel");
+      const sp = document.getElementById("stagePanel");
+      if (ip) ip.classList.add("hidden");
+      if (sp) sp.classList.remove("hidden");
+      if (typeof updateStageModeUi === "function") updateStageModeUi();
+      if (typeof updateStageViewUi === "function") updateStageViewUi();
+      if (typeof scheduleLessonInputChange === "function") scheduleLessonInputChange(0);
+    }
+  });
+
+  // Keep button in sync when panels switch via other means
+  const observer = new MutationObserver(syncVisibility);
+  const ip = document.getElementById("inputPanel");
+  if (ip) observer.observe(ip, { attributes: true, attributeFilter: ["class"] });
+  syncVisibility();
+})();
+
 dictateBtn.addEventListener("click", startDictation);
 stopDictateBtn.addEventListener("click", () => stopDictation(true));
 previewTextBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => openPreviewVoiceChooser()));
@@ -22492,11 +22984,400 @@ pdfPresentBtn.addEventListener("click", () => runLockedAction("pdfPresent", [pdf
 pdfSelectAllBtn.addEventListener("click", selectAllPdfPages);
 pdfClearSelectionBtn.addEventListener("click", clearSelectedPdfPages);
 clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: true }));
-slideVoiceSelect.addEventListener("change", (event) => {
-  state.preferredNarrationVoice = "anjali";
-  updatePreferredVoiceUi();
-  setSpeechToolsStatus("Saved slide voice is locked to Anjali Voice.");
-});
+// ── Dynamic Voice Picker ────────────────────────────────────────────────────
+(function initVoicePicker() {
+  const TTS_BASE  = "http://127.0.0.1:8426";
+  const listEl    = document.getElementById("voiceListScroll");
+  const searchEl  = document.getElementById("voiceSearchInput");
+  const badgeEl   = document.getElementById("voiceActiveBadge");
+
+  if (!listEl || !searchEl || !badgeEl) return;
+
+  // Locale → display name + flag emoji
+  const LOCALE_META = {
+    "en-IN": { label: "Indian English",     flag: "🇮🇳" },
+    "en-GB": { label: "British English",    flag: "🇬🇧" },
+    "en-US": { label: "US English",         flag: "🇺🇸" },
+    "en-AU": { label: "Australian English", flag: "🇦🇺" },
+    "en-CA": { label: "Canadian English",   flag: "🇨🇦" },
+    "en-IE": { label: "Irish English",      flag: "🇮🇪" },
+    "en-NZ": { label: "New Zealand",        flag: "🇳🇿" },
+    "en-SG": { label: "Singapore English",  flag: "🇸🇬" },
+    "en-ZA": { label: "South African",      flag: "🇿🇦" },
+    "en-PH": { label: "Philippine English", flag: "🇵🇭" },
+    "en-HK": { label: "Hong Kong English",  flag: "🇭🇰" },
+    "en-KE": { label: "Kenyan English",     flag: "🇰🇪" },
+    "en-NG": { label: "Nigerian English",   flag: "🇳🇬" },
+    "en-TZ": { label: "Tanzanian English",  flag: "🇹🇿" },
+  };
+
+  let allVoices = [];
+  let activeVoice = "en-IN-NeerjaExpressiveNeural";
+
+  function friendlyName(v) {
+    // Strip locale prefix from friendlyName e.g. "Microsoft Neerja Expressive Online (Natural)"
+    return v.friendlyName
+      .replace(/^Microsoft\s+/i, "")
+      .replace(/\s+Online\s*\(Natural\)/i, "")
+      .replace(/\s+Online/i, "")
+      .trim();
+  }
+
+  function renderVoices(filter) {
+    const q = (filter || "").toLowerCase().trim();
+    const filtered = q
+      ? allVoices.filter(v =>
+          v.shortName.toLowerCase().includes(q) ||
+          v.friendlyName.toLowerCase().includes(q) ||
+          (LOCALE_META[v.locale]?.label || "").toLowerCase().includes(q)
+        )
+      : allVoices;
+
+    if (!filtered.length) {
+      listEl.innerHTML = "<p class='upload-copy' style='padding:10px 14px;opacity:.5'>No voices match.</p>";
+      return;
+    }
+
+    // Group by locale
+    const groups = {};
+    filtered.forEach(v => {
+      if (!groups[v.locale]) groups[v.locale] = [];
+      groups[v.locale].push(v);
+    });
+
+    const html = [];
+    // Indian first, then rest alphabetically
+    const sortedLocales = Object.keys(groups).sort((a, b) => {
+      if (a === "en-IN") return -1;
+      if (b === "en-IN") return 1;
+      return a.localeCompare(b);
+    });
+
+    sortedLocales.forEach(locale => {
+      const meta = LOCALE_META[locale] || { label: locale, flag: "🌐" };
+      html.push(`<div class="voice-group-label">${meta.flag} ${meta.label}</div>`);
+      groups[locale].forEach(v => {
+        const isActive = v.shortName === activeVoice;
+        const name     = friendlyName(v);
+        const gender   = (v.gender || "").toLowerCase();
+        html.push(`
+          <div class="voice-item${isActive ? " active" : ""}"
+               data-voice="${v.shortName}" role="button" tabindex="0"
+               aria-label="${name} ${gender}">
+            <span class="voice-item-flag">${meta.flag}</span>
+            <span class="voice-item-info">
+              <span class="voice-item-name">${name}</span>
+              <span class="voice-item-meta">${v.shortName}</span>
+            </span>
+            <span class="voice-item-gender ${gender}">${gender}</span>
+            ${isActive ? '<span class="active-tick">✔</span>' : ""}
+          </div>`);
+      });
+    });
+
+    listEl.innerHTML = html.join("");
+
+    // Click handlers
+    listEl.querySelectorAll(".voice-item").forEach(item => {
+      item.addEventListener("click", () => selectVoice(item.dataset.voice));
+      item.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") selectVoice(item.dataset.voice); });
+    });
+  }
+
+  async function selectVoice(voiceId) {
+    if (voiceId === activeVoice) return;
+    try {
+      const res = await fetch(`${TTS_BASE}/set-voice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice: voiceId }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      activeVoice = voiceId;
+      // Update badge
+      const match = allVoices.find(v => v.shortName === voiceId);
+      badgeEl.textContent = match ? friendlyName(match) : voiceId;
+      // Re-render list to update active tick
+      renderVoices(searchEl.value);
+      console.log("[VoicePicker] Switched to", voiceId);
+    } catch (err) {
+      console.warn("[VoicePicker] Failed to set voice:", err);
+    }
+  }
+
+  async function loadVoices() {
+    try {
+      const res = await fetch(`${TTS_BASE}/voices`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      allVoices   = data.voices;
+      activeVoice = data.active || activeVoice;
+      const match = allVoices.find(v => v.shortName === activeVoice);
+      badgeEl.textContent = match ? friendlyName(match) : activeVoice;
+      renderVoices("");
+    } catch (err) {
+      listEl.innerHTML = "<p class='upload-copy' style='padding:10px 14px;opacity:.5'>Could not load voices — is the TTS server running?</p>";
+      console.warn("[VoicePicker] Failed to load voices:", err);
+    }
+  }
+
+  searchEl.addEventListener("input", () => renderVoices(searchEl.value));
+
+  // Load after a short delay to not block startup
+  setTimeout(loadVoices, 1500);
+})();
+
+// ── Stage Voices Module ─────────────────────────────────────────────────────
+(function initStageVoicePicker() {
+  const TTS_BASE    = "http://127.0.0.1:8426";
+  const STORAGE_KEY = "pp_preferred_voice";
+  const FALLBACK_ID = "en-IN-NeerjaExpressiveNeural";
+  const PREVIEW_PHRASE = "Hello! I am your AI teaching assistant. Let's learn something wonderful today.";
+
+  const selectEl     = document.getElementById("stageVoiceSelect");
+  const previewBtn   = document.getElementById("stageVoicePreviewBtn");
+  const useBtn       = document.getElementById("stageVoiceUseBtn");
+  const defaultBtn   = document.getElementById("stageVoiceDefaultBtn");
+  const badgeEl      = document.getElementById("stageVoiceBadge");
+  const statusEl     = document.getElementById("stageVoiceStatus");
+  const cardEl       = document.getElementById("stageVoicesCard");
+  const defaultRow   = document.getElementById("voiceDefaultRow");
+  const defaultName  = document.getElementById("voiceDefaultName");
+
+  if (!selectEl || !previewBtn || !useBtn) return;
+
+  const LOCALE_META = {
+    "en-IN": { label: "🇮🇳 Indian English"     },
+    "en-GB": { label: "🇬🇧 British English"    },
+    "en-US": { label: "🇺🇸 US English"         },
+    "en-AU": { label: "🇦🇺 Australian English" },
+    "en-CA": { label: "🇨🇦 Canadian English"   },
+    "en-IE": { label: "🇮🇪 Irish English"      },
+    "en-NZ": { label: "🇳🇿 New Zealand"        },
+    "en-SG": { label: "🇸🇬 Singapore"          },
+    "en-ZA": { label: "🇿🇦 South African"      },
+    "en-PH": { label: "🇵🇭 Philippine"         },
+    "en-HK": { label: "🇭🇰 Hong Kong"          },
+    "en-KE": { label: "🇰🇪 Kenyan"             },
+    "en-NG": { label: "🇳🇬 Nigerian"           },
+    "en-TZ": { label: "🇹🇿 Tanzanian"          },
+  };
+
+  let allVoices    = [];
+  let activeVoice  = localStorage.getItem(STORAGE_KEY) || FALLBACK_ID;
+  let defaultVoice = activeVoice;   // "default" = persisted preference
+  let previewAudio = null;
+
+  function friendly(v) {
+    return v.friendlyName
+      .replace(/^Microsoft\s+/i, "")
+      .replace(/\s+Online\s*\(Natural\)/i, "")
+      .replace(/\s+Online/i, "")
+      .trim();
+  }
+
+  function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
+
+  function updateDefaultPin(voiceId) {
+    defaultVoice = voiceId;
+    localStorage.setItem(STORAGE_KEY, voiceId);
+    const match = allVoices.find(v => v.shortName === voiceId);
+    const label = match ? friendly(match) : voiceId;
+    if (defaultName) defaultName.textContent = label;
+    if (defaultRow) {
+      defaultRow.onclick = () => {
+        selectEl.value = voiceId;
+        applyVoice(voiceId);
+      };
+    }
+  }
+
+  function populateDropdown() {
+    // Group by locale, Indian English first
+    const groups = {};
+    allVoices.forEach(v => {
+      if (!groups[v.locale]) groups[v.locale] = [];
+      groups[v.locale].push(v);
+    });
+    const locales = Object.keys(groups).sort((a, b) => {
+      if (a === "en-IN") return -1;
+      if (b === "en-IN") return 1;
+      return a.localeCompare(b);
+    });
+
+    selectEl.innerHTML = "";
+    locales.forEach(locale => {
+      const group = document.createElement("optgroup");
+      group.label = LOCALE_META[locale]?.label || locale;
+      groups[locale].forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v.shortName;
+        const g = (v.gender || "").toLowerCase();
+        opt.textContent = `${friendly(v)} (${g})`;
+        if (v.shortName === activeVoice) opt.selected = true;
+        group.appendChild(opt);
+      });
+      selectEl.appendChild(group);
+    });
+
+    // Sync badge
+    const match = allVoices.find(v => v.shortName === activeVoice);
+    const label = match ? friendly(match) : activeVoice;
+    if (badgeEl) badgeEl.textContent = label;
+    setStatus(`${allVoices.length} voices. Choose one, ▶ preview, then ✔ Use.`);
+
+    // Update default pin
+    updateDefaultPin(defaultVoice);
+  }
+
+  async function applyVoice(voiceId) {
+    if (!voiceId) return;
+    setStatus("Switching voice…");
+    try {
+      const res = await fetch(`${TTS_BASE}/set-voice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice: voiceId }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      activeVoice = voiceId;
+      const match = allVoices.find(v => v.shortName === voiceId);
+      const label = match ? friendly(match) : voiceId;
+      if (badgeEl) badgeEl.textContent = label;
+      const inputBadge = document.getElementById("voiceActiveBadge");
+      if (inputBadge) inputBadge.textContent = label;
+      state.preferredNarrationVoice = voiceId;
+      setStatus(`✔ Now using: ${label}`);
+      console.log("[StageVoices] Active voice →", voiceId);
+    } catch (err) {
+      setStatus("Could not switch voice — is the TTS server running?");
+      console.warn("[StageVoices] set-voice failed:", err);
+    }
+  }
+
+  async function previewSelected() {
+    const voiceId = selectEl.value;
+    if (!voiceId) return;
+
+    // Stop any current preview
+    if (previewAudio) {
+      previewAudio.pause();
+      previewAudio = null;
+      previewBtn.textContent = "▶";
+      previewBtn.disabled = false;
+      if (previewBtn.dataset.playing === voiceId) return; // same voice → just stop
+    }
+
+    previewBtn.textContent = "⏳";
+    previewBtn.disabled = true;
+    previewBtn.dataset.playing = voiceId;
+    const match = allVoices.find(v => v.shortName === voiceId);
+    setStatus(`Loading preview: ${match ? friendly(match) : voiceId}…`);
+
+    try {
+      const res = await fetch(`${TTS_BASE}/api/narrate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: PREVIEW_PHRASE, generationOptions: { voice: voiceId } }),
+      });
+      if (!res.ok) throw new Error("Server error " + res.status);
+
+      // Restore active voice on server (preview shouldn't change it)
+      fetch(`${TTS_BASE}/set-voice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice: activeVoice }),
+      });
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      previewAudio = audio;
+      previewBtn.textContent = "⏹";
+      previewBtn.disabled = false;
+      setStatus(`▶ Previewing: ${match ? friendly(match) : voiceId} — click ✔ Use to apply`);
+
+      audio.addEventListener("ended", () => {
+        URL.revokeObjectURL(url);
+        previewAudio = null;
+        previewBtn.textContent = "▶";
+        previewBtn.dataset.playing = "";
+        setStatus(`Preview done. Click ✔ Use This Voice to apply.`);
+      });
+      audio.play();
+    } catch (err) {
+      previewBtn.textContent = "▶";
+      previewBtn.disabled = false;
+      previewBtn.dataset.playing = "";
+      setStatus("Preview failed — is the TTS server running?");
+      console.warn("[StageVoices] preview failed:", err);
+    }
+  }
+
+  async function loadVoices() {
+    setStatus("Connecting to TTS server…");
+    try {
+      const res  = await fetch(`${TTS_BASE}/voices`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      allVoices = data.voices;
+
+      // Honour server's current voice if no local preference saved
+      if (!localStorage.getItem(STORAGE_KEY)) {
+        activeVoice  = data.active || FALLBACK_ID;
+        defaultVoice = activeVoice;
+      } else {
+        // Apply the user's saved preference to the server on startup
+        applyVoice(activeVoice);
+      }
+
+      populateDropdown();
+    } catch (err) {
+      if (selectEl) {
+        selectEl.innerHTML = '<option disabled selected>TTS server offline</option>';
+      }
+      if (badgeEl) badgeEl.textContent = "Offline";
+      setStatus("TTS server not reachable on port 8426.");
+      console.warn("[StageVoices] loadVoices failed:", err);
+    }
+  }
+
+  // ── Wire buttons ──────────────────────────────────────────────────────────
+  previewBtn.addEventListener("click", previewSelected);
+
+  useBtn.addEventListener("click", () => {
+    const v = selectEl.value;
+    if (v) applyVoice(v);
+  });
+
+  defaultBtn.addEventListener("click", () => {
+    const v = selectEl.value;
+    if (!v) return;
+    applyVoice(v);
+    updateDefaultPin(v);
+    const match = allVoices.find(x => x.shortName === v);
+    setStatus(`⭐ Default voice set to: ${match ? friendly(match) : v}. It will be used on next launch.`);
+  });
+
+  // Click the default pin row → snap the dropdown to the default voice
+  if (defaultRow) {
+    defaultRow.style.cursor = "pointer";
+    defaultRow.addEventListener("click", () => {
+      selectEl.value = defaultVoice;
+      applyVoice(defaultVoice);
+    });
+  }
+
+  // Auto-load when card is opened
+  if (cardEl) {
+    cardEl.addEventListener("toggle", () => {
+      if (cardEl.open && allVoices.length === 0) loadVoices();
+    });
+  }
+
+  // Initial load
+  setTimeout(loadVoices, 2000);
+})();
 stopPreviewBtn.addEventListener("click", () => stopInputPreview(true));
 previewCanvas.addEventListener("pointerdown", beginImageInteraction);
 previewCanvas.addEventListener("pointermove", moveImageInteraction);
@@ -24264,6 +25145,13 @@ setPureInputMode(false);
   sliderLS.value = init.letterSpacing;
   applyStyle(init.lineHeight, init.fontSize, init.letterSpacing);
   syncDisplays(init.lineHeight, init.fontSize, init.letterSpacing);
+  // Seed canvas state with saved spacing
+  if (typeof updateDisplayStyle === "function") {
+    updateDisplayStyle({
+      canvasLineSpacing: parseFloat(init.lineHeight) / DEFAULTS.lineHeight,
+      canvasLetterSpacing: parseFloat(init.letterSpacing)
+    });
+  }
 
   // Live updates
   sliderLH.addEventListener('input', () => {
@@ -24271,6 +25159,12 @@ setPureInputMode(false);
     textarea.style.lineHeight = String(v);
     valLH.textContent = String(v);
     save(v, parseFloat(sliderFS.value), parseFloat(sliderLS.value));
+    // Canvas: update line spacing and force redraw regardless of active panel
+    const lineMul = v / DEFAULTS.lineHeight;
+    updateDisplayStyle({ canvasLineSpacing: lineMul });
+    invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+    markSceneDirty && markSceneDirty();
+    drawScene(state.mouthOpen);
   });
 
   sliderFS.addEventListener('input', () => {
@@ -24285,6 +25179,11 @@ setPureInputMode(false);
     textarea.style.letterSpacing = `${v}em`;
     valLS.textContent = `${v.toFixed(3)}em`;
     save(parseFloat(sliderLH.value), parseFloat(sliderFS.value), v);
+    // Canvas: letter spacing — bust cache so new spacing applies to row widths
+    updateDisplayStyle({ canvasLetterSpacing: v });
+    invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+    markSceneDirty && markSceneDirty();
+    drawScene(state.mouthOpen);
   });
 
   // Reset to defaults
@@ -24296,5 +25195,10 @@ setPureInputMode(false);
     applyStyle(lineHeight, fontSize, letterSpacing);
     syncDisplays(lineHeight, fontSize, letterSpacing);
     save(lineHeight, fontSize, letterSpacing);
+    // Reset canvas spacing too
+    updateDisplayStyle({ canvasLineSpacing: 1.0, canvasLetterSpacing: 0.0 });
+    invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+    markSceneDirty && markSceneDirty();
+    drawScene(state.mouthOpen);
   });
 }());

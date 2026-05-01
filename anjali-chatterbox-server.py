@@ -97,8 +97,17 @@ class AnjaliEdgeEngine:
 
     # ── Audio conversion ──────────────────────────────────────────────────────
     @staticmethod
-    def _mp3_bytes_to_wav(mp3_bytes: bytes, target_sr: int = 24000) -> bytes:
-        """Convert MP3 bytes → 24 kHz mono PCM WAV using ffmpeg subprocess."""
+    def _mp3_bytes_to_wav(mp3_bytes: bytes, target_sr: int = 24000,
+                          leading_pad_ms: int = 60) -> bytes:
+        """
+        Convert MP3 bytes → 24 kHz mono PCM WAV using ffmpeg subprocess.
+
+        leading_pad_ms: milliseconds of silence prepended to every WAV segment.
+        After a comma/colon/slash pause the audio decoder needs a few ms to
+        'wake up' before the next word starts.  Without this pad the very first
+        phoneme of the word after a pause gets clipped (e.g. 'smart' → 'mart').
+        60 ms is below the threshold of perception but enough to prevent clipping.
+        """
         import subprocess, tempfile, os
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_in:
             tmp_in.write(mp3_bytes)
@@ -109,13 +118,10 @@ class AnjaliEdgeEngine:
                 [
                     "ffmpeg", "-y",
                     "-i",  tmp_in_path,
+                    "-af", f"adelay={leading_pad_ms}:all=1,aresample={target_sr}",
                     "-ac", "1",
                     "-ar", str(target_sr),
                     "-sample_fmt", "s16",
-                    # Plain clean conversion — no filters.
-                    # Edge TTS ~175ms leading silence is handled by the text-sync
-                    # warmup in startNarrationLoop, not by audio processing.
-
                     tmp_out_path,
                 ],
                 capture_output=True, check=True,
@@ -223,69 +229,27 @@ class AnjaliEdgeEngine:
     # ── Core synthesis ────────────────────────────────────────────────────────
     def synthesize(self, text: str) -> bytes:
         """
-        Synthesize text with per-character pause durations that MATCH the JS
-        text-reveal animation exactly:
+        Synthesize the full text as ONE Edge TTS request.
 
-          ,   →  1000ms silence
-          /   →   800ms silence  (before + after, matching JS 800ms each side)
-          - (standalone, space-dash-space)  →  350ms silence before + after
+        Previously the text was split at commas/colons/slashes and each
+        segment was synthesized separately then stitched with WAV silence.
+        That approach caused onset clipping on every word that followed a
+        pause boundary — the audio decoder had no time to 'wake up' after
+        the gap.
 
-        Each text segment is synthesized separately and stitched with WAV silence.
-        Any segment that fails is replaced with 300ms silence so one bad chunk
-        never crashes the whole narration.
+        Now the full text is sent to Edge TTS in a single call.  Edge TTS
+        naturally pauses at commas, colons, sentence boundaries etc., and
+        the resulting WAV is one continuous audio file with no seams.
+        Result: zero inter-segment clipping, smooth clean narration.
+
+        For short KV terms (≤3 words, e.g. "clever", "cunning") a larger
+        leading pad (160 ms) is used because the browser audio element takes
+        longer to initialise for very short clips played after an inter-entry
+        gap.  Longer texts (definitions, sentences) keep the 60 ms default.
         """
         import re
 
-        # Pause durations (seconds) — must mirror JS getSpeechSyncUnitPauseMs
-        PAUSE_COMMA  = 1.00   # 1000ms — comma breath
-        PAUSE_SLASH  = 0.80   #  800ms — fraction / separator
-        PAUSE_HYPHEN = 0.35   #  350ms — range / dash (each side)
-
-        # ── Step 1: tag pause positions BEFORE cleaning ───────────────────────
-        # We split the RAW text on pause characters first, then clean each
-        # text fragment individually.  This preserves the pause semantics
-        # even after _clean_text_for_tts strips symbols.
-        #
-        # Split pattern: comma | slash | standalone hyphen (space-dash-space)
-        # Standalone hyphen = not part of a hyphenated word like "co-opted".
-        raw_parts = re.split(r'(,|/|(?<=\s)-(?=\s)|^-(?=\s)|(?<=\s)-$)', text)
-
-        # Build tagged unit list: ('text', cleaned_str) | ('pause', seconds)
-        units: list = []
-        for part in raw_parts:
-            if part == ',':
-                units.append(('pause', PAUSE_COMMA))
-            elif part == '/':
-                # Insert pause BEFORE and AFTER the slash
-                units.append(('pause', PAUSE_SLASH))
-            elif re.match(r'^-$', part.strip()):
-                # Standalone hyphen: insert pause before (already added by previous
-                # iteration's trailing pause) and pause after
-                units.append(('pause', PAUSE_HYPHEN))
-            else:
-                cleaned = self._clean_text_for_tts(part)
-                if cleaned and len(cleaned.split()) >= 1:
-                    units.append(('text', cleaned))
-
-        # Also add a pre-slash pause: scan and insert PAUSE_SLASH before each slash-pause
-        # (The slash is in audio as: text … 800ms … text, so we need it on both sides)
-        expanded: list = []
-        for i, unit in enumerate(units):
-            if unit == ('pause', PAUSE_SLASH):
-                # Ensure there's a pause BEFORE the slash too
-                if expanded and expanded[-1][0] == 'text':
-                    expanded.append(('pause', PAUSE_SLASH))
-                expanded.append(unit)  # pause AFTER slash
-            elif unit == ('pause', PAUSE_HYPHEN):
-                # Ensure there's a pause BEFORE the hyphen too
-                if expanded and expanded[-1][0] == 'text':
-                    expanded.append(('pause', PAUSE_HYPHEN))
-                expanded.append(unit)  # pause AFTER hyphen
-            else:
-                expanded.append(unit)
-        units = expanded
-
-        # ── Step 2: cache check on the full cleaned text ──────────────────────
+        # ── Cache check ────────────────────────────────────────────────────────
         cache_key = self._clean_text_for_tts(text)
         if not cache_key:
             raise ValueError("Text is required.")
@@ -293,31 +257,23 @@ class AnjaliEdgeEngine:
         if cached is not None:
             return cached
 
-        # ── Step 3: synthesize each text segment, stitch silences ────────────
-        wav_chunks: list = []
-        for kind, value in units:
-            if kind == 'pause':
-                wav_chunks.append(self._make_silence_wav(value))
-            else:
-                seg_cached = self._get_cached(value)
-                if seg_cached is not None:
-                    wav_chunks.append(seg_cached)
-                else:
-                    try:
-                        mp3 = self._run_async(self._edge_synthesize(value))
-                        wav = self._mp3_bytes_to_wav(mp3)
-                        self._store_cached(value, wav)
-                        wav_chunks.append(wav)
-                    except Exception as seg_err:
-                        print(f"[Anjali] Segment skipped ({seg_err!r}): {value[:60]!r}", flush=True)
-                        wav_chunks.append(self._make_silence_wav(0.3))
+        # ── Decide leading pad based on text length ────────────────────────────
+        # Short segments (KV terms like "clever", "cunning") played after an
+        # inter-entry gap need more buffer time for the audio decoder to wake up.
+        word_count = len(cache_key.split())
+        pad_ms = 160 if word_count <= 3 else 60
 
-        if not wav_chunks:
-            raise ValueError("No audio generated.")
+        # ── Single synthesis call ──────────────────────────────────────────────
+        cleaned_text = cache_key   # already cleaned above
+        try:
+            mp3 = self._run_async(self._edge_synthesize(cleaned_text))
+            wav = self._mp3_bytes_to_wav(mp3, leading_pad_ms=pad_ms)
+        except Exception as err:
+            print(f"[Anjali] Synthesis failed ({err!r}): {cleaned_text[:80]!r}", flush=True)
+            wav = self._make_silence_wav(0.3)
 
-        final_wav = self._concat_wavs(wav_chunks)
-        self._store_cached(cache_key, final_wav)
-        return final_wav
+        self._store_cached(cache_key, wav)
+        return wav
 
 
     # ── Persistent async event loop (thread-safe) ─────────────────────────────
@@ -428,6 +384,32 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(ENGINE.get_health())
             return
 
+        # ── /voices — list all available English Edge TTS voices ─────────────
+        if self.path.startswith("/voices"):
+            try:
+                async def _list():
+                    voices = await edge_tts.list_voices()
+                    return voices
+                all_voices = ENGINE._run_async(_list())
+                english = [
+                    {
+                        "shortName":   v["ShortName"],
+                        "friendlyName": v["FriendlyName"],
+                        "gender":      v["Gender"],
+                        "locale":      v["Locale"],
+                        "current":     v["ShortName"] == ENGINE.voice,
+                    }
+                    for v in all_voices
+                    if v["Locale"].startswith("en-")
+                ]
+                # Sort: current locale first, then alphabetically
+                current_locale = ENGINE.voice.rsplit("-", 2)[0] + "-" + ENGINE.voice.split("-")[1]
+                english.sort(key=lambda v: (0 if v["locale"] == current_locale else 1, v["locale"], v["shortName"]))
+                self._send_json({"ok": True, "voices": english, "active": ENGINE.voice})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status_code=500)
+            return
+
         if self.path.startswith("/api/proxy/tts"):
             from urllib.parse import urlparse, parse_qs
             import urllib.request
@@ -476,6 +458,26 @@ class Handler(BaseHTTPRequestHandler):
         # Preload stub — Edge TTS needs no preloading
         if self.path == "/api/preload":
             self._send_json({"ok": True, "message": "Edge TTS needs no preload — ready instantly."})
+            return
+
+        # ── /set-voice — change the active voice and flush the cache ─────────
+        if self.path == "/set-voice":
+            try:
+                content_length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(content_length) if content_length else b"{}"
+                data = json.loads(raw_body.decode("utf-8"))
+                new_voice = str(data.get("voice", "")).strip()
+                if not new_voice:
+                    self._send_json({"error": "voice is required"}, status_code=400)
+                    return
+                ENGINE.voice = new_voice
+                # Clear cache so next requests use the new voice
+                with ENGINE.lock:
+                    ENGINE.cache.clear()
+                print(f"[Anjali] Voice changed to: {new_voice}", flush=True)
+                self._send_json({"ok": True, "voice": new_voice})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status_code=500)
             return
 
         if not self.path.startswith("/api/narrate"):
