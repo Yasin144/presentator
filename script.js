@@ -341,6 +341,21 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   pronunciationMode: NARRATION_STYLE_CONFIG.pronunciationMode,
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
+const EDGE_TTS_DEFAULT_FEMALE_VOICE = "en-IN-NeerjaExpressiveNeural";
+const EDGE_TTS_DEFAULT_MALE_VOICE = "en-IN-PrabhatNeural";
+const EDGE_TTS_MALE_PROFILE = Object.freeze({
+  voiceId: EDGE_TTS_DEFAULT_MALE_VOICE,
+  gender: "male",
+  locale: "en-IN",
+  accent: "indian",
+  style: "clear-natural-classroom",
+  pronunciationMode: NARRATION_STYLE_CONFIG.pronunciationMode,
+  stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
+});
+const EDGE_TTS_VOICE_STORAGE_KEY = "pp_preferred_voice";
+const EXPORT_TITLE_PREROLL_MS = 1800;
+const TITLE_TO_CONTEXT_GAP_MS = 1000;
+const EXPORT_TITLE_OUTRO_MS = 2400;
 const ANJALI_GENERATION_OPTIONS = Object.freeze({
   repetitionPenalty: 1.02,
   topP: 0.85,               // tighter = more consistent with reference
@@ -678,6 +693,7 @@ const state = {
   words: [],
   tokens: [],
   displayedText: "",
+  titleIntroActive: false,
   speaking: false,
   mouthOpen: 0.12,
   lessonPlaybackRate: DEFAULT_STAGE_PLAYBACK_RATE,
@@ -779,7 +795,7 @@ const state = {
   inputPreviewing: false,
   previewAudio: null,
   previewAudioUrl: "",
-  preferredNarrationVoice: "anjali",
+  preferredNarrationVoice: localStorage.getItem(EDGE_TTS_VOICE_STORAGE_KEY) || "anjali",
   mathsTranslator: {
     auto: true,
     lastSource: "",
@@ -1421,10 +1437,18 @@ function clearPreparedLessonExportCache(options = {}) {
   }
 }
 
+function invalidateNarrationDependentExports(options = {}) {
+  clearPreparedLessonExportCache({
+    keepPromise: options.keepPromise === true,
+    preservePrepareAfterPlayback: options.preservePrepareAfterPlayback === true
+  });
+}
+
 function getPreparedLessonExportKey(lessonExportSource = getLessonExportSource()) {
   const source = lessonExportSource || getLessonExportSource();
   return JSON.stringify({
     lesson: source.snapshot,
+    narrationVoice: getSelectedEdgeExportVoice(),
     lessonPlaybackRate: getLessonPlaybackRate(),
     introEnabled: Boolean(state.introPlayback.enabled),
     introFileName: String(state.introPlayback.fileName || ""),
@@ -1588,7 +1612,7 @@ async function beginExportFromUi(task, options = {}) {
   setStatus(startingLabel);
   updateTaskProgressUi(0.01, true, { label: startingLabel });
   updateStageModeUi();
-  const shouldRequestSaveHandle = options.requestSaveHandle === true;
+  const shouldRequestSaveHandle = options.requestSaveHandle !== false;
   const suggestedName = typeof options.suggestedName === "string" && options.suggestedName
     ? options.suggestedName
     : getDefaultExportFileName();
@@ -2185,6 +2209,7 @@ function applyPreviewZoom() {
 
 function updateStageViewUi() {
   const pdfMode = isPdfPresentationMode();
+  const lockViewControls = state.speaking || state.exportingVideo;
 
   if (zoomValue) {
     zoomValue.textContent = formatControlPercent(state.previewZoom);
@@ -2195,23 +2220,28 @@ function updateStageViewUi() {
   }
 
   if (zoomOutBtn) {
-    zoomOutBtn.disabled = state.previewZoom <= PREVIEW_ZOOM_MIN;
+    zoomOutBtn.disabled = lockViewControls || state.previewZoom <= PREVIEW_ZOOM_MIN;
   }
 
   if (zoomInBtn) {
-    zoomInBtn.disabled = state.previewZoom >= PREVIEW_ZOOM_MAX;
+    zoomInBtn.disabled = lockViewControls || state.previewZoom >= PREVIEW_ZOOM_MAX;
   }
 
   if (fontDecreaseBtn) {
-    fontDecreaseBtn.disabled = pdfMode || state.fontScale <= FONT_SCALE_MIN;
+    fontDecreaseBtn.disabled = lockViewControls || pdfMode || state.fontScale <= FONT_SCALE_MIN;
   }
 
   if (fontIncreaseBtn) {
-    fontIncreaseBtn.disabled = pdfMode || state.fontScale >= FONT_SCALE_MAX;
+    fontIncreaseBtn.disabled = lockViewControls || pdfMode || state.fontScale >= FONT_SCALE_MAX;
   }
 }
 
 function setPreviewZoom(nextZoom) {
+  if (state.speaking || state.exportingVideo) {
+    setStatus("Zoom is locked while narration is playing. Stop playback before changing the view.");
+    updateStageViewUi();
+    return;
+  }
   state.previewZoom = clamp(normalizeControlValue(nextZoom), PREVIEW_ZOOM_MIN, PREVIEW_ZOOM_MAX);
   applyPreviewZoom();
   updateStageViewUi();
@@ -2221,6 +2251,11 @@ function setPreviewZoom(nextZoom) {
 let _fontScaleRebuildTimer = 0;
 
 function setFontScale(nextScale) {
+  if (state.speaking || state.exportingVideo) {
+    setStatus("Font size is locked while narration is playing. Stop playback before changing the view.");
+    updateStageViewUi();
+    return;
+  }
   state.fontScale = clamp(normalizeControlValue(nextScale), FONT_SCALE_MIN, FONT_SCALE_MAX);
   state.pdf.contextPagesKey = "";
   state.pdf.autoImageSyncKey = "";
@@ -2247,6 +2282,11 @@ window.ppSetFontScale = (scale) => setFontScale(scale);
 window.ppGetFontScale = () => state.fontScale;
 
 function setPreviewPage(nextPageIndex) {
+  if (state.speaking || state.exportingVideo) {
+    setStatus("Page navigation is locked while narration is playing. Stop playback before changing pages.");
+    updateStagePageUi(state.previewPageIndex, state.renderedPageCount);
+    return;
+  }
   const totalPageCount = Math.max(1, state.renderedPageCount || 1);
   const safePageIndex = clamp(nextPageIndex, 0, totalPageCount - 1);
 
@@ -2335,6 +2375,12 @@ function getStoredPresentationTemplate() {
 
 function normalizeOutcomesTitle(value = "") {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 72);
+}
+
+function getPresentationTitleText() {
+  return normalizeOutcomesTitle(state.outcomesTitle)
+    || normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value)
+    || "LEARNING OUTCOMES";
 }
 
 function getStoredOutcomesTitle() {
@@ -2571,6 +2617,27 @@ function createExportMediaRecorder(stream, videoBitsPerSecond) {
 
   if (lastError) { throw lastError; }
   return new MediaRecorder(stream, { videoBitsPerSecond: safeBitrate });
+}
+
+async function stopExportMediaRecorder(recorder) {
+  if (!recorder || recorder.state === "inactive") {
+    return;
+  }
+
+  try {
+    if (typeof recorder.requestData === "function") {
+      recorder.requestData();
+    }
+  } catch (error) {
+    console.warn("[export] requestData before stop failed:", error);
+  }
+
+  await waitForNextPaint();
+  await delay(250);
+
+  if (recorder.state !== "inactive") {
+    recorder.stop();
+  }
 }
 
 function delay(ms) {
@@ -2832,6 +2899,27 @@ async function triggerFileDownload(blob, fileName) {
 }
 
 async function requestVideoSaveHandle(suggestedName = "learning-outcomes-video.mp4") {
+  if (window.electronAPI?.isElectron && typeof window.electronAPI.showSaveDialog === "function") {
+    const result = await window.electronAPI.showSaveDialog({
+      title: "Save Presentation Video",
+      fileName: suggestedName,
+      defaultPath: suggestedName,
+      filters: [
+        { name: "MP4 Video", extensions: ["mp4"] },
+        { name: "All Files", extensions: ["*"] }
+      ],
+      buttonLabel: "Save Video"
+    });
+
+    if (result?.canceled || !result?.filePath) {
+      const error = new Error("Save cancelled.");
+      error.name = "AbortError";
+      throw error;
+    }
+
+    return { electronFilePath: result.filePath };
+  }
+
   if (typeof window.showSaveFilePicker !== "function") {
     return null;
   }
@@ -2852,6 +2940,30 @@ async function requestVideoSaveHandle(suggestedName = "learning-outcomes-video.m
 async function streamResponseToFileHandle(response, fileHandle) {
   if (!response?.ok) {
     throw new Error("The video export response was not ready to save.");
+  }
+
+  if (fileHandle?.electronFilePath && window.electronAPI?.writeFile) {
+    const blob = await response.blob();
+    if (!blob.size) {
+      throw new Error("The video export response was empty.");
+    }
+
+    const arrayBuffer = await blob.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+    let binary = "";
+    const chunkSize = 8192;
+    for (let i = 0; i < uint8.length; i += chunkSize) {
+      binary += String.fromCharCode(...uint8.subarray(i, i + chunkSize));
+    }
+
+    const writeResult = await window.electronAPI.writeFile(fileHandle.electronFilePath, btoa(binary));
+    if (!writeResult?.ok) {
+      throw new Error(writeResult?.error || "Could not save the video file.");
+    }
+    if (typeof window.electronAPI.showItemInFolder === "function") {
+      window.electronAPI.showItemInFolder(fileHandle.electronFilePath);
+    }
+    return;
   }
 
   const writable = await fileHandle.createWritable();
@@ -4295,6 +4407,30 @@ function scaleSpeechSyncProfile(profile, targetDurationMs = 0) {
   };
 }
 
+function isSpeechSyncProfileUsable(profile, targetDurationMs = 0) {
+  if (!profile || !Array.isArray(profile.units) || !profile.units.length) {
+    return false;
+  }
+
+  const safeTargetDurationMs = Math.max(
+    1,
+    Math.round(Number(targetDurationMs) || Number(profile.totalDurationMs) || 1)
+  );
+  const firstSpokenUnit = profile.units.find((unit) => unit?.spokenText && String(unit.spokenText).trim());
+  if (!firstSpokenUnit) {
+    return false;
+  }
+
+  const firstSpeechStartMs = Math.max(0, Math.round(Number(firstSpokenUnit.speechStartMs) || 0));
+  const latestAcceptableStartMs = Math.min(1800, Math.max(700, Math.round(safeTargetDurationMs * 0.18)));
+  if (firstSpeechStartMs > latestAcceptableStartMs) {
+    return false;
+  }
+
+  const lastPauseEndMs = Math.max(1, Math.round(Number(profile.units.at(-1)?.pauseEndMs) || 1));
+  return lastPauseEndMs <= safeTargetDurationMs * 1.35;
+}
+
 function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [], chunkDurationsMs = []) {
   const safeText = String(text || "");
   const safeChunks = normalizeNarrationChunkEntries(narrationChunks);
@@ -4410,9 +4546,13 @@ function getResolvedSpeechSyncProfile(text = "", targetDurationMs = 0, options =
   // needed since the caller has already verified it belongs to this audio.
   if (options.syncProfileData?.profile?.units?.length) {
     const providedProfile = options.syncProfileData.profile;
-    return safeTargetDurationMs > 0
+    const resolvedProfile = safeTargetDurationMs > 0
       ? scaleSpeechSyncProfile(providedProfile, safeTargetDurationMs)
       : providedProfile;
+    if (isSpeechSyncProfileUsable(resolvedProfile, safeTargetDurationMs)) {
+      return resolvedProfile;
+    }
+    return getSpeechSyncProfile(safeText, safeTargetDurationMs);
   }
 
   // Otherwise fall back to the state-stored profile (with text comparison to guard against stale data)
@@ -4424,9 +4564,13 @@ function getResolvedSpeechSyncProfile(text = "", targetDurationMs = 0, options =
     && Array.isArray(narrationProfile.profile.units)
     && narrationProfile.profile.units.length
   ) {
-    return safeTargetDurationMs > 0
+    const resolvedProfile = safeTargetDurationMs > 0
       ? scaleSpeechSyncProfile(narrationProfile.profile, safeTargetDurationMs)
       : narrationProfile.profile;
+    if (isSpeechSyncProfileUsable(resolvedProfile, safeTargetDurationMs)) {
+      return resolvedProfile;
+    }
+    return getSpeechSyncProfile(safeText, safeTargetDurationMs);
   }
 
   return getSpeechSyncProfile(safeText, safeTargetDurationMs);
@@ -5573,6 +5717,7 @@ async function useBundledAnjaliSampleAsNarration() {
       : getDefaultNarrationDurationMs();
 
     resetNarrationState();
+    invalidateNarrationDependentExports();
     state.narration = {
       url: assetUrl,
       fileName: ANJALI_SAMPLE_AUDIO_FILE,
@@ -5588,6 +5733,10 @@ async function useBundledAnjaliSampleAsNarration() {
     setAudioStatus(`Anjali narration: ${ANJALI_SAMPLE_AUDIO_FILE}`);
     state.preferredNarrationVoice = "anjali";
     updatePreferredVoiceUi();
+    invalidateNarrationDependentExports({
+      keepPromise: true,
+      preservePrepareAfterPlayback: true
+    });
     setMathsHelperStatus("Anjali's narration is now loaded in the narration area. This works best for short intros or short teaching clips.");
     setNarrationGenStatus("Anjali narration is loaded into the app.");
     setStatus("Anjali narration is ready. Play uses this audio, and download will include it.");
@@ -5599,15 +5748,18 @@ async function useBundledAnjaliSampleAsNarration() {
 }
 
 function updatePreferredVoiceUi() {
-  state.preferredNarrationVoice = "anjali";
   if (slideVoiceSelect) {
-    slideVoiceSelect.value = "anjali";
+    slideVoiceSelect.value = state.preferredNarrationVoice || "anjali";
     slideVoiceSelect.disabled = true;
   }
 }
 
 function getNarrationVoiceLabel(voice) {
-  return voice === "anjali" ? "Anjali" : "Anjali";
+  const safeVoice = String(voice || "").trim();
+  if (/Prabhat/i.test(safeVoice)) return "Edge TTS Male";
+  if (/Neerja/i.test(safeVoice) || safeVoice === "anjali") return "Anjali";
+  if (/^en-[A-Z]{2}-/i.test(safeVoice)) return "Edge TTS";
+  return "Anjali";
 }
 
 function setPreviewVoiceChooserVisible(isVisible) {
@@ -8096,20 +8248,28 @@ async function ensurePdfNarrationReadyForPresentation(options = {}) {
   await setPdfNarrationFromBlob(blob, fileName, label, pdfText, voice, { syncProfile });
 }
 
+function getSelectedEdgeExportVoice() {
+  const selected = String(state.preferredNarrationVoice || "").trim();
+  return (selected && (selected === "anjali" || /^en-[A-Z]{2}-/i.test(selected)))
+    ? selected
+    : EXPORT_NARRATION_VOICE;
+}
+
 function forceExportVoiceToAnjali() {
-  state.preferredNarrationVoice = EXPORT_NARRATION_VOICE;
+  state.preferredNarrationVoice = getSelectedEdgeExportVoice();
   if (slideVoiceSelect) {
-    slideVoiceSelect.value = EXPORT_NARRATION_VOICE;
+    slideVoiceSelect.value = state.preferredNarrationVoice;
   }
   updatePreferredVoiceUi();
 }
 
 async function ensureAnjaliNarrationReadyForExport(options = {}) {
   forceExportVoiceToAnjali();
+  const exportVoice = getSelectedEdgeExportVoice();
   const exportText = String(options.textSource || commitLatestLessonText()).trim();
   const hasMatchingNarration = Boolean(
     state.narration.blob
-    && state.narration.voice === EXPORT_NARRATION_VOICE
+    && state.narration.voice === exportVoice
     && state.narration.textSource === exportText
   );
 
@@ -8118,7 +8278,7 @@ async function ensureAnjaliNarrationReadyForExport(options = {}) {
   }
 
   let syncProfile = null;
-  const blob = await requestNarrationBlob(exportText, EXPORT_NARRATION_VOICE, {
+  const blob = await requestNarrationBlob(exportText, exportVoice, {
     ...options,
     onSyncProfile: (profile) => {
       syncProfile = profile;
@@ -8129,10 +8289,10 @@ async function ensureAnjaliNarrationReadyForExport(options = {}) {
   });
   await setNarrationFromBlob(
     blob,
-    `generated-${EXPORT_NARRATION_VOICE}-narration.wav`,
-    "Generated anjali narration",
+    `generated-${exportVoice}-narration.wav`,
+    `Generated ${getNarrationVoiceLabel(exportVoice).toLowerCase()} narration`,
     exportText,
-    EXPORT_NARRATION_VOICE,
+    exportVoice,
     { syncProfile }
   );
   return blob;
@@ -8145,10 +8305,11 @@ async function ensureAnjaliPdfNarrationReadyForExport(options = {}) {
   }
 
   forceExportVoiceToAnjali();
+  const exportVoice = getSelectedEdgeExportVoice();
 
   const hasMatchingNarration = Boolean(
     state.pdf.narration.blob
-    && state.pdf.narration.voice === EXPORT_NARRATION_VOICE
+    && state.pdf.narration.voice === exportVoice
     && state.pdf.narration.textSource === pdfText
   );
   if (hasMatchingNarration) {
@@ -8156,7 +8317,7 @@ async function ensureAnjaliPdfNarrationReadyForExport(options = {}) {
   }
 
   let syncProfile = null;
-  const blob = await requestNarrationBlob(pdfText, EXPORT_NARRATION_VOICE, {
+  const blob = await requestNarrationBlob(pdfText, exportVoice, {
     ...options,
     timeoutMs: options.timeoutMs || getLongNarrationRequestTimeoutMs(pdfText),
     onSyncProfile: (profile) => {
@@ -8168,10 +8329,10 @@ async function ensureAnjaliPdfNarrationReadyForExport(options = {}) {
   });
   await setPdfNarrationFromBlob(
     blob,
-    `generated-${EXPORT_NARRATION_VOICE}-pdf-narration.wav`,
-    "Generated anjali PDF narration",
+    `generated-${exportVoice}-pdf-narration.wav`,
+    `Generated ${getNarrationVoiceLabel(exportVoice).toLowerCase()} PDF narration`,
     pdfText,
-    EXPORT_NARRATION_VOICE,
+    exportVoice,
     { syncProfile }
   );
   return blob;
@@ -8440,6 +8601,7 @@ function pausePdfPresentation() {
   stopActiveAudio();
   state.speechUtterance = null;
   state.speaking = false;
+  updateStageViewUi();
   state.mouthOpen = 0.12;
   state.pdf.paused = state.pdf.currentTimeMs < state.pdf.totalDurationMs;
   state.pdf.audioDriven = false;
@@ -10483,15 +10645,21 @@ function getPreferredPreviewVoice(voicePreference) {
 }
 
 async function requestNarrationBlobSingle(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
-  const isAnjaliClone = voice === "anjali";
-  const requestTimeoutMs = isAnjaliClone
+  const safeVoice = String(voice || "").trim();
+  const isEdgeTtsVoice = safeVoice === "anjali" || /^en-[A-Z]{2}-/i.test(safeVoice);
+  const edgeVoiceId = safeVoice === "anjali" ? EDGE_TTS_DEFAULT_FEMALE_VOICE : safeVoice;
+  const requestTimeoutMs = isEdgeTtsVoice
     ? 0
     : (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
       ? Number(options.timeoutMs)
       : DEFAULT_NARRATION_REQUEST_TIMEOUT_MS);
-  // Edge TTS (port 8426) is a cloud API — no pre-flight health check needed.
-  // We simply fire the request; if the server is genuinely down the fetch
-  // will throw a network error and the catch block will handle it cleanly.
+  if (isEdgeTtsVoice) {
+    const serverReady = await ensureAnjaliCloneServer();
+    if (!serverReady) {
+      throw new Error("Voice server is not ready on port 8426.");
+    }
+  }
+
   if (typeof options.onProgress === "function") {
     options.onProgress({
       label: "Preparing voice narration...",
@@ -10509,28 +10677,52 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
 
   if (typeof options.onProgress === "function") {
     options.onProgress({
-      label: isAnjaliClone ? "Sending text to Anjali voice server..." : "Sending text to narration server...",
+      label: isEdgeTtsVoice ? "Sending text to Edge TTS server..." : "Sending text to narration server...",
       progress: 0.22
     });
   }
 
-  const response = await fetchWithTimeout(
-    isAnjaliClone
-      ? `${state.anjaliCloneServerUrl}/api/narrate`
-      : `${state.narrationServerUrl}/api/narrate?voice=${encodeURIComponent(voice)}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(
-        isAnjaliClone
-          ? narrationPayload
-          : { text: narrationText }
-      )
+  const requestUrl = isEdgeTtsVoice
+    ? `${state.anjaliCloneServerUrl}/api/narrate`
+    : `${state.narrationServerUrl}/api/narrate?voice=${encodeURIComponent(safeVoice)}`;
+  const requestOptions = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
     },
-    requestTimeoutMs
-  );
+    body: JSON.stringify(
+      isEdgeTtsVoice
+        ? {
+          ...narrationPayload,
+          generationOptions: {
+            ...(narrationPayload.generationOptions || {}),
+            voice: edgeVoiceId
+          }
+        }
+        : { text: narrationText }
+    )
+  };
+
+  let response = null;
+  let lastFetchError = null;
+  const maxAttempts = isEdgeTtsVoice ? 3 : 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      response = await fetchWithTimeout(requestUrl, requestOptions, requestTimeoutMs);
+      lastFetchError = null;
+      break;
+    } catch (error) {
+      lastFetchError = error;
+      if (!isEdgeTtsVoice || attempt >= maxAttempts) {
+        break;
+      }
+      await delay(900);
+      await ensureAnjaliCloneServer().catch(() => false);
+    }
+  }
+  if (!response) {
+    throw lastFetchError || new Error("Narration generation failed.");
+  }
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => null);
@@ -14233,9 +14425,7 @@ function drawInfoKidsLogo() {
   }
 
   // ── Animated title badge — slides in from right at playback start, out at end ──
-  const titleText = normalizeOutcomesTitle(state.outcomesTitle) ||
-                    normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value) ||
-                    "LEARNING OUTCOMES";
+  const titleText = getPresentationTitleText();
 
   // ── Timing constants ──────────────────────────────────────────────────────
   const BADGE_IN_MS   = 1400;  // slower, cinematic entrance (ms)
@@ -14255,16 +14445,16 @@ function drawInfoKidsLogo() {
     state.titleAnim.startedAt    = now;
     state.titleAnim.exitStartedAt = null;
   }
+  if (state.speaking && state.titleAnim.holdUntilSpeaking) {
+    state.titleAnim.holdUntilSpeaking = false;
+  }
 
-  // ── Arm slide-out (timestamp-based so it keeps running after audio ends) ─
-  // Trigger when either:
-  //   (a) narration has < BADGE_OUT_MS remaining, OR
-  //   (b) speaking just stopped (audio ended) and exit hasn't been armed yet
+  // ── Arm slide-out after narration/text reveal finishes ───────────────────
+  // Do not start this during the last spoken words. Export records a dedicated
+  // outro after all lesson text is visible, so no word gets sacrificed for the
+  // title movement.
   if (state.titleAnim.startedAt && !state.titleAnim.exitStartedAt) {
-    const audioEl  = state.activeAudio;
-    const elapsed  = (audioEl && state.speaking) ? (audioEl.currentTime || 0) * 1000 : 0;
-    const remaining = narrationMs > 0 ? narrationMs - elapsed : Infinity;
-    if (remaining < BADGE_OUT_MS || (!state.speaking && state.titleAnim.startedAt)) {
+    if (!state.speaking && state.titleAnim.startedAt && !state.titleAnim.holdUntilSpeaking) {
       state.titleAnim.exitStartedAt = now;
     }
   }
@@ -14381,6 +14571,94 @@ function drawInfoKidsLogo() {
   ctx.fillText(titleText, bx + bw / 2, by + bh / 2);
 
   ctx.restore();
+}
+
+function armStartingTitleBadge({ immediate = false } = {}) {
+  const now = performance.now();
+  state.titleAnim = {
+    startedAt: immediate ? now - 1400 : now,
+    exitStartedAt: null,
+    holdUntilSpeaking: true
+  };
+  markSceneDirty();
+}
+
+async function recordStartingTitlePreroll(durationMs = EXPORT_TITLE_PREROLL_MS, captureRate = 30) {
+  const safeDurationMs = Math.max(0, Math.round(Number(durationMs) || 0));
+  if (!safeDurationMs) {
+    return;
+  }
+
+  state.speaking = true;
+  state.activeAudio = null;
+  armStartingTitleBadge({ immediate: false });
+  const startedAt = performance.now();
+  while ((performance.now() - startedAt) < safeDurationMs) {
+    drawScene(0.12);
+    requestExportVideoFrame();
+    await waitForNextPaint();
+    await delay(Math.max(16, Math.round(1000 / Math.max(1, captureRate || 30))));
+  }
+  state.speaking = false;
+}
+
+async function recordTitleIntroForExport(titleDurationMs = 0, captureRate = 30) {
+  state.titleIntroActive = true;
+  markSceneDirty();
+  try {
+    await recordStartingTitlePreroll(EXPORT_TITLE_PREROLL_MS, captureRate);
+
+    const holdDurationMs = Math.max(0, Math.round(Number(titleDurationMs) || 0)) + TITLE_TO_CONTEXT_GAP_MS;
+    if (!holdDurationMs) {
+      return;
+    }
+
+    state.speaking = false;
+    state.displayedText = "";
+    state.exactCharCountFloat = 0;
+    if (state.titleAnim?.startedAt) {
+      state.titleAnim.exitStartedAt = null;
+      state.titleAnim.holdUntilSpeaking = true;
+    }
+
+    const startedAt = performance.now();
+    while ((performance.now() - startedAt) < holdDurationMs) {
+      markSceneDirty();
+      drawScene(0.12);
+      requestExportVideoFrame();
+      await waitForNextPaint();
+      await delay(Math.max(16, Math.round(1000 / Math.max(1, captureRate || 30))));
+    }
+  } finally {
+    state.titleIntroActive = false;
+    markSceneDirty();
+  }
+}
+
+async function recordEndingTitleOutro(durationMs = EXPORT_TITLE_OUTRO_MS, captureRate = 30) {
+  const safeDurationMs = Math.max(0, Math.round(Number(durationMs) || 0));
+  if (!safeDurationMs) {
+    return;
+  }
+
+  state.speaking = false;
+  state.displayedText = state.text;
+  state.exactCharCountFloat = String(state.text || "").length;
+  state.contentScrollOffset = 0;
+  syncLessonPlaybackProgressUi(1, true);
+  if (state.titleAnim?.startedAt) {
+    state.titleAnim.exitStartedAt = null;
+    state.titleAnim.holdUntilSpeaking = false;
+  }
+
+  const startedAt = performance.now();
+  while ((performance.now() - startedAt) < safeDurationMs) {
+    markSceneDirty();
+    drawScene(0.12);
+    requestExportVideoFrame();
+    await waitForNextPaint();
+    await delay(Math.max(16, Math.round(1000 / Math.max(1, captureRate || 30))));
+  }
 }
 
 let transparentAnjaliCanvas = null;
@@ -15205,6 +15483,7 @@ let _lastDrawnDisplayedText = "";
 let _lastDrawnPageIndex = -1;
 let _lastDrawnSpeaking = false;
 let _lastDrawnExporting = false;
+let _lastDrawnTitleIntroActive = false;
 let _lastDrawnExactCharFloat = -1; // Track sub-character progress for smooth typing
 
 function markSceneDirty() {
@@ -15215,6 +15494,7 @@ function isSceneActuallyDirty(mouthOpen) {
   if (_sceneIsDirty) return true;
   if (state.exportingVideo || state.exportVideoTrack?.readyState === "live") return true;
   if (state.speaking !== _lastDrawnSpeaking) return true;
+  if (state.titleIntroActive !== _lastDrawnTitleIntroActive) return true;
   if (Math.abs((mouthOpen || 0) - _lastDrawnMouthOpen) > 0.01) return true;
   if (state.text !== _lastDrawnText) return true;
   if (state.displayedText !== _lastDrawnDisplayedText) return true;
@@ -15238,6 +15518,7 @@ function drawScene(mouthOpen = 0.12) {
   _lastDrawnPageIndex = state.previewPageIndex;
   _lastDrawnSpeaking = state.speaking;
   _lastDrawnExporting = state.exportingVideo;
+  _lastDrawnTitleIntroActive = state.titleIntroActive;
 
   state.drawnCharCount = 0;
   _lastDrawnExactCharFloat = state.exactCharCountFloat || 0;
@@ -15280,6 +15561,15 @@ function drawScene(mouthOpen = 0.12) {
   drawTeachingStageBackdrop(mouthOpen);
   drawSceneVfx();
   drawStageVideoLayer();
+
+  if (state.titleIntroActive) {
+    state.contentScrollOffset = 0;
+    updateStagePageUi(state.previewPageIndex, Math.max(1, state.renderedPageCount || 1));
+    drawInfoKidsLogo();
+    drawRuntimeDisplayErrorOverlay();
+    requestCanvasExportFrame();
+    return;
+  }
 
   const isAnimatingContent = state.speaking || (state.displayedText && state.displayedText !== state.text);
   const boardSourceText = isAnimatingContent ? (state.displayedText || state.text) : state.text;
@@ -17000,12 +17290,12 @@ async function recordPosterVideoForExport(durationMs = DEFAULT_INTRO_POSTER_DURA
     recorder.start(100);
     const shown = await playIntroPosterSegment(durationMs, { exportMode: true });
     if (!shown) {
-      recorder.stop();
+      await stopExportMediaRecorder(recorder);
       await blobPromise.catch(() => null);
       return null;
     }
     await waitForNextPaint();
-    recorder.stop();
+    await stopExportMediaRecorder(recorder);
 
     const videoBlob = await blobPromise;
     if (!videoBlob.type.startsWith("video/")) {
@@ -19003,6 +19293,7 @@ function stopPlayback(restoreFullText = true) {
   stopActiveAudio();
   state.speechUtterance = null;
   state.speaking = false;
+  updateStageViewUi();
   state.mouthOpen = 0.12;
   state.contentScrollOffset = 0;
   // Clear overlay RAFs so they don't ghost after stop
@@ -19517,6 +19808,8 @@ async function playNarrationAudio() {
     }, { once: true });
 
     state.speaking = true;
+    updateStageViewUi();
+    updateStagePageUi(state.previewPageIndex, state.renderedPageCount);
     setStatus(`The slide is reading with ${state.narration.source.toLowerCase()} audio at ${getLessonPlaybackRate()}x with strict word sync.`);
     const started = await playAudioWithRecovery(audioElement, { volume: STRICT_VOICE_VOLUME });
     if (!started) {
@@ -19604,13 +19897,14 @@ function playSpeechFallback() {
 
 function hasFreshGeneratedAnjaliNarration(currentText = "") {
   const safeText = String(currentText || "").trim();
+  const expectedVoice = state.preferredNarrationVoice || "anjali";
   return Boolean(
     state.narration.url
     && state.narration.blob
-    && state.narration.voice === "anjali"
+    && state.narration.voice === expectedVoice
     && state.narration.textSource === safeText
-    && !isNarrationDurationTooShortForText(buildNarrationText(safeText), state.narration.durationMs, "anjali")
-    && /generated anjali narration/i.test(state.narration.source || "")
+    && !isNarrationDurationTooShortForText(buildNarrationText(safeText), state.narration.durationMs, expectedVoice)
+    && /generated .*narration/i.test(state.narration.source || "")
   );
 }
 
@@ -19753,7 +20047,7 @@ async function ensureNarrationReadyForSlide(options = {}) {
     return;
   }
 
-  const voice = "anjali";
+  const voice = state.preferredNarrationVoice || "anjali";
   const label = `Generated ${getNarrationVoiceLabel(voice).toLowerCase()} narration`;
   const fileName = `generated-${voice}-narration.wav`;
   let syncProfile = null;
@@ -19769,11 +20063,92 @@ async function ensureNarrationReadyForSlide(options = {}) {
   await setNarrationFromBlob(blob, fileName, label, currentText, voice, { syncProfile });
 }
 
+async function createTitleNarrationForVoice(voice = state.preferredNarrationVoice || "anjali", options = {}) {
+  const titleText = getPresentationTitleText();
+  if (!titleText) {
+    return null;
+  }
+
+  const serverReady = await ensureAnjaliCloneServer();
+  if (!serverReady) {
+    throw new Error("Title narration needs the voice server on port 8426.");
+  }
+
+  const blob = await requestNarrationBlob(titleText, voice, {
+    ...options,
+    timeoutMs: options.timeoutMs || getLongNarrationRequestTimeoutMs(titleText)
+  });
+  const durationMs = Math.max(1000, await measureNarrationBlobDurationMs(blob));
+  return {
+    blob,
+    durationMs,
+    text: titleText,
+    voice
+  };
+}
+
+async function playTitleIntroBeforeLesson(voice = state.preferredNarrationVoice || "anjali") {
+  state.titleIntroActive = true;
+  state.displayedText = "";
+  state.exactCharCountFloat = 0;
+  markSceneDirty();
+  drawScene(0.12);
+
+  let titleUrl = "";
+  let titleAudio = null;
+  try {
+    const titleNarration = await createTitleNarrationForVoice(voice);
+    if (!titleNarration?.blob) {
+      return;
+    }
+
+    titleUrl = URL.createObjectURL(titleNarration.blob);
+    await delay(EXPORT_TITLE_PREROLL_MS);
+
+    titleAudio = await createLoadedAudio(titleUrl);
+    applyNaturalVoicePlayback(titleAudio, getLessonPlaybackRate());
+    titleAudio.muted = false;
+    titleAudio.volume = STRICT_VOICE_VOLUME;
+    state.activeAudio = titleAudio;
+    setStatus(`Reading title: ${titleNarration.text}`);
+    await new Promise((resolve, reject) => {
+      titleAudio.addEventListener("ended", resolve, { once: true });
+      titleAudio.addEventListener("error", () => reject(new Error("Title narration playback failed.")), { once: true });
+      playAudioWithRecovery(titleAudio, { volume: STRICT_VOICE_VOLUME })
+        .then((started) => {
+          if (!started) {
+            reject(new Error("Title narration could not start."));
+          }
+        })
+        .catch(reject);
+    });
+    state.activeAudio = null;
+    await delay(TITLE_TO_CONTEXT_GAP_MS);
+  } finally {
+    if (titleAudio) {
+      try {
+        titleAudio.pause();
+        titleAudio.remove();
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    if (state.activeAudio === titleAudio) {
+      state.activeAudio = null;
+    }
+    state.titleIntroActive = false;
+    markSceneDirty();
+    if (titleUrl) {
+      URL.revokeObjectURL(titleUrl);
+    }
+  }
+}
+
 async function playSlide() {
   clearPlayLoadingOverlay(); // clear any stale overlay from a previous stopped play
 
   // ── Reset badge animation so it re-enters on EVERY press of Play ──────────
-  state.titleAnim = { startedAt: null, exitStartedAt: null };
+  armStartingTitleBadge();
 
   const currentText = commitLatestLessonText();
   const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
@@ -19827,6 +20202,7 @@ async function playSlide() {
     } else if (state.introPlayback.enabled) {
       await playPostIntroBlankTransition();
     }
+    await playTitleIntroBeforeLesson(state.preferredNarrationVoice || "anjali");
     playNarrationAudio();
     return;
   }
@@ -19855,6 +20231,7 @@ async function playSlide() {
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
     resetTaskProgressUi();
     clearPlayLoadingOverlay();
+    await playTitleIntroBeforeLesson(state.preferredNarrationVoice || "anjali");
     playNarrationAudio();
   } catch (error) {
     console.error(error);
@@ -19879,7 +20256,7 @@ async function openPreviewVoiceChooser() {
   stopPlayback(false);
   stopDictation(false);
   setPreviewVoiceChooserVisible(false);
-  await startTextPreview("anjali");
+  await startTextPreview(state.preferredNarrationVoice || "anjali");
 }
 
 // ── Chunked narration: requests FULL text from Anjali (real voice),
@@ -19898,7 +20275,8 @@ async function playChunkedNarration(text) {
   let previewUrl = null;
   try {
     // One full request to the Anjali server → real voice, real intonation
-    const blob = await requestNarrationBlob(text, 'anjali', {
+    const previewVoice = state.preferredNarrationVoice || 'anjali';
+    const blob = await requestNarrationBlob(text, previewVoice, {
       timeoutMs: getLongNarrationRequestTimeoutMs(text)
     });
     previewUrl = URL.createObjectURL(blob);
@@ -19974,7 +20352,7 @@ async function startTextPreview(voicePreference) {
   stopPlayback(false);
   stopDictation(false);
   stopInputPreview(false);
-  state.preferredNarrationVoice = "anjali";
+  state.preferredNarrationVoice = voicePreference || state.preferredNarrationVoice || "anjali";
   updatePreferredVoiceUi();
 
   // Chunked reading: 5-6 words at a time with pauses
@@ -20326,7 +20704,7 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
     drawScene(0.12);
     requestExportVideoFrame();
     await waitForNextPaint();
-    recorder.stop();
+    await stopExportMediaRecorder(recorder);
 
     const videoBlob = await blobPromise;
     if (!videoBlob.type.startsWith("video/")) {
@@ -20530,7 +20908,7 @@ async function recordLessonVideoSegmentForExport(segment, durationMs, playbackRa
     drawScene(0.12);
     requestExportVideoFrame();
     await waitForNextPaint();
-    recorder.stop();
+    await stopExportMediaRecorder(recorder);
 
     const videoBlob = await blobPromise;
     if (!videoBlob.type.startsWith("video/")) {
@@ -20554,6 +20932,8 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
   const exportSnapshot = options.exportSnapshot || null;
   const captureRate = Math.max(24, Number(options.captureRate) || 30);
   const includeIntro = Boolean(options.includeIntro);
+  const titlePrerollMs = Math.max(0, Math.round(Number(options.titlePrerollMs) || 0));
+  const titleIntroDurationMs = Math.max(0, Math.round(Number(options.titleIntroDurationMs) || 0));
   const preRollPosterDurationMs = Math.max(0, Math.round(Number(options.preRollPosterDurationMs) || 0));
   const shouldRecordPosterPreroll = preRollPosterDurationMs > 0 && hasIntroPosterSelected();
   let canvasStream = null;
@@ -20637,21 +21017,10 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
     audioUrl = URL.createObjectURL(audioBlob);
     audioElement = await createLoadedAudio(audioUrl);
     applyNaturalVoicePlayback(audioElement, playbackRate);
-    // Do NOT mute: muting can stall audioElement.currentTime in some browsers,
-    // breaking the animation sync. Use volume=0 to silence playback instead.
-    audioElement.muted = false;
-    audioElement.volume = 0;
-    state.activeAudio = audioElement;
-    state.speaking = true;
-    startNarrationLoop(audioElement);
-
-    const playbackPromise = new Promise((resolve, reject) => {
-      audioElement.addEventListener("ended", resolve, { once: true });
-      audioElement.addEventListener("error", () => reject(new Error("Narration playback failed during export.")), { once: true });
-    });
 
     let introIncludedInRealtimeExport = false;
     recorder.start(100);
+    requestExportVideoFrame();
     if (includeIntro) {
       introIncludedInRealtimeExport = await playIntroClipForExport({ playbackRate: 1 });
       if (typeof options.onIntroRecorded === "function") {
@@ -20665,19 +21034,21 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
       drawScene(0.12);
       await waitForNextPaint();
     }
-    const started = await playAudioWithRecovery(audioElement, { volume: 0 });
-    if (!started) {
-      throw new Error("The narration audio could not start during export.");
+    if (titlePrerollMs > 0) {
+      await recordTitleIntroForExport(titleIntroDurationMs, captureRate);
     }
-    if (state.stageVideo.element) {
-      scheduleStageVideoStartAfterDelay({
-        restart: true,
-        delayMs: STAGE_VIDEO_START_DELAY_MS,
-        playbackRate: 1
-      });
-    }
-
-    await playbackPromise;
+    const narrationDurationMs = Math.max(
+      1000,
+      Math.round(
+        Number.isFinite(audioElement.duration)
+          ? (audioElement.duration * 1000)
+          : (state.narration.durationMs || getDefaultNarrationDurationMs())
+      )
+    );
+    await renderNarrationTimelineForExport(narrationDurationMs, playbackRate, {
+      renderSpeedMultiplier: 1,
+      exportSnapshot
+    });
 
     state.speaking = false;
     cancelVisualLoop();
@@ -20693,6 +21064,7 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
       drawScene(0.12);
       await waitForNextPaint();
     }
+    await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
 
     // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
     if (hasIntroPosterSelected() && state.introPoster.image) {
@@ -20707,7 +21079,7 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
       }
     }
 
-    recorder.stop();
+    await stopExportMediaRecorder(recorder);
 
     const videoBlob = await blobPromise;
     if (!videoBlob.type.startsWith("video/")) {
@@ -20718,6 +21090,14 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
   } finally {
     cancelVisualLoop();
     stopActiveAudio();
+    if (audioElement) {
+      try {
+        audioElement.pause();
+        audioElement.remove();
+      } catch (error) {
+        console.error(error);
+      }
+    }
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
     }
@@ -20795,14 +21175,14 @@ async function recordIntroVideoForExport(options = {}) {
     recorder.start(100);
     const includedIntro = await playIntroClipForExport({ playbackRate: 1, holdAfterMs });
     if (!includedIntro) {
-      recorder.stop();
+      await stopExportMediaRecorder(recorder);
       await blobPromise.catch(() => null);
       return null;
     }
 
     drawScene(0.12);
     await waitForNextPaint();
-    recorder.stop();
+    await stopExportMediaRecorder(recorder);
 
     const videoBlob = await blobPromise;
     if (!videoBlob.type.startsWith("video/")) {
@@ -20831,6 +21211,7 @@ async function exportVideo(options = {}) {
   preventBackgroundThrottling();
   const lessonExportSource = options.lessonExportSourceOverride || getLessonExportSource();
   const exportText = lessonExportSource.text;
+  const lessonExportSnapshot = lessonExportSource.snapshot;
   const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
   const hasAnyLessonText = Boolean(
     String(exportText || "").trim()
@@ -20851,7 +21232,6 @@ async function exportVideo(options = {}) {
   stopDictation(false);
   stopInputPreview(false);
   stopPlayback(false);
-  const lessonExportSnapshot = lessonExportSource.snapshot;
   forceExportVoiceToAnjali();
   state.introPlayback.enabled = introClipRequested;
   state.exportingVideo = true;
@@ -20907,6 +21287,8 @@ async function exportVideo(options = {}) {
     updateTaskProgressUi(0.14, true, { mirrorStage: true });
     let exportNarrationBlob = null;
     let exportNarrationDurationMs = 0;
+    let exportTitleNarrationBlob = null;
+    let exportTitleNarrationDurationMs = 0;
     if (allowIntroOnlyExport) {
       exportNarrationBlob = createSilentWavBlob(Math.max(1000, Math.round(state.introPlayback.durationMs || 1000)));
       exportNarrationDurationMs = Math.max(
@@ -20914,6 +21296,11 @@ async function exportVideo(options = {}) {
         await measureNarrationBlobDurationMs(exportNarrationBlob)
       );
     } else {
+      const titleNarration = await createTitleNarrationForVoice(getSelectedEdgeExportVoice(), {
+        skipPreparedExportSchedule: true
+      });
+      exportTitleNarrationBlob = titleNarration?.blob || null;
+      exportTitleNarrationDurationMs = titleNarration?.durationMs || 0;
       exportNarrationBlob = await ensureAnjaliNarrationReadyForExport({
         textSource: exportText,
         timeoutMs: getLongNarrationRequestTimeoutMs(exportText),
@@ -20930,13 +21317,16 @@ async function exportVideo(options = {}) {
         1000,
         Math.round(exportNarrationDurationMs / Math.max(0.1, exportPlaybackRate))
       );
+    const titleIntroTimelineDurationMs = allowIntroOnlyExport
+      ? 0
+      : Math.max(0, EXPORT_TITLE_PREROLL_MS + exportTitleNarrationDurationMs + TITLE_TO_CONTEXT_GAP_MS);
     const introTimelineDurationMs = shouldIncludeIntro
       ? Math.max(0, Math.round(state.introPlayback.durationMs || 0))
       : 0;
     const posterTimelineDurationMs = shouldIncludePoster ? getIntroPosterDurationMs() : 0;
     const totalExportTimelineDurationMs = allowIntroOnlyExport
       ? Math.max(1000, introTimelineDurationMs + posterTimelineDurationMs)
-      : lessonTimelineDurationMs + introTimelineDurationMs + posterTimelineDurationMs;
+      : lessonTimelineDurationMs + titleIntroTimelineDurationMs + introTimelineDurationMs + posterTimelineDurationMs;
     const exportTargetDurationMs = totalExportTimelineDurationMs + getExportCompletionTailMs();
     const lessonBaseCaptureRate = getLessonExportCaptureRate();
     const exportRenderSpeedMultiplier = Math.min(
@@ -20994,6 +21384,8 @@ async function exportVideo(options = {}) {
           effectiveExportQuality,
           exportSnapshot: lessonExportSnapshot,
           includeIntro: true,
+          titlePrerollMs: EXPORT_TITLE_PREROLL_MS,
+          titleIntroDurationMs: exportTitleNarrationDurationMs,
           onIntroRecorded: (introIncluded) => {
             includedIntroInExport = Boolean(introIncluded);
           }
@@ -21055,7 +21447,9 @@ async function exportVideo(options = {}) {
             captureRate: 30,
             effectiveExportQuality,
             exportSnapshot: lessonExportSnapshot,
-            preRollPosterDurationMs: shouldIncludePoster ? getIntroPosterDurationMs() : 0
+            preRollPosterDurationMs: shouldIncludePoster ? getIntroPosterDurationMs() : 0,
+            titlePrerollMs: EXPORT_TITLE_PREROLL_MS,
+            titleIntroDurationMs: exportTitleNarrationDurationMs
           }
         );
         videoBlobs.push(lessonVideoBlob);
@@ -21073,7 +21467,9 @@ async function exportVideo(options = {}) {
         {
           captureRate: 30,
           effectiveExportQuality,
-          exportSnapshot: lessonExportSnapshot
+          exportSnapshot: lessonExportSnapshot,
+          titlePrerollMs: EXPORT_TITLE_PREROLL_MS,
+          titleIntroDurationMs: exportTitleNarrationDurationMs
         }
       );
     } else if (shouldSegmentExport) {
@@ -21183,6 +21579,7 @@ async function exportVideo(options = {}) {
       });
 
       recorder.start(100);
+      requestExportVideoFrame();
       if (shouldIncludeIntro) {
         try {
           includedIntroInExport = await playIntroClipForExport({
@@ -21194,6 +21591,7 @@ async function exportVideo(options = {}) {
           setIntroClipStatus("The intro clip could not be rendered during export, so the export continued with the lesson only.");
         }
       }
+      await recordTitleIntroForExport(exportTitleNarrationDurationMs, captureRate);
       await renderNarrationTimelineForExport(
         exportNarrationDurationMs,
         exportPlaybackRate,
@@ -21213,6 +21611,7 @@ async function exportVideo(options = {}) {
         requestExportVideoFrame();
         await waitForNextPaint();
       }
+      await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
 
       // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
       if (shouldIncludePoster && state.introPoster.image) {
@@ -21229,7 +21628,7 @@ async function exportVideo(options = {}) {
         }
       }
 
-      recorder.stop();
+      await stopExportMediaRecorder(recorder);
 
       videoBlob = await blobPromise;
       if (!videoBlob.type.startsWith("video/")) {
@@ -21239,6 +21638,21 @@ async function exportVideo(options = {}) {
 
     let audioBlob = exportNarrationBlob;
     let audioFileName = "lesson-export-audio.wav";
+    if (!allowIntroOnlyExport && EXPORT_TITLE_PREROLL_MS > 0) {
+      const titleIntroBlobs = [createSilentWavBlob(EXPORT_TITLE_PREROLL_MS)];
+      const titleIntroChunks = [{ text: "title-animation", gapAfterMs: 0 }];
+      if (exportTitleNarrationBlob) {
+        titleIntroBlobs.push(exportTitleNarrationBlob, createSilentWavBlob(TITLE_TO_CONTEXT_GAP_MS));
+        titleIntroChunks.push(
+          { text: "title-narration", gapAfterMs: 0 },
+          { text: "title-to-context-gap", gapAfterMs: 0 }
+        );
+      }
+      titleIntroBlobs.push(audioBlob);
+      titleIntroChunks.push({ text: "lesson-narration", gapAfterMs: 0 });
+      audioBlob = await combineNarrationBlobs(titleIntroBlobs, titleIntroChunks);
+      audioFileName = "title-and-lesson-audio.wav";
+    }
     if (includedIntroInExport) {
       try {
         const introAudioBlob = await getIntroExportBlob();
@@ -21257,8 +21671,8 @@ async function exportVideo(options = {}) {
             : introAudioBlob)
           : await combineNarrationBlobs(
             posterGapBlob
-              ? [introAudioBlob, posterGapBlob, exportNarrationBlob]
-              : [introAudioBlob, exportNarrationBlob],
+              ? [introAudioBlob, posterGapBlob, audioBlob]
+              : [introAudioBlob, audioBlob],
             posterGapBlob
               ? [
                 { text: "default-intro", gapAfterMs: 0 },
@@ -21414,6 +21828,9 @@ async function exportVideo(options = {}) {
     state.speechUtterance = null;
     state.speaking = false;
     state.mouthOpen = 0.12;
+    if (!isPdfPresentationMode() && lessonExportSnapshot?.text) {
+      applyLessonExportSnapshot(lessonExportSnapshot, lessonExportSnapshot.text);
+    }
     state.introPlayback.active = false;
     state.introPlayback.previewVisible = false;
     if (state.introPlayback.element) {
@@ -21433,7 +21850,6 @@ async function exportVideo(options = {}) {
       }
     }
     await restoreAvatarAfterExport(frozenAvatarSnapshot);
-    // Do NOT sync displayedText after export — leave the canvas as-is
     drawScene(0.12);
     setRecordingUi(false);
     updateNarrationUi();
@@ -21468,6 +21884,10 @@ async function setNarrationFromBlob(blob, fileName, sourceLabel, textSource = ""
       : getDefaultNarrationDurationMs();
 
     resetNarrationState();
+    invalidateNarrationDependentExports({
+      keepPromise: true,
+      preservePrepareAfterPlayback: true
+    });
     const syncProfile = options.syncProfile
       ? scaleSpeechSyncProfile(options.syncProfile, durationMs)
       : null;
@@ -21953,6 +22373,7 @@ function stopRecordingNarration() {
 function clearNarration() {
   stopPlayback(false);
   resetNarrationState();
+  invalidateNarrationDependentExports();
   updateNarrationUi();
   audioInput.value = "";
   setRecordingUi(false);
@@ -22963,7 +23384,7 @@ dictateBtn.addEventListener("click", startDictation);
 stopDictateBtn.addEventListener("click", () => stopDictation(true));
 previewTextBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => openPreviewVoiceChooser()));
 if (previewAnjaliBtn) {
-  previewAnjaliBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => startTextPreview("anjali")));
+  previewAnjaliBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => startTextPreview(state.preferredNarrationVoice || "anjali")));
 }
 stageToolbarGroups.forEach((group) => {
   group.addEventListener("toggle", () => {
@@ -23094,6 +23515,11 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
       });
       if (!res.ok) throw new Error(await res.text());
       activeVoice = voiceId;
+      state.preferredNarrationVoice = voiceId;
+      localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, voiceId);
+      resetNarrationState();
+      invalidateNarrationDependentExports();
+      updateNarrationUi();
       // Update badge
       const match = allVoices.find(v => v.shortName === voiceId);
       badgeEl.textContent = match ? friendlyName(match) : voiceId;
@@ -23130,7 +23556,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
 // ── Stage Voices Module ─────────────────────────────────────────────────────
 (function initStageVoicePicker() {
   const TTS_BASE    = "http://127.0.0.1:8426";
-  const STORAGE_KEY = "pp_preferred_voice";
+  const STORAGE_KEY = EDGE_TTS_VOICE_STORAGE_KEY;
   const FALLBACK_ID = "en-IN-NeerjaExpressiveNeural";
   const PREVIEW_PHRASE = "Hello! I am your AI teaching assistant. Let's learn something wonderful today.";
 
@@ -23247,6 +23673,10 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
       const inputBadge = document.getElementById("voiceActiveBadge");
       if (inputBadge) inputBadge.textContent = label;
       state.preferredNarrationVoice = voiceId;
+      localStorage.setItem(STORAGE_KEY, voiceId);
+      resetNarrationState();
+      invalidateNarrationDependentExports();
+      updateNarrationUi();
       setStatus(`✔ Now using: ${label}`);
       console.log("[StageVoices] Active voice →", voiceId);
     } catch (err) {
@@ -23343,6 +23773,11 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
   }
 
   // ── Wire buttons ──────────────────────────────────────────────────────────
+  selectEl.addEventListener("change", () => {
+    const v = selectEl.value;
+    if (v) applyVoice(v);
+  });
+
   previewBtn.addEventListener("click", previewSelected);
 
   useBtn.addEventListener("click", () => {
@@ -23634,11 +24069,11 @@ stopRecordBtn.addEventListener("click", stopRecordingNarration);
 clearAudioBtn.addEventListener("click", clearNarration);
 if (loadAnjaliNarrationBtn) {
   loadAnjaliNarrationBtn.addEventListener("click", () => {
-    void runLockedAction("narrationLoad", [loadAnjaliNarrationBtn, downloadAnjaliBtn], async () => loadGeneratedNarrationIntoApp("anjali"));
+    void runLockedAction("narrationLoad", [loadAnjaliNarrationBtn, downloadAnjaliBtn], async () => loadGeneratedNarrationIntoApp(state.preferredNarrationVoice || "anjali"));
   });
 }
 if (downloadAnjaliBtn) {
-  downloadAnjaliBtn.addEventListener("click", () => runLockedAction("narrationDownload", [downloadAnjaliBtn, loadAnjaliNarrationBtn], async () => generateNarrationDownload("anjali")));
+  downloadAnjaliBtn.addEventListener("click", () => runLockedAction("narrationDownload", [downloadAnjaliBtn, loadAnjaliNarrationBtn], async () => generateNarrationDownload(state.preferredNarrationVoice || "anjali")));
 }
 if (loadMathsNumbersBtn) {
   loadMathsNumbersBtn.addEventListener("click", () => applyMathsLessonTemplate(MATHS_NUMBERS_TEMPLATE, "Numbers lesson loaded."));
@@ -23757,17 +24192,9 @@ clearVideoBtn.addEventListener("click", () => {
   setStatus("Stage video removed from the screen.");
 });
 prevPageBtn.addEventListener("click", () => {
-  if (state.speaking) {
-    return;
-  }
-
   setPreviewPage(state.previewPageIndex - 1);
 });
 nextPageBtn.addEventListener("click", () => {
-  if (state.speaking) {
-    return;
-  }
-
   setPreviewPage(state.previewPageIndex + 1);
 });
 zoomOutBtn.addEventListener("click", () => {
