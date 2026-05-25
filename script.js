@@ -9406,9 +9406,47 @@ async function blobToBase64(blob) {
   return arrayBufferToBase64(await blob.arrayBuffer());
 }
 
-function shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob) {
+function shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob, options = {}) {
   const totalSize = Number(videoBlob?.size || 0) + Number(audioBlob?.size || 0) + Number(musicBlob?.size || 0);
-  return totalSize >= MUX_CHUNK_UPLOAD_THRESHOLD_BYTES;
+  const threshold = options.preferChunked
+    ? Math.min(MUX_CHUNK_UPLOAD_THRESHOLD_BYTES, 12 * 1024 * 1024)
+    : MUX_CHUNK_UPLOAD_THRESHOLD_BYTES;
+  return totalSize >= threshold;
+}
+
+function isFetchConnectionError(error) {
+  const message = String(error?.message || error || "");
+  return /failed to fetch|networkerror|load failed|connection|socket|econn|aborted/i.test(message);
+}
+
+async function fetchVideoExportEndpoint(url, options = {}, label = "Video export request", settings = {}) {
+  const attempts = Math.max(1, Math.round(Number(settings.attempts) || 1));
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      lastError = error;
+      console.error(`[video-export] ${label} failed on attempt ${attempt}:`, error);
+      if (attempt >= attempts || !isFetchConnectionError(error)) {
+        break;
+      }
+
+      state.videoExportServerReady = false;
+      if (typeof window.electronAPI?.restartVideoExport === "function") {
+        try {
+          await window.electronAPI.restartVideoExport();
+        } catch (restartError) {
+          console.error(restartError);
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+      await ensureVideoExportServer().catch(() => false);
+    }
+  }
+
+  throw new Error(`${label} failed because the local video export server connection was interrupted. ${lastError?.message || "Failed to fetch"}`);
 }
 
 async function uploadBlobToMuxSession(sessionId, target, blob, onProgress = null) {
@@ -9426,13 +9464,13 @@ async function uploadBlobToMuxSession(sessionId, target, blob, onProgress = null
   let uploadedBytes = 0;
   while (uploadedBytes < totalBytes) {
     const nextChunk = safeBlob.slice(uploadedBytes, uploadedBytes + MUX_CHUNK_UPLOAD_SIZE_BYTES);
-    const response = await fetch(`${state.videoExportServerUrl}/api/mux-upload-chunk?sessionId=${encodeURIComponent(sessionId)}&target=${encodeURIComponent(safeTarget)}`, {
+    const response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux-upload-chunk?sessionId=${encodeURIComponent(sessionId)}&target=${encodeURIComponent(safeTarget)}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream"
       },
       body: nextChunk
-    });
+    }, `Uploading ${safeTarget} chunk`, { attempts: 1 });
 
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => ({}));
@@ -9517,7 +9555,7 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
   }
 
   const totalBytes = uploadPlan.reduce((sum, item) => sum + Number(item.blob?.size || 0), 0);
-  const sessionResponse = await fetch(`${state.videoExportServerUrl}/api/mux-upload-session`, {
+  const sessionResponse = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux-upload-session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -9537,7 +9575,7 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
       saveToDefaultPath,
       audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
     })
-  });
+  }, "Starting chunked video export session", { attempts: 2 });
 
   if (!sessionResponse.ok) {
     const errorPayload = await sessionResponse.json().catch(() => ({}));
@@ -9563,13 +9601,13 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
     uploadedBytes += Number(item.blob?.size || 0);
   }
 
-  const completeResponse = await fetch(`${state.videoExportServerUrl}/api/mux-upload-complete`, {
+  const completeResponse = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux-upload-complete`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ sessionId })
-  });
+  }, "Finishing chunked video export", { attempts: 2 });
 
   if (!completeResponse.ok) {
     const errorPayload = await completeResponse.json().catch(() => ({}));
@@ -9633,7 +9671,7 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
   }
 
   const totalBytes = uploadPlan.reduce((sum, item) => sum + Number(item.blob?.size || 0), 0);
-  const sessionResponse = await fetch(`${state.videoExportServerUrl}/api/mux-upload-session`, {
+  const sessionResponse = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux-upload-session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -9655,7 +9693,7 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
       saveToDefaultPath,
       audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
     })
-  });
+  }, "Starting segmented video export session", { attempts: 2 });
 
   if (!sessionResponse.ok) {
     const errorPayload = await sessionResponse.json().catch(() => ({}));
@@ -9681,13 +9719,13 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
     uploadedBytes += Number(item.blob?.size || 0);
   }
 
-  const completeResponse = await fetch(`${state.videoExportServerUrl}/api/mux-upload-complete`, {
+  const completeResponse = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux-upload-complete`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ sessionId })
-  });
+  }, "Finishing segmented video export", { attempts: 2 });
 
   if (!completeResponse.ok) {
     const errorPayload = await completeResponse.json().catch(() => ({}));
@@ -11245,7 +11283,7 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       ? Math.round(measuredAudioDurationMs / audioSpeed)
       : 0
   );
-  if (shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob)) {
+  if (shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob, { preferChunked: Boolean(getElectronOutputPath(saveHandle)) })) {
     return muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, {
       audioFileName,
       audioSpeed,
@@ -11276,13 +11314,13 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
   let response = null;
   let binaryError = null;
   try {
-    response = await fetch(`${state.videoExportServerUrl}/api/mux-binary`, {
+    response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux-binary`, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream"
       },
       body: requestBody
-    });
+    }, "Combining video and narration", { attempts: 2 });
 
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => ({}));
@@ -11291,6 +11329,18 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
   } catch (error) {
     binaryError = error;
     console.error(error);
+    if (outputPath && isFetchConnectionError(error)) {
+      return muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, {
+        audioFileName,
+        audioSpeed,
+        videoSpeed,
+        targetDurationMs,
+        holdLastFrameMs,
+        saveHandle,
+        saveToDefaultPath,
+        outputFileName
+      });
+    }
     const jsonPayload = {
       videoBase64: await blobToBase64(videoBlob),
       audioBase64: await blobToBase64(audioBlob),
@@ -11312,13 +11362,13 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       jsonPayload.musicBase64 = await blobToBase64(musicBlob);
     }
 
-    response = await fetch(`${state.videoExportServerUrl}/api/mux`, {
+    response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify(jsonPayload)
-    });
+    }, "Combining video and narration with fallback upload", { attempts: 1 });
 
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => ({}));
