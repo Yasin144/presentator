@@ -25,7 +25,7 @@ edge_tts_voices._SSL_CTX = EDGE_TTS_SSL_CONTEXT
 PROJECT_ROOT = Path(__file__).resolve().parent
 PORT = 8426
 NARRATION_CACHE_LIMIT = 48
-COMMA_PAUSE_MS = 500
+COMMA_PAUSE_MS = 0
 
 # Best Indian English female voices (in preference order)
 # NeerjaExpressiveNeural — warm, enthusiastic, very natural Indian English
@@ -463,10 +463,10 @@ $synth.Dispose()
         word_count = len(cache_key.split())
         pad_ms = 220 if word_count <= 3 else 100
 
-        # ── Edge TTS synthesis with explicit 0.5s comma pauses ────────────────
+        # ── Edge TTS synthesis. Commas stay natural; no extra silence is added.
         cleaned_text = cache_key   # already cleaned above
         try:
-            tts_text = re.sub(r"\s*,+\s*", " ", cleaned_text).strip()
+            tts_text = cleaned_text
             mp3, boundaries = self._run_async(self._edge_synthesize_with_boundaries(tts_text))
             wav = self._mp3_bytes_to_wav(mp3, leading_pad_ms=pad_ms)
             comma_insert_points_ms = self._get_comma_pause_insert_points_ms(cleaned_text, boundaries, pad_ms)

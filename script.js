@@ -3938,7 +3938,7 @@ function estimatePauseMsFromText(text = "") {
   const sentencePauseCount = (safeText.match(/[.!?]/g) || []).length;
   const lineBreakCount = (safeText.match(/\n+/g) || []).length;
   return (
-    (commaCount * 500)    // 500ms per comma — matches server-side PCM silence
+    (commaCount * 0)      // Commas flow naturally with Edge TTS; no artificial hold.
     + (colonCount * 800)  // 800ms per colon  — matches server-side PCM silence
     + (softPauseCount * STRICT_INTER_WORD_PAUSE_MS)
     + (sentencePauseCount * STRICT_SENTENCE_PAUSE_MS)
@@ -3956,7 +3956,7 @@ function getRevealTokenWeight(token, previousToken = "", nextToken = "") {
   }
 
   if (token === "," ) {
-    return 2.1;
+    return 0.18;
   }
 
   if (token === ";" || token === ":") {
@@ -4269,7 +4269,7 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
   }
 
   if (/^,+$/.test(displayText)) {
-    return 500; // Match the 0.5s Edge TTS comma silence inserted by the local voice server.
+    return 0; // Keep comma animation flowing with Edge TTS; no artificial hold.
   }
 
   // ── 350ms AFTER a standalone hyphen ('-') ──────────────────────────────────
