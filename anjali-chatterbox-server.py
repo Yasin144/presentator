@@ -12,6 +12,15 @@ from pathlib import Path
 
 # ── Edge TTS — free Microsoft Azure Neural voices, no API key needed ──────────
 import edge_tts
+import edge_tts.communicate as edge_tts_communicate
+import edge_tts.voices as edge_tts_voices
+import ssl
+
+# Some Windows Python installs do not trust the Microsoft speech endpoint chain
+# even when certifi is present. This keeps the local Edge TTS server usable.
+EDGE_TTS_SSL_CONTEXT = ssl._create_unverified_context()
+edge_tts_communicate._SSL_CTX = EDGE_TTS_SSL_CONTEXT
+edge_tts_voices._SSL_CTX = EDGE_TTS_SSL_CONTEXT
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 PORT = 8426
@@ -22,9 +31,16 @@ NARRATION_CACHE_LIMIT = 48
 # NeerjaNeural           — slightly more formal, also excellent
 VOICE_NAME     = "en-IN-NeerjaExpressiveNeural"
 VOICE_FALLBACK = "en-IN-NeerjaNeural"
+FALLBACK_EDGE_VOICES = [
+    {"ShortName": "en-IN-NeerjaExpressiveNeural", "FriendlyName": "Microsoft Neerja Expressive - English (India)", "Gender": "Female", "Locale": "en-IN"},
+    {"ShortName": "en-IN-NeerjaNeural", "FriendlyName": "Microsoft Neerja - English (India)", "Gender": "Female", "Locale": "en-IN"},
+    {"ShortName": "en-IN-PrabhatNeural", "FriendlyName": "Microsoft Prabhat - English (India)", "Gender": "Male", "Locale": "en-IN"},
+    {"ShortName": "en-US-JennyNeural", "FriendlyName": "Microsoft Jenny - English (United States)", "Gender": "Female", "Locale": "en-US"},
+    {"ShortName": "en-GB-SoniaNeural", "FriendlyName": "Microsoft Sonia - English (United Kingdom)", "Gender": "Female", "Locale": "en-GB"},
+]
 
 # Prosody tuning — matches the energetic Info-Kids educational style
-VOICE_RATE   = "-12%"   # slightly slower — clearer, more teacher-like pacing
+VOICE_RATE   = "-14%"   # slightly slower — clearer, more teacher-like pacing
 VOICE_PITCH  = "+0Hz"   # natural pitch
 VOICE_VOLUME = "+0%"    # natural volume
 
@@ -146,6 +162,13 @@ class AnjaliEdgeEngine:
         import re
         t = str(text or "").strip()
 
+        # ── Common lesson symbols before generic symbol cleanup ──
+        t = re.sub(r'\s*&\s*', ' and ', t)
+        t = re.sub(r'\s*@\s*', ' at ', t)
+        t = re.sub(r'(?<=\d)\s*%\b', ' percent', t)
+        t = re.sub(r'\bvs\.?\b', 'versus', t, flags=re.IGNORECASE)
+        t = re.sub(r'\betc\.?\b', 'etcetera', t, flags=re.IGNORECASE)
+
         # ── Legacy Chatterbox prosody tokens ──
         t = re.sub(r'\bPause\.\s*', '', t, flags=re.IGNORECASE)
         t = re.sub(r'\bPause\b', '', t, flags=re.IGNORECASE)
@@ -209,6 +232,62 @@ class AnjaliEdgeEngine:
         return buf.getvalue()
 
     @staticmethod
+    def _add_wav_leading_silence(wav_bytes: bytes, leading_pad_ms: int = 60) -> bytes:
+        if not wav_bytes or leading_pad_ms <= 0:
+            return wav_bytes
+        with wave.open(io.BytesIO(wav_bytes), "rb") as reader:
+            params = reader.getparams()
+            frames = reader.readframes(reader.getnframes())
+        silence_frames = max(1, int(params.framerate * leading_pad_ms / 1000))
+        silence = b"\x00" * silence_frames * params.nchannels * params.sampwidth
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as writer:
+            writer.setparams(params)
+            writer.writeframes(silence + frames)
+        return buf.getvalue()
+
+    @staticmethod
+    def _windows_sapi_to_wav(text: str, leading_pad_ms: int = 60) -> bytes:
+        """Offline Windows voice fallback used when Edge TTS is unavailable."""
+        import subprocess, tempfile, os
+
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w", encoding="utf-8") as tmp_text:
+            tmp_text.write(text or "")
+            tmp_text_path = tmp_text.name
+        tmp_out_path = tmp_text_path.replace(".txt", ".wav")
+        ps_script = f"""
+Add-Type -AssemblyName System.Speech
+$text = Get-Content -LiteralPath '{tmp_text_path}' -Raw
+$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$voice = $synth.GetInstalledVoices() |
+  ForEach-Object {{ $_.VoiceInfo }} |
+  Where-Object {{ $_.Gender -eq 'Female' -and $_.Culture.Name -like 'en*' }} |
+  Select-Object -First 1
+if ($voice) {{ $synth.SelectVoice($voice.Name) }}
+$synth.Rate = -1
+$synth.Volume = 100
+$synth.SetOutputToWaveFile('{tmp_out_path}')
+$synth.Speak($text)
+$synth.Dispose()
+"""
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            with open(tmp_out_path, "rb") as handle:
+                wav = handle.read()
+            return AnjaliEdgeEngine._add_wav_leading_silence(wav, leading_pad_ms)
+        finally:
+            for path in (tmp_text_path, tmp_out_path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+    @staticmethod
     def _concat_wavs(wavs: list) -> bytes:
         """Concatenate a list of mono WAV byte-strings (same sample rate)."""
         if not wavs:
@@ -261,7 +340,7 @@ class AnjaliEdgeEngine:
         # Short segments (KV terms like "clever", "cunning") played after an
         # inter-entry gap need more buffer time for the audio decoder to wake up.
         word_count = len(cache_key.split())
-        pad_ms = 160 if word_count <= 3 else 60
+        pad_ms = 220 if word_count <= 3 else 100
 
         # ── Single synthesis call ──────────────────────────────────────────────
         cleaned_text = cache_key   # already cleaned above
@@ -270,7 +349,7 @@ class AnjaliEdgeEngine:
             wav = self._mp3_bytes_to_wav(mp3, leading_pad_ms=pad_ms)
         except Exception as err:
             print(f"[Anjali] Synthesis failed ({err!r}): {cleaned_text[:80]!r}", flush=True)
-            wav = self._make_silence_wav(0.3)
+            wav = self._windows_sapi_to_wav(cleaned_text, leading_pad_ms=pad_ms)
 
         self._store_cached(cache_key, wav)
         return wav
@@ -387,10 +466,7 @@ class Handler(BaseHTTPRequestHandler):
         # ── /voices — list all available English Edge TTS voices ─────────────
         if self.path.startswith("/voices"):
             try:
-                async def _list():
-                    voices = await edge_tts.list_voices()
-                    return voices
-                all_voices = ENGINE._run_async(_list())
+                all_voices = FALLBACK_EDGE_VOICES
                 english = [
                     {
                         "shortName":   v["ShortName"],
@@ -467,7 +543,14 @@ class Handler(BaseHTTPRequestHandler):
                 raw_body = self.rfile.read(content_length) if content_length else b"{}"
                 data = json.loads(raw_body.decode("utf-8"))
                 new_voice = str(data.get("voice", "")).strip()
-                if not new_voice:
+                valid_fallback_voice_ids = {voice["ShortName"] for voice in FALLBACK_EDGE_VOICES}
+                if (
+                    not new_voice
+                    or new_voice.lower() in {"tts server offline", "offline", "default"}
+                    or not new_voice.startswith("en-")
+                ):
+                    new_voice = VOICE_NAME
+                if new_voice not in valid_fallback_voice_ids and not new_voice.startswith("en-"):
                     self._send_json({"error": "voice is required"}, status_code=400)
                     return
                 ENGINE.voice = new_voice

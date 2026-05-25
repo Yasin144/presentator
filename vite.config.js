@@ -23,6 +23,10 @@ const MIME_TYPES = {
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: './',
+  build: {
+    outDir: 'renderer-dist',
+  },
   plugins: [
     react(),
     {

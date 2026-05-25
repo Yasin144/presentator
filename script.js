@@ -2204,7 +2204,15 @@ function normalizeControlValue(value) {
 }
 
 function applyPreviewZoom() {
-  previewCanvas.style.transform = `scale(${state.previewZoom})`;
+  if (!previewCanvas) {
+    return;
+  }
+  const percent = Math.round(clamp(Number(state.previewZoom) || 1, PREVIEW_ZOOM_MIN, PREVIEW_ZOOM_MAX) * 100);
+  previewCanvas.style.transform = "none";
+  previewCanvas.style.width = `${percent}%`;
+  previewCanvas.style.maxWidth = percent > 100 ? "none" : "100%";
+  previewCanvas.style.marginLeft = "auto";
+  previewCanvas.style.marginRight = "auto";
 }
 
 function updateStageViewUi() {
@@ -8274,7 +8282,11 @@ async function ensureAnjaliNarrationReadyForExport(options = {}) {
   );
 
   if (hasMatchingNarration) {
-    return state.narration.blob;
+    const cachedNarrationIsAudible = await isAudioBlobAudible(state.narration.blob);
+    if (cachedNarrationIsAudible) {
+      return state.narration.blob;
+    }
+    clearNarration();
   }
 
   let syncProfile = null;
@@ -8287,6 +8299,10 @@ async function ensureAnjaliNarrationReadyForExport(options = {}) {
       }
     }
   });
+  const generatedNarrationIsAudible = await isAudioBlobAudible(blob);
+  if (!generatedNarrationIsAudible) {
+    throw new Error("Generated context narration was silent. Please export again after the voice server finishes loading.");
+  }
   await setNarrationFromBlob(
     blob,
     `generated-${exportVoice}-narration.wav`,
@@ -9177,7 +9193,7 @@ async function ensureVideoExportServer() {
       state.videoExportMonitor.transientFailureCount = Math.max(1, Number(state.videoExportMonitor.transientFailureCount || 0) + 1);
     }
   } catch (error) {
-    state.videoExportServerReady = true;
+    state.videoExportServerReady = recentlyHealthy;
     state.videoExportMonitor.transientFailureCount = Math.max(1, Number(state.videoExportMonitor.transientFailureCount || 0) + 1);
   }
 
@@ -10705,9 +10721,16 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
 
   let response = null;
   let lastFetchError = null;
-  const maxAttempts = isEdgeTtsVoice ? 3 : 1;
+  const maxAttempts = isEdgeTtsVoice ? 6 : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
+      if (isEdgeTtsVoice && attempt > 1) {
+        await fetchWithTimeout(`${state.anjaliCloneServerUrl}/set-voice`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ voice: edgeVoiceId || EDGE_TTS_DEFAULT_FEMALE_VOICE })
+        }, 2500).catch(() => null);
+      }
       response = await fetchWithTimeout(requestUrl, requestOptions, requestTimeoutMs);
       lastFetchError = null;
       break;
@@ -10716,12 +10739,15 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
       if (!isEdgeTtsVoice || attempt >= maxAttempts) {
         break;
       }
-      await delay(900);
+      await delay(900 + (attempt * 350));
       await ensureAnjaliCloneServer().catch(() => false);
     }
   }
   if (!response) {
-    throw lastFetchError || new Error("Narration generation failed.");
+    const message = /Failed to fetch|NetworkError|Load failed/i.test(lastFetchError?.message || "")
+      ? "Edge TTS server is reachable but the browser request was interrupted. Please click Play or Export once more."
+      : (lastFetchError?.message || "Narration generation failed.");
+    throw new Error(message);
   }
 
   if (!response.ok) {
@@ -11017,42 +11043,45 @@ async function getIntroExportBlob() {
     console.error(error);
   }
 
-  let introBlob = null;
+  const decodeErrors = [];
   for (const candidate of getIntroVideoCandidateUrls()) {
     try {
       const blob = await fetchNonEmptyAssetBlob(candidate.url, {
         fallbackType: inferAssetMimeType(candidate.fileName, "video/mp4"),
         fileName: candidate.fileName
       });
-      if (blob.size) {
-        introBlob = blob;
+      if (!blob?.size) {
+        continue;
+      }
+
+      if ((blob.type || "").toLowerCase().startsWith("audio/")) {
         state.introPlayback.url = candidate.fileName;
         state.introPlayback.fileName = candidate.fileName;
-        break;
+        return blob;
+      }
+
+      try {
+        const introFile = new File(
+          [blob],
+          candidate.fileName || "intro-export-source.mp4",
+          { type: blob.type || "video/mp4" }
+        );
+        const decodedBlob = await decodeAudioFileToWav(introFile);
+        if (decodedBlob?.size) {
+          state.introPlayback.url = candidate.fileName;
+          state.introPlayback.fileName = candidate.fileName;
+          return decodedBlob;
+        }
+      } catch (error) {
+        decodeErrors.push(error?.message || `${candidate.fileName} has no decodable audio.`);
+        console.warn("[export] Intro audio decode failed for candidate:", candidate.fileName, error);
       }
     } catch (error) {
       console.error(error);
     }
   }
 
-  if (!introBlob?.size) {
-    throw new Error("The intro clip audio file was empty.");
-  }
-
-  if ((introBlob.type || "").toLowerCase().startsWith("audio/")) {
-    return introBlob;
-  }
-
-  try {
-    const introFile = new File(
-      [introBlob],
-      state.introPlayback.fileName || "intro-export-source.mp4",
-      { type: introBlob.type || "video/mp4" }
-    );
-    return await decodeAudioFileToWav(introFile);
-  } catch (error) {
-    throw new Error(error?.message || "The intro clip audio could not be decoded for export.");
-  }
+  throw new Error(decodeErrors[0] || "The intro clip audio could not be decoded for export.");
 }
 
 function getIntroVideoCandidateFiles() {
@@ -14632,6 +14661,45 @@ async function recordTitleIntroForExport(titleDurationMs = 0, captureRate = 30) 
   } finally {
     state.titleIntroActive = false;
     markSceneDirty();
+  }
+}
+
+async function isAudioBlobAudible(blob, options = {}) {
+  if (!blob?.size) {
+    return false;
+  }
+
+  const minPeak = Number.isFinite(Number(options.minPeak)) ? Number(options.minPeak) : 0.003;
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextConstructor) {
+    return true;
+  }
+
+  const audioContext = new AudioContextConstructor();
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    const channelCount = Math.max(1, decoded.numberOfChannels || 1);
+    const stride = Math.max(1, Math.floor((decoded.length || 1) / 12000));
+    let peak = 0;
+    for (let channel = 0; channel < channelCount; channel += 1) {
+      const samples = decoded.getChannelData(channel);
+      for (let index = 0; index < samples.length; index += stride) {
+        const value = Math.abs(samples[index] || 0);
+        if (value > peak) {
+          peak = value;
+          if (peak >= minPeak) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  } catch (error) {
+    console.warn("[export] Could not inspect narration audio; allowing export to continue.", error);
+    return true;
+  } finally {
+    await audioContext.close().catch(() => {});
   }
 }
 
@@ -20078,6 +20146,10 @@ async function createTitleNarrationForVoice(voice = state.preferredNarrationVoic
     ...options,
     timeoutMs: options.timeoutMs || getLongNarrationRequestTimeoutMs(titleText)
   });
+  const titleNarrationIsAudible = await isAudioBlobAudible(blob);
+  if (!titleNarrationIsAudible) {
+    throw new Error("Generated title narration was silent. Please export again after the voice server finishes loading.");
+  }
   const durationMs = Math.max(1000, await measureNarrationBlobDurationMs(blob));
   return {
     blob,
@@ -21238,7 +21310,7 @@ async function exportVideo(options = {}) {
   const cacheOnly = options.cacheOnly === true;
   const backgroundPrepare = options.backgroundPrepare === true;
   const preparedExportKey = typeof options.preparedExportKey === "string" ? options.preparedExportKey : "";
-  const exportPlaybackRate = getLessonPlaybackRate();
+  const exportPlaybackRate = 1;
   const effectiveExportQuality = getEffectiveExportQuality();
   const shouldIncludeIntro = Boolean(state.introPlayback.enabled);
   // Poster is optional and independent — it can be shown even if intro is skipped at fetch time.
@@ -21468,6 +21540,7 @@ async function exportVideo(options = {}) {
           captureRate: 30,
           effectiveExportQuality,
           exportSnapshot: lessonExportSnapshot,
+          preRollPosterDurationMs: shouldIncludePoster ? getIntroPosterDurationMs() : 0,
           titlePrerollMs: EXPORT_TITLE_PREROLL_MS,
           titleIntroDurationMs: exportTitleNarrationDurationMs
         }
@@ -21653,6 +21726,18 @@ async function exportVideo(options = {}) {
       audioBlob = await combineNarrationBlobs(titleIntroBlobs, titleIntroChunks);
       audioFileName = "title-and-lesson-audio.wav";
     }
+    const titleAndLessonAudioBlob = audioBlob;
+    if (!includedIntroInExport && shouldIncludePoster) {
+      const posterOnlyGapBlob = createSilentWavBlob(getIntroPosterDurationMs());
+      audioBlob = await combineNarrationBlobs(
+        [posterOnlyGapBlob, titleAndLessonAudioBlob],
+        [
+          { text: "poster-gap", gapAfterMs: 0 },
+          { text: "title-and-lesson-narration", gapAfterMs: 0 }
+        ]
+      );
+      audioFileName = "poster-and-lesson-audio.wav";
+    }
     if (includedIntroInExport) {
       try {
         const introAudioBlob = await getIntroExportBlob();
@@ -21706,22 +21791,22 @@ async function exportVideo(options = {}) {
             [
               createSilentWavBlob(state.introPlayback.durationMs || 1000),
               ...(silentPosterGapBlob ? [silentPosterGapBlob] : []),
-              exportNarrationBlob
+              titleAndLessonAudioBlob
             ],
             silentPosterGapBlob
               ? [
                 { text: "silent-default-intro", gapAfterMs: 0 },
                 { text: "poster-gap", gapAfterMs: 0 },
-                { text: "lesson-narration", gapAfterMs: 0 }
+                { text: "title-and-lesson-narration", gapAfterMs: 0 }
               ]
               : [
-                { text: "silent-default-intro", gapAfterMs: DEFAULT_INTRO_TO_LESSON_DELAY_MS },
-                { text: "lesson-narration", gapAfterMs: 0 }
+                { text: "silent-default-intro", gapAfterMs: 0 },
+                { text: "title-and-lesson-narration", gapAfterMs: 0 }
               ]
           );
         setIntroClipStatus(allowIntroOnlyExport
           ? "The intro video exported, but its audio could not be merged cleanly, so the export used silent intro audio."
-          : "The intro video exported, but its audio could not be merged cleanly, so the export used silent intro audio.");
+          : "The intro video exported silently, but the title announcement and lesson narration were preserved.");
       }
       audioFileName = allowIntroOnlyExport ? "intro-audio.wav" : "intro-and-lesson-audio.wav";
     }

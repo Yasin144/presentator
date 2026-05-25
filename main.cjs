@@ -156,7 +156,7 @@ function pingPort(port, path_ = '/health', timeoutMs = 4000) {
   });
 }
 
-// ─── Anjali health-check watchdog ────────────────────────────────────────────
+// ─── Edge TTS health-check watchdog ──────────────────────────────────────────
 // Pings port 8426 every 20 seconds. If unreachable, kills the process so
 // the auto-restart watchdog in spawnManaged fires immediately.
 let anjaliHealthTimer = null;
@@ -167,7 +167,7 @@ function startAnjaliWatchdog() {
     if (isQuitting) return;
     const alive = await pingPort(8426);
     if (!alive) {
-      console.warn('[PP] Anjali health-check FAILED — forcing restart...');
+      console.warn('[PP] Edge TTS health-check FAILED - forcing restart...');
       const entry = servers['AnjaliAI'];
       if (entry) {
         entry.stopped  = false;      // allow restart
@@ -187,7 +187,7 @@ function startAnjaliWatchdog() {
         w.webContents.send('server-status', {
           server: 'anjali',
           status: 'restarting',
-          message: 'Anjali AI server went offline — restarting automatically…'
+          message: 'Edge TTS server went offline - restarting automatically...'
         });
       });
     }
@@ -203,7 +203,7 @@ const ANJALI_PYTHON = path.join(ROOT, '.voiceclone-venv', 'Scripts', 'python.exe
 
 function startAnjaliServer() {
   if (!fs.existsSync(ANJALI_PYTHON)) {
-    console.warn('[PP] Anjali AI venv not found — skipping.');
+    console.warn('[PP] Edge TTS Python venv not found - skipping.');
     return;
   }
   spawnManaged('AnjaliAI', ANJALI_PYTHON, [
@@ -238,7 +238,7 @@ function startServers() {
     '-File', path.join(ROOT, 'video-export-server.ps1')
   ], { restartDelayMs: 2000 });
 
-  // 4. Anjali AI voice clone server (port 8426) — with aggressive watchdog
+  // 4. Edge TTS server (port 8426) - no voice clone/model warm-up
   startAnjaliServer();
 
   // 5. Vite dev server (port 5173) — dev mode only
@@ -249,15 +249,14 @@ function startServers() {
     });
   }
 
-  // Start health watchdog after 45s (give Anjali time to load the model)
-  setTimeout(startAnjaliWatchdog, 45000);
+  // Start health watchdog after 10s; Edge TTS is ready as soon as the server listens.
+  setTimeout(startAnjaliWatchdog, 10000);
 }
 
 // ─── Free all server ports before launch ──────────────────────────────────────
 // Kills any stale process (leftover python, old Electron, etc.) that is already
 // holding one of our server ports. Without this, launching a second time while
-// a previous python process is still alive causes "port already in use" →
-// the "Anjali voice server unavailable" error.
+// a previous python process is still alive causes "port already in use" errors.
 //
 // Uses taskkill /F which is faster and more reliable than PowerShell Stop-Process.
 // Also kills any stale python.exe NOT from our venv to prevent duplicate servers.
@@ -368,7 +367,9 @@ async function createWindow() {
     await waitForVite(VITE_URL).catch(() => console.warn('[PP] Vite timeout — loading anyway'));
     win.loadURL(VITE_URL);
   } else {
-    win.loadFile(path.join(ROOT, 'dist', 'index.html'));
+    const rendererIndex = path.join(ROOT, 'renderer-dist', 'index.html');
+    const legacyDistIndex = path.join(ROOT, 'dist', 'index.html');
+    win.loadFile(fs.existsSync(rendererIndex) ? rendererIndex : legacyDistIndex);
   }
 
   // ── IPC: Native Save File Dialog ──────────────────────────────────────────

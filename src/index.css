@@ -2540,7 +2540,7 @@ button:focus-visible,
   box-shadow:
     inset 0 0 0 1px rgba(255, 239, 219, 0.18),
     0 24px 44px rgba(8, 26, 30, 0.18);
-  overflow: hidden;
+  overflow: auto;
   min-height: 0;
 }
 
@@ -2554,7 +2554,7 @@ button:focus-visible,
   cursor: default;
   touch-action: none;
   transform-origin: center top;
-  transition: transform 0.36s ease, box-shadow 0.36s ease;
+  transition: width 0.24s ease, box-shadow 0.24s ease;
   box-shadow: 0 16px 30px rgba(5, 29, 36, 0.18);
 }
 
