@@ -2797,8 +2797,22 @@ async function restartAnjaliServerFromRenderer() {
 
   try {
     await window.electronAPI.restartAnjali();
-    await delay(1800);
-    return true;
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      await delay(1000);
+      try {
+        const response = await fetchWithTimeout(`${state.anjaliCloneServerUrl}/health`, {
+          method: "GET",
+          cache: "no-store"
+        }, 2500);
+        if (response.ok) {
+          return true;
+        }
+      } catch (_) {
+        // Keep polling until the restarted Edge TTS server binds port 8426.
+      }
+    }
+    return false;
   } catch (error) {
     console.error(error);
     return false;
@@ -10804,6 +10818,35 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
       }
     })
   };
+  const requestPayload = JSON.parse(requestOptions.body);
+
+  if (typeof window.electronAPI?.narrateEdgeTts === "function") {
+    let lastIpcError = null;
+    const maxIpcAttempts = 6;
+    for (let attempt = 1; attempt <= maxIpcAttempts; attempt += 1) {
+      try {
+        const result = await window.electronAPI.narrateEdgeTts(requestPayload);
+        if (!result?.audioBase64) {
+          throw new Error("Narration generation returned no audio data.");
+        }
+        const blob = base64ToBlob(result.audioBase64, result.contentType || "audio/wav");
+        if (!blob.size) {
+          throw new Error("Narration generation returned an empty audio file.");
+        }
+        return blob;
+      } catch (error) {
+        lastIpcError = error;
+        console.error(`[anjali] Electron IPC narration failed on attempt ${attempt}:`, error);
+        if (attempt >= maxIpcAttempts) {
+          break;
+        }
+        state.anjaliCloneServerReady = false;
+        await restartAnjaliServerFromRenderer();
+        await delay(700 + (attempt * 300));
+      }
+    }
+    throw new Error(lastIpcError?.message || "Narration generation failed through Electron.");
+  }
 
   let response = null;
   let lastFetchError = null;

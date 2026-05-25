@@ -131,7 +131,17 @@ function restartServer(key) {
   entry.stopped = false;
   entry.restartCount = 0;
   if (entry.proc && !entry.proc.killed) {
-    try { entry.proc.kill('SIGTERM'); } catch(_) {}
+    try {
+      if (process.platform === 'win32') {
+        spawn('taskkill', ['/PID', String(entry.proc.pid), '/T', '/F'], {
+          detached: false,
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+      } else {
+        entry.proc.kill('SIGTERM');
+      }
+    } catch(_) {}
     // The 'exit' event will trigger a new spawn via scheduleRestart
   }
 }
@@ -156,24 +166,84 @@ function pingPort(port, path_ = '/health', timeoutMs = 4000) {
   });
 }
 
+function postJsonForBuffer(port, path_, payload, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    const body = Buffer.from(JSON.stringify(payload || {}), 'utf8');
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: path_,
+      method: 'POST',
+      agent: false,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': body.length,
+        'Connection': 'close',
+      },
+      timeout: timeoutMs,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        resolve({
+          statusCode: res.statusCode || 0,
+          headers: res.headers || {},
+          buffer,
+        });
+      });
+      res.on('error', reject);
+    });
+
+    req.on('timeout', () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs}ms.`));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 // ─── Edge TTS health-check watchdog ──────────────────────────────────────────
 // Pings port 8426 every 20 seconds. If unreachable, kills the process so
 // the auto-restart watchdog in spawnManaged fires immediately.
 let anjaliHealthTimer = null;
+let anjaliHealthFailureCount = 0;
 
 function startAnjaliWatchdog() {
   if (anjaliHealthTimer) clearInterval(anjaliHealthTimer);
   anjaliHealthTimer = setInterval(async () => {
     if (isQuitting) return;
-    const alive = await pingPort(8426);
+    const alive = await pingPort(8426, '/health', 8000);
+    if (alive) {
+      anjaliHealthFailureCount = 0;
+      return;
+    }
+
+    anjaliHealthFailureCount += 1;
+    console.warn(`[PP] Edge TTS health-check miss ${anjaliHealthFailureCount}/3`);
+    if (anjaliHealthFailureCount < 3) {
+      return;
+    }
+    anjaliHealthFailureCount = 0;
+
     if (!alive) {
-      console.warn('[PP] Edge TTS health-check FAILED - forcing restart...');
+      console.warn('[PP] Edge TTS health-check FAILED repeatedly - forcing restart...');
       const entry = servers['AnjaliAI'];
       if (entry) {
         entry.stopped  = false;      // allow restart
         entry.restartCount = 0;      // reset back-off
         if (entry.proc && !entry.proc.killed) {
-          try { entry.proc.kill('SIGTERM'); } catch(_) {}
+          try {
+            if (process.platform === 'win32') {
+              spawn('taskkill', ['/PID', String(entry.proc.pid), '/T', '/F'], {
+                detached: false,
+                stdio: 'ignore',
+                windowsHide: true,
+              });
+            } else {
+              entry.proc.kill('SIGTERM');
+            }
+          } catch(_) {}
           // 'exit' handler fires → scheduleRestart() → doSpawn()
         } else {
           // Process already gone — re-launch after 1s
@@ -191,7 +261,7 @@ function startAnjaliWatchdog() {
         });
       });
     }
-  }, 20000); // every 20 seconds
+  }, 15000); // every 15 seconds; restart only after 3 consecutive misses
 }
 
 // ─── Start individual servers ─────────────────────────────────────────────────
@@ -407,6 +477,30 @@ async function createWindow() {
     console.log('[PP] Renderer requested Anjali restart.');
     restartServer('AnjaliAI');
     return { ok: true };
+  });
+
+  ipcMain.handle('narrate-edge-tts', async (_event, payload) => {
+    const response = await postJsonForBuffer(8426, '/api/narrate', payload, 180000);
+    const contentType = String(response.headers['content-type'] || 'audio/wav');
+    const bodyText = /application\/json/i.test(contentType)
+      ? response.buffer.toString('utf8')
+      : '';
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      let errorMessage = `Edge TTS server returned HTTP ${response.statusCode}.`;
+      if (bodyText) {
+        try {
+          errorMessage = JSON.parse(bodyText)?.error || errorMessage;
+        } catch (_) {}
+      }
+      throw new Error(errorMessage);
+    }
+
+    return {
+      ok: true,
+      statusCode: response.statusCode,
+      contentType,
+      audioBase64: response.buffer.toString('base64'),
+    };
   });
 
   // ── IPC: Restart video export server from renderer ───────────────────────

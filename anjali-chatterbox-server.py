@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import os
+import socket
 import struct
 import threading
 import traceback
@@ -590,6 +591,7 @@ ENGINE = AnjaliEdgeEngine()
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "AnjaliEdgeServer/2.0"
+    protocol_version = "HTTP/1.1"
     CLIENT_DISCONNECT_ERRORS = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
 
     def log_message(self, format, *args):
@@ -603,6 +605,7 @@ class Handler(BaseHTTPRequestHandler):
         if content_type:
             self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(content_length))
+        self.send_header("Connection", "close")
         try:
             self.end_headers()
         except self.CLIENT_DISCONNECT_ERRORS:
@@ -612,6 +615,12 @@ class Handler(BaseHTTPRequestHandler):
     def _safe_write(self, payload):
         try:
             self.wfile.write(payload)
+            self.wfile.flush()
+            try:
+                self.connection.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
+            self.close_connection = True
         except self.CLIENT_DISCONNECT_ERRORS:
             return False
         return True

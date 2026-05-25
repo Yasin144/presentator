@@ -27,6 +27,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restartAnjali: () =>
     ipcRenderer.invoke('restart-anjali'),
 
+  // Generate Edge TTS audio through Electron main. This avoids Chromium fetch
+  // rejecting a valid local WAV response when Windows resets the socket close.
+  narrateEdgeTts: (payload) =>
+    ipcRenderer.invoke('narrate-edge-tts', payload),
+
   // Ask the main process to restart the video export / FFmpeg server
   restartVideoExport: () =>
     ipcRenderer.invoke('restart-video-export'),
