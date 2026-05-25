@@ -21136,7 +21136,9 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
       drawScene(0.12);
       await waitForNextPaint();
     }
-    await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
+    if (!(hasIntroPosterSelected() && state.introPoster.image)) {
+      await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
+    }
 
     // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
     if (hasIntroPosterSelected() && state.introPoster.image) {
@@ -21684,7 +21686,9 @@ async function exportVideo(options = {}) {
         requestExportVideoFrame();
         await waitForNextPaint();
       }
-      await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
+      if (!(shouldIncludePoster && state.introPoster.image)) {
+        await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
+      }
 
       // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
       if (shouldIncludePoster && state.introPoster.image) {
