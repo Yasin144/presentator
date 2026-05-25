@@ -4269,7 +4269,7 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
   }
 
   if (/^,+$/.test(displayText)) {
-    return 120; // Edge TTS keeps moving through commas; keep the visual beat short so text does not fall behind.
+    return 500; // Match the 0.5s Edge TTS comma silence inserted by the local voice server.
   }
 
   // ── 350ms AFTER a standalone hyphen ('-') ──────────────────────────────────

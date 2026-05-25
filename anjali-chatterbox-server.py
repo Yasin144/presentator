@@ -25,6 +25,7 @@ edge_tts_voices._SSL_CTX = EDGE_TTS_SSL_CONTEXT
 PROJECT_ROOT = Path(__file__).resolve().parent
 PORT = 8426
 NARRATION_CACHE_LIMIT = 48
+COMMA_PAUSE_MS = 500
 
 # Best Indian English female voices (in preference order)
 # NeerjaExpressiveNeural — warm, enthusiastic, very natural Indian English
@@ -93,7 +94,7 @@ class AnjaliEdgeEngine:
 
     # ── Cache ─────────────────────────────────────────────────────────────────
     def _cache_key(self, text):
-        return f"{self.voice}|{self.rate}|{self.pitch}|{self.volume}||{text.strip()}"
+        return f"{self.voice}|{self.rate}|{self.pitch}|{self.volume}|comma={COMMA_PAUSE_MS}||{text.strip()}"
 
     def _get_cached(self, text):
         key = self._cache_key(text)
@@ -247,6 +248,40 @@ class AnjaliEdgeEngine:
         return buf.getvalue()
 
     @staticmethod
+    def _insert_wav_silence_at_ms(wav_bytes: bytes, insert_points_ms: list, pause_ms: int = COMMA_PAUSE_MS) -> bytes:
+        if not wav_bytes or not insert_points_ms or pause_ms <= 0:
+            return wav_bytes
+
+        with wave.open(io.BytesIO(wav_bytes), "rb") as reader:
+            params = reader.getparams()
+            frames = reader.readframes(reader.getnframes())
+
+        bytes_per_frame = params.nchannels * params.sampwidth
+        total_frames = len(frames) // bytes_per_frame
+        silence_frames = max(1, int(params.framerate * pause_ms / 1000))
+        silence = b"\x00" * silence_frames * bytes_per_frame
+        frame_indexes = sorted({
+            max(0, min(total_frames, int(round((float(ms) / 1000.0) * params.framerate))))
+            for ms in insert_points_ms
+        })
+
+        output = bytearray()
+        last_frame = 0
+        for frame_index in frame_indexes:
+            if frame_index < last_frame:
+                continue
+            output.extend(frames[last_frame * bytes_per_frame:frame_index * bytes_per_frame])
+            output.extend(silence)
+            last_frame = frame_index
+        output.extend(frames[last_frame * bytes_per_frame:])
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as writer:
+            writer.setparams(params)
+            writer.writeframes(bytes(output))
+        return buf.getvalue()
+
+    @staticmethod
     def _windows_sapi_to_wav(text: str, leading_pad_ms: int = 60) -> bytes:
         """Legacy offline Windows voice fallback. Disabled for app narration."""
         import subprocess, tempfile, os
@@ -305,6 +340,34 @@ $synth.Dispose()
             wout.writeframes(all_frames)
         return buf.getvalue()
 
+    @staticmethod
+    def _get_comma_pause_insert_points_ms(text: str, boundaries: list, leading_pad_ms: int = 0) -> list:
+        """Map commas in text to the end of the preceding Edge TTS word."""
+        import re
+
+        safe_text = str(text or "").strip()
+        if not safe_text or not boundaries:
+            return []
+
+        tokens = re.findall(r"[A-Za-z0-9']+|,+", safe_text)
+        word_index = 0
+        insert_points = []
+
+        for token in tokens:
+            if re.fullmatch(r",+", token):
+                previous_word_index = word_index - 1
+                if 0 <= previous_word_index < len(boundaries):
+                    boundary = boundaries[previous_word_index]
+                    insert_ms = (
+                        (float(boundary.get("offset", 0)) + float(boundary.get("duration", 0))) / 10000.0
+                    ) + leading_pad_ms
+                    insert_points.append(insert_ms)
+                continue
+
+            word_index += 1
+
+        return insert_points
+
     # ── Core synthesis ────────────────────────────────────────────────────────
     def synthesize(self, text: str) -> bytes:
         """
@@ -342,11 +405,15 @@ $synth.Dispose()
         word_count = len(cache_key.split())
         pad_ms = 220 if word_count <= 3 else 100
 
-        # ── Single synthesis call ──────────────────────────────────────────────
+        # ── Edge TTS synthesis with explicit 0.5s comma pauses ────────────────
         cleaned_text = cache_key   # already cleaned above
         try:
-            mp3 = self._run_async(self._edge_synthesize(cleaned_text))
+            tts_text = re.sub(r"\s*,+\s*", " ", cleaned_text).strip()
+            mp3, boundaries = self._run_async(self._edge_synthesize_with_boundaries(tts_text))
             wav = self._mp3_bytes_to_wav(mp3, leading_pad_ms=pad_ms)
+            comma_insert_points_ms = self._get_comma_pause_insert_points_ms(cleaned_text, boundaries, pad_ms)
+            if comma_insert_points_ms:
+                wav = self._insert_wav_silence_at_ms(wav, comma_insert_points_ms, COMMA_PAUSE_MS)
         except Exception as err:
             print(f"[Anjali] Synthesis failed ({err!r}): {cleaned_text[:80]!r}", flush=True)
             raise RuntimeError("Edge TTS synthesis failed. Windows/browser voice fallback is disabled.") from err
@@ -415,6 +482,48 @@ $synth.Dispose()
             raise RuntimeError("Edge TTS returned no audio data.")
 
         return b"".join(chunks)
+
+    async def _edge_synthesize_with_boundaries(self, text: str):
+        """Call Edge TTS and return raw MP3 bytes with word boundary timings."""
+        communicate = edge_tts.Communicate(
+            text,
+            voice=self.voice,
+            rate=self.rate,
+            pitch=self.pitch,
+            volume=self.volume,
+            boundary="WordBoundary",
+        )
+        chunks = []
+        boundaries = []
+        try:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    boundaries.append(chunk)
+        except Exception:
+            if self.voice == VOICE_FALLBACK:
+                raise
+            communicate = edge_tts.Communicate(
+                text,
+                voice=VOICE_FALLBACK,
+                rate=self.rate,
+                pitch=self.pitch,
+                volume=self.volume,
+                boundary="WordBoundary",
+            )
+            chunks = []
+            boundaries = []
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    boundaries.append(chunk)
+
+        if not chunks:
+            raise RuntimeError("Edge TTS returned no audio data.")
+
+        return b"".join(chunks), boundaries
 
 
 ENGINE = AnjaliEdgeEngine()
