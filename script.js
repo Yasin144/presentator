@@ -12740,9 +12740,9 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
 
   const buildLayout = (size) => {
     const rows = [];
-    const _lineMul = Math.max(0.7, Math.min(3.0, state.displayStyle?.canvasLineSpacing ?? 1.0));
-    const rowHeight = Math.max(size + 3, Math.round(size * 1.12 * _lineMul));
-    const groupGap = Math.max(4, Math.round(size * 0.18));
+    const _lineMul = Math.max(0.62, Math.min(3.0, state.displayStyle?.canvasLineSpacing ?? 1.0));
+    const rowHeight = Math.max(size + 2, Math.round(size * 1.04 * _lineMul));
+    const groupGap = Math.max(3, Math.round(size * 0.12));
 
     if (glossaryPairs?.length) {
       rows.push(...buildPureInputGlossaryRows(ctx, glossaryPairs, maxWidth, size));
@@ -12794,7 +12794,7 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
   };
 
   let layout = buildLayout(fontSize);
-  const minFitFontSize = preserveFormatting ? 12 : (hasImages ? 18 : 16);
+  const minFitFontSize = preserveFormatting ? 11 : (hasImages ? 14 : 12);
   while (layout.totalHeight > maxHeight && fontSize > minFitFontSize) {
     fontSize -= 1;
     layout = buildLayout(fontSize);
