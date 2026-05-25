@@ -12873,6 +12873,33 @@ function getStableAnimatedPageIndex(fullContent, displayedText = "") {
   return Math.max(0, pages.length - 1);
 }
 
+function syncLessonPageToDisplayedText(displayedText = state.displayedText, exactCharCountFloat = state.exactCharCountFloat) {
+  if (!state.text) {
+    return 0;
+  }
+
+  const textOnlyContent = getCachedTextOnlyContent(state.text, state.previewPageIndex);
+  const pageCount = Math.max(1, textOnlyContent.pageCount || 1);
+  const pageIndex = clamp(
+    getStableAnimatedPageIndex(textOnlyContent, displayedText),
+    0,
+    Math.max(0, pageCount - 1)
+  );
+  const previousPageEndIndex = pageIndex > 0
+    ? Math.max(0, textOnlyContent.pages[pageIndex - 1]?.textEndIndex || 0)
+    : 0;
+
+  state.previewPageIndex = pageIndex;
+  state.renderedPageCount = Math.max(state.renderedPageCount || 1, pageCount);
+
+  const usesGlobalTextIndexes = isPureInputModeEnabled() && Boolean(resolvePureInputGlossaryPairs(state.text));
+  if (!usesGlobalTextIndexes && Number.isFinite(Number(exactCharCountFloat))) {
+    state.exactCharCountFloat = Math.max(0, Number(exactCharCountFloat) - previousPageEndIndex);
+  }
+
+  return pageIndex;
+}
+
 function getContentScrollOffset(layout, viewportHeight) {
   const overflow = Math.max(0, layout.totalHeight - viewportHeight);
   if (!overflow) {
@@ -17492,6 +17519,7 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       state.displayedText = nextDisplayedText;
     }
     state.exactCharCountFloat = syncFrame.exactCharCountFloat;
+    syncLessonPageToDisplayedText(nextDisplayedText, syncFrame.exactCharCountFloat);
     syncLessonPlaybackProgressUi(progress, true);
     if (onProgress) {
       onProgress({
@@ -19766,27 +19794,7 @@ function startNarrationLoop(audioElement) {
     state.displayedText = syncFrame.displayedText;
     state.exactCharCountFloat = syncFrame.exactCharCountFloat;
 
-    // ── Page-transition sync ──────────────────────────────────────────────────
-    // Keep state.previewPageIndex in sync with the narration-driven displayedText
-    // so getCachedTextOnlyContent / getCachedFullContent always use the correct
-    // page and never render stale layouts on the first frames of a new page.
-    if (state.text && state.displayedText !== undefined) {
-      const textOnlyForPage = getCachedTextOnlyContent(state.text, state.previewPageIndex);
-      const correctPageIndex = clamp(
-        getStableAnimatedPageIndex(textOnlyForPage, state.displayedText),
-        0,
-        Math.max(0, (textOnlyForPage.pageCount || 1) - 1)
-      );
-      if (correctPageIndex !== state.previewPageIndex) {
-        // Page boundary crossed — reset exactCharCountFloat to the start of the
-        // new page so the bloom/fade reveals from char 0 of page 2, not from
-        // wherever page 1 left off.
-        const prevPageEndIndex = (textOnlyForPage.pages[correctPageIndex - 1]?.textEndIndex) || 0;
-        state.previewPageIndex = correctPageIndex;
-        // Re-anchor the float: offset from new-page start for clean per-page fade
-        state.exactCharCountFloat = Math.max(0, syncFrame.exactCharCountFloat - prevPageEndIndex);
-      }
-    }
+    syncLessonPageToDisplayedText(state.displayedText, syncFrame.exactCharCountFloat);
 
     syncLessonPlaybackProgressUi(progress, true);
 
