@@ -17538,6 +17538,10 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
   const narrationTimelineMs = Math.max(1, Math.round(safeDurationMs / safePlaybackRate));
   const visualLagMs = Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
   const exportSnapshot = options.exportSnapshot || null;
+  const timelineText = String(exportSnapshot?.text || state.text || "");
+  const syncProfileData = state.narration?.syncProfile?.text === timelineText
+    ? state.narration.syncProfile
+    : null;
   const segmentStartMs = clamp(
     Math.round(Number(options.startElapsedMs) || 0),
     0,
@@ -17597,18 +17601,18 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
         state.stageVideo.element.currentTime = ((elapsedMs - STAGE_VIDEO_START_DELAY_MS) / 1000) % stageVidDuration;
       }
     }
-    const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, narrationTimelineMs, {
-      syncProfileData: state.narration?.syncProfile
+    const syncFrame = getSpeechSyncFrame(timelineText, syncElapsedMs, narrationTimelineMs, {
+      syncProfileData
     });
     let nextDisplayedText = syncFrame.displayedText;
     const nextDisplayedLength = nextDisplayedText.length;
 
     // In glossary mode the pauses between term (1s) and definition (2s) are intentional.
     // Skip the recovery override so it doesn't eat those deliberate gaps.
-    const isGlossaryMode = isPureInputModeEnabled() && Boolean(resolvePureInputGlossaryPairs(state.text));
+    const isGlossaryMode = isPureInputModeEnabled() && Boolean(resolvePureInputGlossaryPairs(timelineText));
     if (!isGlossaryMode && nextDisplayedLength <= lastDisplayedLength && (progress - lastDisplayedAdvanceProgress) >= 0.12) {
       const recoveryProgress = clamp((progress - 0.12) / 0.88, 0, 1);
-      const recoveryText = getVisibleTextForProgress(state.text, recoveryProgress);
+      const recoveryText = getVisibleTextForProgress(timelineText, recoveryProgress);
       if (recoveryText.length > nextDisplayedLength) {
         nextDisplayedText = recoveryText;
         lastDisplayedLength = recoveryText.length;
@@ -17624,8 +17628,8 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       ? Math.max(1200, visualLagMs)
       : Math.max(700, visualLagMs);
     if (remainingNarrationMs <= completionThresholdMs) {
-      nextDisplayedText = state.text;
-      lastDisplayedLength = state.text.length;
+      nextDisplayedText = timelineText;
+      lastDisplayedLength = timelineText.length;
       lastDisplayedAdvanceProgress = 1;
     }
 
@@ -17634,8 +17638,10 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     } else {
       state.displayedText = nextDisplayedText;
     }
-    state.exactCharCountFloat = syncFrame.exactCharCountFloat;
-    syncLessonPageToDisplayedText(nextDisplayedText, syncFrame.exactCharCountFloat);
+    state.exactCharCountFloat = nextDisplayedText === timelineText
+      ? timelineText.length
+      : syncFrame.exactCharCountFloat;
+    syncLessonPageToDisplayedText(nextDisplayedText, state.exactCharCountFloat);
     syncLessonPlaybackProgressUi(progress, true);
     if (onProgress) {
       onProgress({
@@ -17674,6 +17680,21 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     const nextFrameTargetMs = exportLoopStartMs + virtualElapsedMs;
     const waitMs = Math.max(1, nextFrameTargetMs - performance.now());
     await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+
+  if (timelineText) {
+    if (exportSnapshot) {
+      applyLessonExportSnapshot(exportSnapshot, timelineText);
+    } else {
+      state.displayedText = timelineText;
+    }
+    state.exactCharCountFloat = timelineText.length;
+    syncLessonPageToDisplayedText(timelineText, timelineText.length);
+    syncLessonPlaybackProgressUi(1, true);
+    state.mouthOpen = 0.12;
+    drawScene(state.mouthOpen);
+    requestExportVideoFrame();
+    await waitForNextPaint();
   }
 }
 
@@ -21187,12 +21208,19 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
     } else {
       state.displayedText = state.text;
     }
+    state.exactCharCountFloat = String(exportSnapshot?.text || state.text || "").length;
+    syncLessonPageToDisplayedText(state.displayedText, state.exactCharCountFloat);
     syncLessonPlaybackProgressUi(1, true);
-    // Skip drawScene here if poster is about to show — prevents a 1-frame lesson content flash
-    if (!(hasIntroPosterSelected() && state.introPoster.image)) {
+
+    const finalContextHoldMs = 1200;
+    const finalContextHoldStartedAt = performance.now();
+    while (performance.now() - finalContextHoldStartedAt < finalContextHoldMs) {
       drawScene(0.12);
+      requestExportVideoFrame();
       await waitForNextPaint();
+      await new Promise(resolve => setTimeout(resolve, Math.round(1000 / captureRate)));
     }
+
     if (!(hasIntroPosterSelected() && state.introPoster.image)) {
       await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
     }
