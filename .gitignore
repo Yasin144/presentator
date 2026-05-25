@@ -45,8 +45,10 @@ voice-reference-anjali-test.wav
 AI_Models/
 
 node_modules/
+.npm-cache/
 dist/
 dist_offline/
+electron-screen.png
 *.mp4
 *.mp3
 *.wav
