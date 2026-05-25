@@ -2785,6 +2785,50 @@ async function fetchWithTimeout(resource, options = {}, timeoutMs = 2500) {
   }
 }
 
+function isLocalFetchConnectionError(error) {
+  const message = String(error?.message || error || "");
+  return /failed to fetch|networkerror|load failed|connection|socket|econn|aborted/i.test(message);
+}
+
+async function restartAnjaliServerFromRenderer() {
+  if (typeof window.electronAPI?.restartAnjali !== "function") {
+    return false;
+  }
+
+  try {
+    await window.electronAPI.restartAnjali();
+    await delay(1800);
+    return true;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+
+async function fetchAnjaliEndpoint(url, options = {}, label = "Voice server request", settings = {}) {
+  const attempts = Math.max(1, Math.round(Number(settings.attempts) || 3));
+  const timeoutMs = Number.isFinite(Number(settings.timeoutMs)) ? Number(settings.timeoutMs) : 0;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetchWithTimeout(url, options, timeoutMs);
+    } catch (error) {
+      lastError = error;
+      console.error(`[anjali] ${label} failed on attempt ${attempt}:`, error);
+      if (attempt >= attempts || !isLocalFetchConnectionError(error)) {
+        break;
+      }
+      state.anjaliCloneServerReady = false;
+      await restartAnjaliServerFromRenderer();
+      await ensureAnjaliCloneServer().catch(() => false);
+      await delay(500 + attempt * 250);
+    }
+  }
+
+  throw new Error(`${label} failed because the voice server connection was interrupted. ${lastError?.message || "Failed to fetch"}`);
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -10804,13 +10848,18 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       if (isEdgeTtsVoice && attempt > 1) {
-        await fetchWithTimeout(`${state.anjaliCloneServerUrl}/set-voice`, {
+        await fetchAnjaliEndpoint(`${state.anjaliCloneServerUrl}/set-voice`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ voice: edgeVoiceId || EDGE_TTS_DEFAULT_FEMALE_VOICE })
-        }, 2500).catch(() => null);
+        }, "Restoring selected voice", { attempts: 2, timeoutMs: 2500 }).catch(() => null);
       }
-      response = await fetchWithTimeout(requestUrl, requestOptions, requestTimeoutMs);
+      response = isEdgeTtsVoice
+        ? await fetchAnjaliEndpoint(requestUrl, requestOptions, "Generating narration audio", {
+          attempts: 2,
+          timeoutMs: requestTimeoutMs
+        })
+        : await fetchWithTimeout(requestUrl, requestOptions, requestTimeoutMs);
       lastFetchError = null;
       break;
     } catch (error) {
@@ -10823,8 +10872,8 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
     }
   }
   if (!response) {
-    const message = /Failed to fetch|NetworkError|Load failed/i.test(lastFetchError?.message || "")
-      ? "Edge TTS server is reachable but the browser request was interrupted. Please click Play or Export once more."
+    const message = isLocalFetchConnectionError(lastFetchError)
+      ? "The voice server request was interrupted after retrying. The app restarted the voice server; please click Play or Export again."
       : (lastFetchError?.message || "Narration generation failed.");
     throw new Error(message);
   }
@@ -23704,11 +23753,11 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
   async function selectVoice(voiceId) {
     if (voiceId === activeVoice) return;
     try {
-      const res = await fetch(`${TTS_BASE}/set-voice`, {
+      const res = await fetchAnjaliEndpoint(`${TTS_BASE}/set-voice`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ voice: voiceId }),
-      });
+      }, "Switching voice", { attempts: 3, timeoutMs: 5000 });
       if (!res.ok) throw new Error(await res.text());
       activeVoice = voiceId;
       state.preferredNarrationVoice = voiceId;
@@ -23729,7 +23778,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
 
   async function loadVoices() {
     try {
-      const res = await fetch(`${TTS_BASE}/voices`);
+      const res = await fetchAnjaliEndpoint(`${TTS_BASE}/voices`, {}, "Loading voice list", { attempts: 3, timeoutMs: 5000 });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
       allVoices   = data.voices;
@@ -23856,11 +23905,11 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
     if (!voiceId) return;
     setStatus("Switching voice…");
     try {
-      const res = await fetch(`${TTS_BASE}/set-voice`, {
+      const res = await fetchAnjaliEndpoint(`${TTS_BASE}/set-voice`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ voice: voiceId }),
-      });
+      }, "Switching voice", { attempts: 3, timeoutMs: 5000 });
       if (!res.ok) throw new Error(await res.text());
       activeVoice = voiceId;
       const match = allVoices.find(v => v.shortName === voiceId);
@@ -23901,19 +23950,19 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
     setStatus(`Loading preview: ${match ? friendly(match) : voiceId}…`);
 
     try {
-      const res = await fetch(`${TTS_BASE}/api/narrate`, {
+      const res = await fetchAnjaliEndpoint(`${TTS_BASE}/api/narrate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: PREVIEW_PHRASE, generationOptions: { voice: voiceId } }),
-      });
+      }, "Generating voice preview", { attempts: 3, timeoutMs: 0 });
       if (!res.ok) throw new Error("Server error " + res.status);
 
       // Restore active voice on server (preview shouldn't change it)
-      fetch(`${TTS_BASE}/set-voice`, {
+      fetchAnjaliEndpoint(`${TTS_BASE}/set-voice`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ voice: activeVoice }),
-      });
+      }, "Restoring selected voice after preview", { attempts: 2, timeoutMs: 5000 }).catch(() => null);
 
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
@@ -23943,7 +23992,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
   async function loadVoices() {
     setStatus("Connecting to TTS server…");
     try {
-      const res  = await fetch(`${TTS_BASE}/voices`);
+      const res  = await fetchAnjaliEndpoint(`${TTS_BASE}/voices`, {}, "Loading stage voice list", { attempts: 3, timeoutMs: 5000 });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
       allVoices = data.voices;
