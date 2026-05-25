@@ -4269,7 +4269,7 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
   }
 
   if (/^,+$/.test(displayText)) {
-    return 1000; // 1 second — matches the 1s PCM silence inserted by anjali-chatterbox-server after every comma
+    return 120; // Edge TTS keeps moving through commas; keep the visual beat short so text does not fall behind.
   }
 
   // ── 350ms AFTER a standalone hyphen ('-') ──────────────────────────────────
