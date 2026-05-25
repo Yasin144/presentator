@@ -366,12 +366,12 @@ const ANJALI_GENERATION_OPTIONS = Object.freeze({
   minP: 0,
   normLoudness: true
 });
-const STAGE_LEFT_CONTENT_GAP_PX = 64; // Avatar removed — text now starts from the standard left margin
+const STAGE_LEFT_CONTENT_GAP_PX = 24; // Keep lesson context close to the frame edge.
 const STAGE_RIGHT_CLEAR_GAP_PX = 380;
-const STAGE_TEXT_SIDE_MARGIN_PX = 64;
-const STAGE_TEXT_TOP_MARGIN_PX = 32;
-const STAGE_TEXT_BOTTOM_MARGIN_PX = 42;
-const STAGE_TEXT_BOTTOM_RESERVED_PX = 76; // ~2cm at 96dpi; keep this area empty before paginating to the next page
+const STAGE_TEXT_SIDE_MARGIN_PX = 24;
+const STAGE_TEXT_TOP_MARGIN_PX = 20;
+const STAGE_TEXT_BOTTOM_MARGIN_PX = 18;
+const STAGE_TEXT_BOTTOM_RESERVED_PX = 0;
 const STAGE_IMAGE_WORKSPACE_PADDING_PX = 34;
 const STAGE_IMAGE_WORKSPACE_TOP_PX = 18;
 const STAGE_IMAGE_WORKSPACE_BOTTOM_PX = 20;
@@ -12741,8 +12741,8 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
   const buildLayout = (size) => {
     const rows = [];
     const _lineMul = Math.max(0.7, Math.min(3.0, state.displayStyle?.canvasLineSpacing ?? 1.0));
-    const rowHeight = Math.max(size + 4, Math.round(size * 1.2 * _lineMul));
-    const groupGap = Math.max(6, Math.round(size * 0.24));
+    const rowHeight = Math.max(size + 3, Math.round(size * 1.12 * _lineMul));
+    const groupGap = Math.max(4, Math.round(size * 0.18));
 
     if (glossaryPairs?.length) {
       rows.push(...buildPureInputGlossaryRows(ctx, glossaryPairs, maxWidth, size));
@@ -12793,7 +12793,14 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
     return { rows, fontSize: size, rowHeight, totalHeight };
   };
 
-  return buildLayout(fontSize);
+  let layout = buildLayout(fontSize);
+  const minFitFontSize = preserveFormatting ? 12 : (hasImages ? 18 : 16);
+  while (layout.totalHeight > maxHeight && fontSize > minFitFontSize) {
+    fontSize -= 1;
+    layout = buildLayout(fontSize);
+  }
+
+  return layout;
 }
 
 function paginateLayout(layout, maxHeight) {
@@ -12880,11 +12887,11 @@ function paginateLayout(layout, maxHeight) {
 function getPresentationTemplateMetrics() {
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
     return {
-      contentTopInset: 92,  // leave top row clear for animated title badge
-      contentLeftInset: 58, // Avatar removed — matches contentSideInset for symmetric layout
-      contentRightInset: 38,
-      contentSideInset: 58,
-      contentBottomInset: 40 + STAGE_TEXT_BOTTOM_RESERVED_PX,
+      contentTopInset: 78,  // leave top row clear for animated title badge
+      contentLeftInset: 26,
+      contentRightInset: 24,
+      contentSideInset: 26,
+      contentBottomInset: 18 + STAGE_TEXT_BOTTOM_RESERVED_PX,
       imagePanelTopInset: 148,
       imagePanelBottomInset: 22,
       pdfStripTopInset: 156,
