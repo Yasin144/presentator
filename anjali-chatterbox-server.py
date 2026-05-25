@@ -248,7 +248,7 @@ class AnjaliEdgeEngine:
 
     @staticmethod
     def _windows_sapi_to_wav(text: str, leading_pad_ms: int = 60) -> bytes:
-        """Offline Windows voice fallback used when Edge TTS is unavailable."""
+        """Legacy offline Windows voice fallback. Disabled for app narration."""
         import subprocess, tempfile, os
 
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w", encoding="utf-8") as tmp_text:
@@ -349,7 +349,7 @@ $synth.Dispose()
             wav = self._mp3_bytes_to_wav(mp3, leading_pad_ms=pad_ms)
         except Exception as err:
             print(f"[Anjali] Synthesis failed ({err!r}): {cleaned_text[:80]!r}", flush=True)
-            wav = self._windows_sapi_to_wav(cleaned_text, leading_pad_ms=pad_ms)
+            raise RuntimeError("Edge TTS synthesis failed. Windows/browser voice fallback is disabled.") from err
 
         self._store_cached(cache_key, wav)
         return wav

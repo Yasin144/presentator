@@ -220,28 +220,22 @@ function startAnjaliServer() {
 }
 
 function startServers() {
-  // 1. Voice server (port 8424)
-  spawnManaged('VoiceServer', PS, [
-    '-ExecutionPolicy', 'Bypass',
-    '-File', path.join(ROOT, 'speech-server.ps1')
-  ], { restartDelayMs: 2000 });
-
-  // 2. Transcription server (port 8428)
+  // 1. Transcription server (port 8428)
   spawnManaged('TranscriptionServer', PS, [
     '-ExecutionPolicy', 'Bypass',
     '-File', path.join(ROOT, 'transcribe-server.ps1')
   ], { restartDelayMs: 2000 });
 
-  // 3. Video Export / FFmpeg server (port 8430)
+  // 2. Video Export / FFmpeg server (port 8430)
   spawnManaged('FFmpegServer', PS, [
     '-ExecutionPolicy', 'Bypass',
     '-File', path.join(ROOT, 'video-export-server.ps1')
   ], { restartDelayMs: 2000 });
 
-  // 4. Edge TTS server (port 8426) - no voice clone/model warm-up
+  // 3. Edge TTS server (port 8426) - the only narration/audio TTS engine
   startAnjaliServer();
 
-  // 5. Vite dev server (port 5173) — dev mode only
+  // 4. Vite dev server (port 5173) — dev mode only
   if (IS_DEV) {
     spawnManaged('ViteDevServer', NPM, ['run', 'dev'], {
       cwd:   ROOT,
@@ -424,15 +418,13 @@ async function createWindow() {
 
   // ── IPC: Get server health status ─────────────────────────────────────────
   ipcMain.handle('get-server-health', async () => {
-    const [voiceAlive, anjaliAlive, transcribeAlive, videoExportAlive, viteAlive] = await Promise.all([
-      pingPort(8424),
+    const [anjaliAlive, transcribeAlive, videoExportAlive, viteAlive] = await Promise.all([
       pingPort(8426),
       pingPort(8428),
       pingPort(8430),
       pingPort(5173, '/')
     ]);
     return {
-      voice:       voiceAlive,
       anjali:      anjaliAlive,
       transcribe:  transcribeAlive,
       videoExport: videoExportAlive,

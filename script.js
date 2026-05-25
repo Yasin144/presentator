@@ -4734,7 +4734,7 @@ function canUseSpeechToText() {
 }
 
 function canUseTextToSpeech() {
-  return "speechSynthesis" in window;
+  return false;
 }
 
 function mergeSpeechText(baseText, spokenText) {
@@ -8839,8 +8839,7 @@ function getStartAllCommand() {
 
 function areAllLocalServersReady() {
   return Boolean(
-    state.narrationServerReady
-    && state.anjaliCloneServerReady
+    state.anjaliCloneServerReady
     && state.transcribeServerReady
     && state.videoExportServerReady
   );
@@ -8849,12 +8848,8 @@ function areAllLocalServersReady() {
 function getMissingLocalServerLabels() {
   const missing = [];
 
-  if (!state.narrationServerReady) {
-    missing.push("Narration 8424");
-  }
-
   if (!state.anjaliCloneServerReady) {
-    missing.push("Anjali 8426");
+    missing.push("Edge TTS 8426");
   }
 
   if (!state.transcribeServerReady) {
@@ -8926,7 +8921,8 @@ function handleAnjaliCloneServerTransition(isReady) {
 }
 
 async function refreshLocalServerHealth() {
-  await Promise.all([ensureNarrationServer(), ensureAnjaliCloneServer(), ensureTranscribeServer(), ensureVideoExportServer()]);
+  state.narrationServerReady = false;
+  await Promise.all([ensureAnjaliCloneServer(), ensureTranscribeServer(), ensureVideoExportServer()]);
   updateServerHealthUi();
   return areAllLocalServersReady();
 }
@@ -8944,8 +8940,8 @@ async function waitForAllLocalServersReady(timeoutMs = 240000) {
     const progress = 0.22 + (elapsedRatio * 0.7);
     const missing = getMissingLocalServerLabels();
     const waitingMessage = missing.length
-      ? (missing.includes("Anjali 8426")
-        ? `Starting local servers. XTTS can take 2-4 minutes to warm up. Waiting for ${missing.join(", ")}...`
+      ? (missing.includes("Edge TTS 8426")
+        ? `Starting local servers. Waiting for ${missing.join(", ")}...`
         : `Starting local servers. Waiting for ${missing.join(", ")}...`)
       : "Starting local servers...";
     setServerControlsStatus(waitingMessage);
@@ -9009,7 +9005,7 @@ async function startServersFromPage() {
   updateTaskProgressUi(1, true);
 
   if (allReady) {
-    setServerControlsStatus("All local servers started from the page button.");
+    setServerControlsStatus("Electron servers started. Edge TTS is the only narration engine.");
   } else {
     const missing = getMissingLocalServerLabels();
     const suffix = missing.length ? ` Still waiting for ${missing.join(", ")}.` : "";
@@ -9025,7 +9021,7 @@ async function copyStartAllCommand() {
 
   try {
     await navigator.clipboard.writeText(command);
-    setServerControlsStatus("Start command copied. Paste it into PowerShell to launch narration, Anjali clone, transcription, and video export.");
+    setServerControlsStatus("Start command copied. Paste it into PowerShell to launch Edge TTS, transcription, and video export.");
   } catch (error) {
     console.error(error);
     setServerControlsStatus(`Copy failed. Run this in PowerShell: ${command}`);
@@ -9034,8 +9030,8 @@ async function copyStartAllCommand() {
 
 function updateServerHealthUi() {
   narrationHealthStatus.textContent = state.narrationServerReady
-    ? "Narration server: running on port 8424"
-    : "Narration server: not running";
+    ? "Legacy narration server: ignored"
+    : "Legacy narration server: disabled (Edge TTS only)";
 
   if (anjaliCloneHealthStatus) {
     anjaliCloneHealthStatus.textContent = state.anjaliCloneServerReady
@@ -9057,13 +9053,14 @@ function updateServerHealthUi() {
 async function checkServerHealth() {
   setServerControlsStatus("Checking local servers...");
   updateTaskProgressUi(0.18, true, { label: "Checking local servers..." });
-  await Promise.all([ensureNarrationServer(), ensureAnjaliCloneServer(), ensureTranscribeServer(), ensureVideoExportServer()]);
+  state.narrationServerReady = false;
+  await Promise.all([ensureAnjaliCloneServer(), ensureTranscribeServer(), ensureVideoExportServer()]);
   updateTaskProgressUi(0.82, true, { label: "Refreshing local server status..." });
   updateServerHealthUi();
 
-  if (state.narrationServerReady && state.anjaliCloneServerReady && state.transcribeServerReady && state.videoExportServerReady) {
-    setServerControlsStatus("All local servers are running.");
-  } else if (state.narrationServerReady || state.anjaliCloneServerReady || state.transcribeServerReady || state.videoExportServerReady) {
+  if (areAllLocalServersReady()) {
+    setServerControlsStatus("Electron servers are running. Narration is Edge TTS only.");
+  } else if (state.anjaliCloneServerReady || state.transcribeServerReady || state.videoExportServerReady) {
     setServerControlsStatus("Some local servers are running. Start the missing one with Start Servers if needed.");
   } else {
     setServerControlsStatus("All local servers are down. Use Start Servers or the copied PowerShell command.");
@@ -9074,20 +9071,9 @@ async function checkServerHealth() {
 }
 
 async function ensureNarrationServer() {
-  try {
-    const response = await fetchWithTimeout(`${state.narrationServerUrl}/health`, { method: "GET" }, 2000);
-    state.narrationServerReady = response.ok;
-  } catch (error) {
-    state.narrationServerReady = false;
-  }
-
-  if (!state.narrationServerReady) {
-    setNarrationGenStatus("Anjali narration needs the local narration server on port 8424.");
-  }
-
+  state.narrationServerReady = false;
   updateServerHealthUi();
-
-  return state.narrationServerReady;
+  return true;
 }
 
 async function ensureAnjaliCloneServer() {
@@ -10762,41 +10748,24 @@ async function playDirectAudioPreview(audioUrl, voiceLabel) {
   await audioElement.play();
 }
 
-function getPreferredPreviewVoice(voicePreference) {
-  const voices = window.speechSynthesis.getVoices();
-  const malePattern = /male|david|mark|guy|daniel|alex|james|matthew|george|ryan|aaron/i;
-  const femalePattern = /hazel|jenny|aria|samantha|eva|zira|susan|sonia|heera|female/i;
-  const indianFemalePattern = /heera|sonia|swara|veena|ananya|priya|india|indian|en-in|hi-in/i;
-  const freshPattern = /jenny|hazel|aria|eva|samantha|zira|sonia|heera|google us english/i;
-  const targetPattern = voicePreference === "male"
-    ? malePattern
-    : (voicePreference === "fresh"
-      ? freshPattern
-      : ((voicePreference === "indian-female" || voicePreference === "anjali") ? indianFemalePattern : femalePattern));
-
-  return voices.find((voice) => targetPattern.test(`${voice.name} ${voice.voiceURI} ${voice.lang}`))
-    || ((voicePreference === "indian-female" || voicePreference === "anjali")
-      ? voices.find((voice) => femalePattern.test(`${voice.name} ${voice.voiceURI} ${voice.lang}`))
-      : null)
-    || voices.find((voice) => /english|en-/i.test(`${voice.name} ${voice.voiceURI} ${voice.lang}`))
-    || voices[0]
-    || null;
+function normalizeEdgeTtsVoiceId(voice = state.preferredNarrationVoice || "anjali") {
+  const safeVoice = String(voice || "").trim();
+  if (!safeVoice || safeVoice === "anjali" || safeVoice === "indian-female" || safeVoice === "female" || safeVoice === "fresh") {
+    return EDGE_TTS_DEFAULT_FEMALE_VOICE;
+  }
+  if (safeVoice === "male") {
+    return "en-IN-PrabhatNeural";
+  }
+  return /^en-[A-Z]{2}-/i.test(safeVoice) ? safeVoice : EDGE_TTS_DEFAULT_FEMALE_VOICE;
 }
 
 async function requestNarrationBlobSingle(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
-  const safeVoice = String(voice || "").trim();
-  const isEdgeTtsVoice = safeVoice === "anjali" || /^en-[A-Z]{2}-/i.test(safeVoice);
-  const edgeVoiceId = safeVoice === "anjali" ? EDGE_TTS_DEFAULT_FEMALE_VOICE : safeVoice;
-  const requestTimeoutMs = isEdgeTtsVoice
-    ? 0
-    : (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
-      ? Number(options.timeoutMs)
-      : DEFAULT_NARRATION_REQUEST_TIMEOUT_MS);
-  if (isEdgeTtsVoice) {
-    const serverReady = await ensureAnjaliCloneServer();
-    if (!serverReady) {
-      throw new Error("Voice server is not ready on port 8426.");
-    }
+  const safeVoice = normalizeEdgeTtsVoiceId(voice);
+  const edgeVoiceId = safeVoice;
+  const requestTimeoutMs = 0;
+  const serverReady = await ensureAnjaliCloneServer();
+  if (!serverReady) {
+    throw new Error("Edge TTS voice server is not ready on port 8426.");
   }
 
   if (typeof options.onProgress === "function") {
@@ -10816,55 +10785,47 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
 
   if (typeof options.onProgress === "function") {
     options.onProgress({
-      label: isEdgeTtsVoice ? "Sending text to Edge TTS server..." : "Sending text to narration server...",
+      label: "Sending text to Edge TTS server...",
       progress: 0.22
     });
   }
 
-  const requestUrl = isEdgeTtsVoice
-    ? `${state.anjaliCloneServerUrl}/api/narrate`
-    : `${state.narrationServerUrl}/api/narrate?voice=${encodeURIComponent(safeVoice)}`;
+  const requestUrl = `${state.anjaliCloneServerUrl}/api/narrate`;
   const requestOptions = {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(
-      isEdgeTtsVoice
-        ? {
-          ...narrationPayload,
-          generationOptions: {
-            ...(narrationPayload.generationOptions || {}),
-            voice: edgeVoiceId
-          }
-        }
-        : { text: narrationText }
-    )
+    body: JSON.stringify({
+      ...narrationPayload,
+      generationOptions: {
+        ...(narrationPayload.generationOptions || {}),
+        voice: edgeVoiceId
+      }
+    })
   };
 
   let response = null;
   let lastFetchError = null;
-  const maxAttempts = isEdgeTtsVoice ? 6 : 1;
+  const maxAttempts = 6;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      if (isEdgeTtsVoice && attempt > 1) {
+      if (attempt > 1) {
         await fetchAnjaliEndpoint(`${state.anjaliCloneServerUrl}/set-voice`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ voice: edgeVoiceId || EDGE_TTS_DEFAULT_FEMALE_VOICE })
         }, "Restoring selected voice", { attempts: 2, timeoutMs: 2500 }).catch(() => null);
       }
-      response = isEdgeTtsVoice
-        ? await fetchAnjaliEndpoint(requestUrl, requestOptions, "Generating narration audio", {
-          attempts: 2,
-          timeoutMs: requestTimeoutMs
-        })
-        : await fetchWithTimeout(requestUrl, requestOptions, requestTimeoutMs);
+      response = await fetchAnjaliEndpoint(requestUrl, requestOptions, "Generating Edge TTS narration audio", {
+        attempts: 2,
+        timeoutMs: requestTimeoutMs
+      });
       lastFetchError = null;
       break;
     } catch (error) {
       lastFetchError = error;
-      if (!isEdgeTtsVoice || attempt >= maxAttempts) {
+      if (attempt >= maxAttempts) {
         break;
       }
       await delay(900 + (attempt * 350));
@@ -20049,74 +20010,7 @@ async function playNarrationAudio() {
 
 function playSpeechFallback() {
   stopPlayback(false);
-  state.displayedText = "";
-  drawScene(0.12);
-
-  if (!("speechSynthesis" in window)) {
-    setStatus("This browser does not support speech playback. Record or upload narration instead.");
-    return;
-  }
-
-  const utterance = new SpeechSynthesisUtterance(buildNarrationText(state.text));
-  const voices = window.speechSynthesis.getVoices();
-  const preferredVoice = voices.find((voice) => /female|zira|samantha|aria|google us english/i.test(voice.name));
-
-  if (preferredVoice) {
-    utterance.voice = preferredVoice;
-  }
-
-  utterance.rate = getVoiceSpecificPreviewRate("female", getLessonPlaybackRate());
-  utterance.pitch = 1.08;
-  utterance.volume = STRICT_VOICE_VOLUME;
-  const estimatedDurationMs = getDefaultNarrationDurationMs();
-
-  utterance.onstart = () => {
-    state.speaking = true;
-    syncLessonPlaybackProgressUi(0, true);
-    if (state.stageVideo.element) {
-      scheduleStageVideoStartAfterDelay({
-        restart: true,
-        delayMs: STAGE_VIDEO_START_DELAY_MS,
-        playbackRate: 1
-      });
-    }
-    startBackgroundMusicPlayback().catch((error) => console.error(error));
-    setStatus(`The slide is reading with the browser voice at ${getLessonPlaybackRate()}x because generated narration is unavailable right now.`);
-    const startedAt = performance.now();
-
-    const tick = () => {
-      if (!state.speaking) {
-        return;
-      }
-
-      const elapsed = performance.now() - startedAt;
-      const progress = clamp(elapsed / estimatedDurationMs, 0, 1);
-      const syncFrame = getSpeechSyncFrame(state.text, elapsed, estimatedDurationMs);
-      state.displayedText = syncFrame.displayedText;
-      syncLessonPlaybackProgressUi(progress, true);
-      state.mouthOpen = syncFrame.mouthActive ? getFallbackMouth(syncFrame.speechElapsedMs) : 0.12;
-      drawScene(state.mouthOpen);
-
-      if (progress < 1) {
-        state.animationFrame = requestAnimationFrame(tick);
-      }
-    };
-
-    state.animationFrame = requestAnimationFrame(tick);
-  };
-
-  utterance.onend = () => {
-    window.setTimeout(() => {
-      finishPlayback("Playback complete. Start the local narration server if you want matching generated audio for download.");
-    }, STRICT_SCENE_END_BUFFER_MS);
-  };
-
-  utterance.onerror = () => {
-    finishPlayback("Browser speech playback was interrupted.");
-  };
-
-  state.speechUtterance = utterance;
-  window.speechSynthesis.speak(utterance);
+  setStatus("Edge TTS only: start/retry the voice server on port 8426. Browser speech playback is disabled.");
 }
 
 function hasFreshGeneratedAnjaliNarration(currentText = "") {
