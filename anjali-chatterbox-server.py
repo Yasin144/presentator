@@ -260,20 +260,73 @@ class AnjaliEdgeEngine:
         total_frames = len(frames) // bytes_per_frame
         silence_frames = max(1, int(params.framerate * pause_ms / 1000))
         silence = b"\x00" * silence_frames * bytes_per_frame
+        fade_frames = max(1, int(params.framerate * 0.012))
         frame_indexes = sorted({
             max(0, min(total_frames, int(round((float(ms) / 1000.0) * params.framerate))))
             for ms in insert_points_ms
         })
 
+        def fade_pcm16(segment: bytes, *, fade_in: bool = False, fade_out: bool = False) -> bytes:
+            if not segment or params.sampwidth != 2:
+                return segment
+            data = bytearray(segment)
+            frame_count = len(data) // bytes_per_frame
+            if frame_count <= 1:
+                return bytes(data)
+
+            for frame in range(frame_count):
+                gain = 1.0
+                if fade_in:
+                    gain = min(gain, frame / max(1, frame_count - 1))
+                if fade_out:
+                    gain = min(gain, (frame_count - 1 - frame) / max(1, frame_count - 1))
+                if gain >= 0.999:
+                    continue
+                for channel in range(params.nchannels):
+                    offset = (frame * bytes_per_frame) + (channel * params.sampwidth)
+                    sample = int.from_bytes(data[offset:offset + 2], "little", signed=True)
+                    faded = max(-32768, min(32767, int(sample * gain)))
+                    data[offset:offset + 2] = int(faded).to_bytes(2, "little", signed=True)
+            return bytes(data)
+
+        def append_segment(output_bytes: bytearray, segment: bytes, *, fade_in: bool = False, fade_out: bool = False) -> None:
+            if not segment:
+                return
+            if params.sampwidth != 2:
+                output_bytes.extend(segment)
+                return
+
+            frame_count = len(segment) // bytes_per_frame
+            effective_fade_frames = min(fade_frames, max(1, frame_count // 2))
+            fade_bytes = effective_fade_frames * bytes_per_frame
+            head = segment[:fade_bytes] if fade_in else b""
+            tail = segment[-fade_bytes:] if fade_out else b""
+            middle_start = fade_bytes if fade_in else 0
+            middle_end = len(segment) - fade_bytes if fade_out else len(segment)
+
+            if head:
+                output_bytes.extend(fade_pcm16(head, fade_in=True))
+            if middle_end > middle_start:
+                output_bytes.extend(segment[middle_start:middle_end])
+            if tail:
+                output_bytes.extend(fade_pcm16(tail, fade_out=True))
+
         output = bytearray()
         last_frame = 0
+        fade_in_next = False
         for frame_index in frame_indexes:
             if frame_index < last_frame:
                 continue
-            output.extend(frames[last_frame * bytes_per_frame:frame_index * bytes_per_frame])
+            append_segment(
+                output,
+                frames[last_frame * bytes_per_frame:frame_index * bytes_per_frame],
+                fade_in=fade_in_next,
+                fade_out=True,
+            )
             output.extend(silence)
+            fade_in_next = True
             last_frame = frame_index
-        output.extend(frames[last_frame * bytes_per_frame:])
+        append_segment(output, frames[last_frame * bytes_per_frame:], fade_in=fade_in_next)
 
         buf = io.BytesIO()
         with wave.open(buf, "wb") as writer:
@@ -342,7 +395,7 @@ $synth.Dispose()
 
     @staticmethod
     def _get_comma_pause_insert_points_ms(text: str, boundaries: list, leading_pad_ms: int = 0) -> list:
-        """Map commas in text to the end of the preceding Edge TTS word."""
+        """Map commas in text to the clean gap before the following Edge TTS word."""
         import re
 
         safe_text = str(text or "").strip()
@@ -355,13 +408,18 @@ $synth.Dispose()
 
         for token in tokens:
             if re.fullmatch(r",+", token):
-                previous_word_index = word_index - 1
-                if 0 <= previous_word_index < len(boundaries):
-                    boundary = boundaries[previous_word_index]
-                    insert_ms = (
-                        (float(boundary.get("offset", 0)) + float(boundary.get("duration", 0))) / 10000.0
-                    ) + leading_pad_ms
+                if 0 <= word_index < len(boundaries):
+                    boundary = boundaries[word_index]
+                    insert_ms = (float(boundary.get("offset", 0)) / 10000.0) + leading_pad_ms
                     insert_points.append(insert_ms)
+                else:
+                    previous_word_index = word_index - 1
+                    if 0 <= previous_word_index < len(boundaries):
+                        boundary = boundaries[previous_word_index]
+                        insert_ms = (
+                            (float(boundary.get("offset", 0)) + float(boundary.get("duration", 0))) / 10000.0
+                        ) + leading_pad_ms
+                        insert_points.append(insert_ms)
                 continue
 
             word_index += 1

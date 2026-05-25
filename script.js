@@ -3938,7 +3938,7 @@ function estimatePauseMsFromText(text = "") {
   const sentencePauseCount = (safeText.match(/[.!?]/g) || []).length;
   const lineBreakCount = (safeText.match(/\n+/g) || []).length;
   return (
-    (commaCount * 1000)   // 1000ms per comma — matches server-side PCM silence
+    (commaCount * 500)    // 500ms per comma — matches server-side PCM silence
     + (colonCount * 800)  // 800ms per colon  — matches server-side PCM silence
     + (softPauseCount * STRICT_INTER_WORD_PAUSE_MS)
     + (sentencePauseCount * STRICT_SENTENCE_PAUSE_MS)
