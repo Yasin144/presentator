@@ -3027,6 +3027,28 @@ async function readMuxServerResponse(response) {
   return response.blob();
 }
 
+function getElectronOutputPath(saveHandle) {
+  return typeof saveHandle?.electronFilePath === "string" ? saveHandle.electronFilePath : "";
+}
+
+async function readMuxSaveResult(response, saveHandle) {
+  const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
+  if (!contentType.includes("application/json")) {
+    await streamResponseToFileHandle(response, saveHandle);
+    return { savedPath: getElectronOutputPath(saveHandle), fileName: "" };
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!payload?.ok && !payload?.savedPath) {
+    throw new Error(payload?.error || "The local video export server did not confirm the saved file.");
+  }
+  const savedPath = payload?.savedPath || getElectronOutputPath(saveHandle);
+  if (savedPath && typeof window.electronAPI?.showItemInFolder === "function") {
+    window.electronAPI.showItemInFolder(savedPath);
+  }
+  return { savedPath, fileName: payload?.fileName || "" };
+}
+
 function getMuxOutputFileName(options = {}) {
   return options.outputFileName || "learning-outcomes-video.mp4";
 }
@@ -9195,6 +9217,13 @@ async function ensureVideoExportServer() {
   } catch (error) {
     state.videoExportServerReady = recentlyHealthy;
     state.videoExportMonitor.transientFailureCount = Math.max(1, Number(state.videoExportMonitor.transientFailureCount || 0) + 1);
+    if (!recentlyHealthy && typeof window.electronAPI?.restartVideoExport === "function") {
+      try {
+        await window.electronAPI.restartVideoExport();
+      } catch (restartError) {
+        console.error(restartError);
+      }
+    }
   }
 
   return state.videoExportServerReady;
@@ -9466,7 +9495,8 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
   const exportQuality = getEffectiveExportQuality();
   const saveHandle = options.saveHandle || null;
   const outputFileName = getMuxOutputFileName(options);
-  const saveToDefaultPath = Boolean(options.saveToDefaultPath);
+  const outputPath = getElectronOutputPath(saveHandle);
+  const saveToDefaultPath = Boolean(options.saveToDefaultPath) && !outputPath;
   const holdLastFrameMs = Math.max(0, Math.round(Number(options.holdLastFrameMs) || 0));
   const measuredAudioDurationMs = audioBlob?.size
     ? await measureNarrationBlobDurationMs(audioBlob)
@@ -9503,6 +9533,7 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
       targetDurationMs,
       holdLastFrameMs,
       outputFileName,
+      outputPath,
       saveToDefaultPath,
       audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
     })
@@ -9545,6 +9576,10 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
     throw new Error(errorPayload.error || "The local video export server could not finish the chunked export.");
   }
 
+  if (outputPath) {
+    return readMuxSaveResult(completeResponse, saveHandle);
+  }
+
   if (saveHandle) {
     await streamResponseToFileHandle(completeResponse, saveHandle);
     return null;
@@ -9576,7 +9611,8 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
   const exportQuality = getEffectiveExportQuality();
   const saveHandle = options.saveHandle || null;
   const outputFileName = getMuxOutputFileName(options);
-  const saveToDefaultPath = Boolean(options.saveToDefaultPath);
+  const outputPath = getElectronOutputPath(saveHandle);
+  const saveToDefaultPath = Boolean(options.saveToDefaultPath) && !outputPath;
   const holdLastFrameMs = Math.max(0, Math.round(Number(options.holdLastFrameMs) || 0));
   const measuredAudioDurationMs = audioBlob?.size
     ? await measureNarrationBlobDurationMs(audioBlob)
@@ -9615,6 +9651,7 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
       targetDurationMs,
       holdLastFrameMs,
       outputFileName,
+      outputPath,
       saveToDefaultPath,
       audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
     })
@@ -9655,6 +9692,10 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
   if (!completeResponse.ok) {
     const errorPayload = await completeResponse.json().catch(() => ({}));
     throw new Error(errorPayload.error || "The local video export server could not finish the segmented export.");
+  }
+
+  if (outputPath) {
+    return readMuxSaveResult(completeResponse, saveHandle);
   }
 
   if (saveHandle) {
@@ -11192,7 +11233,8 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
   const exportQuality = getEffectiveExportQuality();
   const saveHandle = options.saveHandle || null;
   const outputFileName = getMuxOutputFileName(options);
-  const saveToDefaultPath = Boolean(options.saveToDefaultPath);
+  const outputPath = getElectronOutputPath(saveHandle);
+  const saveToDefaultPath = Boolean(options.saveToDefaultPath) && !outputPath;
   const holdLastFrameMs = Math.max(0, Math.round(Number(options.holdLastFrameMs) || 0));
   const measuredAudioDurationMs = audioBlob?.size
     ? await measureNarrationBlobDurationMs(audioBlob)
@@ -11211,6 +11253,7 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       targetDurationMs,
       holdLastFrameMs,
       saveHandle,
+      saveToDefaultPath,
       outputFileName
     });
   }
@@ -11225,6 +11268,7 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
     targetDurationMs,
     holdLastFrameMs,
     outputFileName,
+    outputPath,
     saveToDefaultPath,
     audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
   });
@@ -11260,6 +11304,7 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       targetDurationMs,
       holdLastFrameMs,
       outputFileName,
+      outputPath,
       saveToDefaultPath,
       audioDuckingEnabled: Boolean(proDuckingEnabled && proDuckingEnabled.checked)
     };
@@ -11283,6 +11328,10 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       }
       throw new Error(fallbackMessage);
     }
+  }
+
+  if (outputPath) {
+    return readMuxSaveResult(response, saveHandle);
   }
 
   if (saveHandle) {

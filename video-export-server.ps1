@@ -602,6 +602,34 @@ function Save-MuxedVideoToDefaultPath {
   return $targetPath
 }
 
+function Save-MuxedVideoToRequestedPath {
+  param(
+    [string]$SourcePath,
+    [string]$RequestedPath
+  )
+
+  if (-not (Test-Path $SourcePath)) {
+    throw "The muxed video file was not found."
+  }
+
+  if ([string]::IsNullOrWhiteSpace($RequestedPath)) {
+    throw "The requested video save path was empty."
+  }
+
+  $targetPath = [System.IO.Path]::GetFullPath($RequestedPath)
+  $targetDirectory = [System.IO.Path]::GetDirectoryName($targetPath)
+  if ([string]::IsNullOrWhiteSpace($targetDirectory)) {
+    throw "The requested video save folder was not valid."
+  }
+
+  if (-not (Test-Path $targetDirectory)) {
+    New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
+  }
+
+  Move-Item -LiteralPath $SourcePath -Destination $targetPath -Force
+  return $targetPath
+}
+
 function Join-VideoSegments {
   param(
     [string[]]$VideoPaths,
@@ -993,7 +1021,16 @@ function Handle-Request {
         -KeepOutputFile
       try {
         $shouldSaveToDefaultPath = $metadata -and $metadata.saveToDefaultPath -eq $true
-        if ($shouldSaveToDefaultPath) {
+        $requestedOutputPath = if ($metadata -and $metadata.PSObject.Properties.Name -contains "outputPath") { [string]$metadata.outputPath } else { "" }
+        if (-not [string]::IsNullOrWhiteSpace($requestedOutputPath)) {
+          $savedPath = Save-MuxedVideoToRequestedPath -SourcePath $muxedVideoPath -RequestedPath $requestedOutputPath
+          $muxedVideoPath = ""
+          Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
+            ok = $true
+            savedPath = $savedPath
+            fileName = [System.IO.Path]::GetFileName($savedPath)
+          }
+        } elseif ($shouldSaveToDefaultPath) {
           $savedPath = Save-MuxedVideoToDefaultPath -SourcePath $muxedVideoPath -RequestedFileName ([string]$metadata.outputFileName)
           $muxedVideoPath = ""
           Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
@@ -1039,6 +1076,7 @@ function Handle-Request {
     $targetDurationMs = 0.0
     $holdLastFrameMs = 0.0
     $outputFileName = "learning-outcomes-video.mp4"
+    $outputPath = ""
     $saveToDefaultPath = $false
     $musicLength = 0
     $videoBytes = $null
@@ -1059,6 +1097,7 @@ function Handle-Request {
       $targetDurationMs = if ($metadata) { [double]$metadata.targetDurationMs } else { 0.0 }
       $holdLastFrameMs = if ($metadata -and $metadata.PSObject.Properties.Name -contains "holdLastFrameMs") { [double]$metadata.holdLastFrameMs } else { 0.0 }
       $outputFileName = if ($metadata) { [string]$metadata.outputFileName } else { "learning-outcomes-video.mp4" }
+      $outputPath = if ($metadata -and $metadata.PSObject.Properties.Name -contains "outputPath") { [string]$metadata.outputPath } else { "" }
       $saveToDefaultPath = if ($metadata -and $metadata.saveToDefaultPath -ne $null) { [bool]$metadata.saveToDefaultPath } else { $false }
       $audioDuckingEnabled = if ($metadata -and $metadata.audioDuckingEnabled -ne $null) { [bool]$metadata.audioDuckingEnabled } else { $true }
 
@@ -1083,6 +1122,7 @@ function Handle-Request {
       $targetDurationMs = if ($payload) { [double]$payload.targetDurationMs } else { 0.0 }
       $holdLastFrameMs = if ($payload -and $payload.PSObject.Properties.Name -contains "holdLastFrameMs") { [double]$payload.holdLastFrameMs } else { 0.0 }
       $outputFileName = if ($payload) { [string]$payload.outputFileName } else { "learning-outcomes-video.mp4" }
+      $outputPath = if ($payload -and $payload.PSObject.Properties.Name -contains "outputPath") { [string]$payload.outputPath } else { "" }
       $saveToDefaultPath = if ($payload -and $payload.saveToDefaultPath -ne $null) { [bool]$payload.saveToDefaultPath } else { $false }
       $audioDuckingEnabled = if ($payload -and $payload.audioDuckingEnabled -ne $null) { [bool]$payload.audioDuckingEnabled } else { $true }
 
@@ -1139,7 +1179,15 @@ function Handle-Request {
         -HoldLastFrameMs $holdLastFrameMs `
         -AudioDuckingEnabled $audioDuckingEnabled `
         -KeepOutputFile
-      if ($saveToDefaultPath) {
+      if (-not [string]::IsNullOrWhiteSpace($outputPath)) {
+        $savedPath = Save-MuxedVideoToRequestedPath -SourcePath $muxedVideoPath -RequestedPath $outputPath
+        $muxedVideoPath = ""
+        Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
+          ok = $true
+          savedPath = $savedPath
+          fileName = [System.IO.Path]::GetFileName($savedPath)
+        }
+      } elseif ($saveToDefaultPath) {
         $savedPath = Save-MuxedVideoToDefaultPath -SourcePath $muxedVideoPath -RequestedFileName $outputFileName
         $muxedVideoPath = ""
         Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{

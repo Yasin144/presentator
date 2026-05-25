@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restartAnjali: () =>
     ipcRenderer.invoke('restart-anjali'),
 
+  // Ask the main process to restart the video export / FFmpeg server
+  restartVideoExport: () =>
+    ipcRenderer.invoke('restart-video-export'),
+
   // Get live health status of all servers
   getServerHealth: () =>
     ipcRenderer.invoke('get-server-health'),

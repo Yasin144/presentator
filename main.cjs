@@ -415,13 +415,28 @@ async function createWindow() {
     return { ok: true };
   });
 
+  // ── IPC: Restart video export server from renderer ───────────────────────
+  ipcMain.handle('restart-video-export', () => {
+    console.log('[PP] Renderer requested video export server restart.');
+    restartServer('FFmpegServer');
+    return { ok: true };
+  });
+
   // ── IPC: Get server health status ─────────────────────────────────────────
   ipcMain.handle('get-server-health', async () => {
-    const anjaliAlive = await pingPort(8426);
-    const viteAlive   = await pingPort(5173, '/');
+    const [voiceAlive, anjaliAlive, transcribeAlive, videoExportAlive, viteAlive] = await Promise.all([
+      pingPort(8424),
+      pingPort(8426),
+      pingPort(8428),
+      pingPort(8430),
+      pingPort(5173, '/')
+    ]);
     return {
-      anjali: anjaliAlive,
-      vite:   viteAlive,
+      voice:       voiceAlive,
+      anjali:      anjaliAlive,
+      transcribe:  transcribeAlive,
+      videoExport: videoExportAlive,
+      vite:        viteAlive,
       timestamp: Date.now()
     };
   });
