@@ -11276,11 +11276,45 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     }
     updateTaskProgressUi(0.18, true, { label: `Generating narration (${totalChunks} parts)...` });
 
-    const parallelResults = await Promise.all(
-      chunkEntries.map((chunk) =>
-        generateNarrationChunkWithFallback(chunk.text, voice, options)
-      )
-    );
+    let completedChunks = 0;
+    let lastShownProgress = 0.18;
+    const progressStartedAt = Date.now();
+    const progressTimerId = window.setInterval(() => {
+      const elapsedSec = Math.max(1, Math.round((Date.now() - progressStartedAt) / 1000));
+      const estimatedProgress = clamp(0.18 + Math.min(0.42, elapsedSec / 180), lastShownProgress, 0.68);
+      lastShownProgress = estimatedProgress;
+      const label = `Generating narration (${completedChunks}/${totalChunks} parts ready, ${elapsedSec}s elapsed)...`;
+      updateTaskProgressUi(estimatedProgress, true, { label });
+      if (typeof options.onProgress === "function") {
+        options.onProgress({ label, progress: estimatedProgress });
+      }
+    }, 2500);
+
+    let parallelResults = [];
+    try {
+      parallelResults = await Promise.all(
+        chunkEntries.map((chunk, index) =>
+          generateNarrationChunkWithFallback(chunk.text, voice, options).then((chunkResult) => {
+            completedChunks += 1;
+            const completedProgress = 0.18 + ((completedChunks / totalChunks) * 0.56);
+            lastShownProgress = Math.max(lastShownProgress, completedProgress);
+            const label = `Finished narration part ${completedChunks} of ${totalChunks}.`;
+            updateTaskProgressUi(completedProgress, true, { label });
+            if (typeof options.onProgress === "function") {
+              options.onProgress({
+                label,
+                progress: completedProgress
+              });
+            }
+            return { index, chunkResult };
+          })
+        )
+      );
+      parallelResults.sort((a, b) => a.index - b.index);
+      parallelResults = parallelResults.map((entry) => entry.chunkResult);
+    } finally {
+      window.clearInterval(progressTimerId);
+    }
 
     parallelResults.forEach((chunkResult, index) => {
       const chunk = chunkEntries[index];
@@ -11294,13 +11328,6 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
             : chunk.gapAfterMs
         }))
       ));
-      const completedProgress = 0.18 + (((index + 1) / totalChunks) * 0.56);
-      if (typeof options.onProgress === "function") {
-        options.onProgress({
-          label: `Finished narration part ${index + 1} of ${totalChunks}.`,
-          progress: completedProgress
-        });
-      }
     });
 
     updateTaskProgressUi(0.74, true, { label: "All narration parts ready." });
