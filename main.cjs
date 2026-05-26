@@ -268,6 +268,7 @@ const PS = process.env.SYSTEMROOT
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const ANJALI_PYTHON = path.join(ROOT, '.voiceclone-venv', 'Scripts', 'python.exe');
 const ANJALI_SERVER = path.join(ROOT, 'anjali-chatterbox-server.py');
+const EDGE_TTS_SERVER = path.join(ROOT, 'timed-voiceover-server.py');
 
 function isAnjaliServerProcessRunning() {
   return new Promise((resolve) => {
@@ -351,10 +352,22 @@ function startServers() {
     '-File', path.join(ROOT, 'video-export-server.ps1')
   ], { restartDelayMs: 2000 });
 
-  // 3. Chatterbox TTS server (port 8426) - the only narration/audio TTS engine
+  // 3. Chatterbox TTS server (port 8426) - sc3 cloned voice option
   startAnjaliServer();
 
-  // 4. Vite dev server (port 5173) — dev mode only
+  // 4. Edge TTS server (port 8427) - separate voice option, never a fallback
+  spawnManaged('EdgeTTS', ANJALI_PYTHON, ['-u', EDGE_TTS_SERVER], {
+    cwd: ROOT,
+    restartDelayMs: 3000,
+    maxRestarts: 4,
+    restartWindowSec: 600,
+    env: {
+      PYTHONUTF8: '1',
+      PYTHONUNBUFFERED: '1',
+    }
+  });
+
+  // 5. Vite dev server (port 5173) — dev mode only
   if (IS_DEV) {
     spawnManaged('ViteDevServer', NPM, ['run', 'dev'], {
       cwd:   ROOT,
@@ -522,7 +535,7 @@ async function createWindow() {
   });
 
   ipcMain.handle('narrate-edge-tts', async (_event, payload) => {
-    const response = await postJsonForBuffer(8426, '/api/narrate', payload, 180000);
+    const response = await postJsonForBuffer(8427, '/api/preview', payload, 180000);
     const contentType = String(response.headers['content-type'] || 'audio/wav');
     const bodyText = /application\/json/i.test(contentType)
       ? response.buffer.toString('utf8')
@@ -554,14 +567,16 @@ async function createWindow() {
 
   // ── IPC: Get server health status ─────────────────────────────────────────
   ipcMain.handle('get-server-health', async () => {
-    const [anjaliAlive, transcribeAlive, videoExportAlive, viteAlive] = await Promise.all([
+    const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, viteAlive] = await Promise.all([
       pingPort(8426),
+      pingPort(8427),
       pingPort(8428),
       pingPort(8430),
       pingPort(5173, '/')
     ]);
     return {
       anjali:      anjaliAlive,
+      edgeTts:     edgeTtsAlive,
       transcribe:  transcribeAlive,
       videoExport: videoExportAlive,
       vite:        viteAlive,

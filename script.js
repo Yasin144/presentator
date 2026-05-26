@@ -321,8 +321,10 @@ const DEFAULT_INTRO_VIDEO_FILE = "INTRO.mp4";
 const DEFAULT_INTRO_VIDEO_FALLBACK_FILE = "default-intro-optimized.mp4";
 const LEGACY_DEFAULT_INTRO_VIDEO_FILE = "default-intro.mp4";
 const ANJALI_SAMPLE_AUDIO_FILE = "voice-preview-anjali.mp3";
-const EXPORT_NARRATION_VOICE = "anjali";
-const ONLY_NARRATION_VOICE = "anjali";
+const SC3_NARRATION_VOICE = "anjali";
+const EDGE_NARRATION_VOICE = "edge";
+const EXPORT_NARRATION_VOICE = SC3_NARRATION_VOICE;
+const DEFAULT_NARRATION_VOICE = SC3_NARRATION_VOICE;
 const PRESENTATION_TEMPLATE_CLASSIC = "classic";
 const PRESENTATION_TEMPLATE_OUTCOMES = "learning-outcomes";
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
@@ -344,22 +346,25 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const EDGE_TTS_DEFAULT_FEMALE_VOICE = "en-IN-NeerjaExpressiveNeural";
-const EDGE_TTS_DEFAULT_MALE_VOICE = "en-IN-PrabhatNeural";
-const EDGE_TTS_MALE_PROFILE = Object.freeze({
-  voiceId: EDGE_TTS_DEFAULT_MALE_VOICE,
-  gender: "male",
-  locale: "en-IN",
-  accent: "indian",
-  style: "clear-natural-classroom",
-  pronunciationMode: NARRATION_STYLE_CONFIG.pronunciationMode,
-  stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
-});
+const ALLOWED_NARRATION_VOICES = Object.freeze([SC3_NARRATION_VOICE, EDGE_NARRATION_VOICE]);
+const NARRATION_VOICE_OPTIONS = Object.freeze([
+  {
+    id: SC3_NARRATION_VOICE,
+    label: "sc3 cloned voice",
+    shortLabel: "sc3",
+    engine: "Chatterbox TTS",
+    fileNamePrefix: "sc3"
+  },
+  {
+    id: EDGE_NARRATION_VOICE,
+    label: "Edge TTS voice",
+    shortLabel: "Edge TTS",
+    engine: "Microsoft Edge TTS",
+    fileNamePrefix: "edge-tts",
+    edgeVoiceId: EDGE_TTS_DEFAULT_FEMALE_VOICE
+  }
+]);
 const EDGE_TTS_VOICE_STORAGE_KEY = "pp_preferred_voice";
-try {
-  localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, ONLY_NARRATION_VOICE);
-} catch (error) {
-  console.warn("[voice] Could not lock stored narration voice:", error);
-}
 const EXPORT_TITLE_PREROLL_MS = 500;
 const TITLE_TO_CONTEXT_GAP_MS = 300;
 const EXPORT_TITLE_OUTRO_MS = 2400;
@@ -806,7 +811,7 @@ const state = {
   inputPreviewing: false,
   previewAudio: null,
   previewAudioUrl: "",
-  preferredNarrationVoice: ONLY_NARRATION_VOICE,
+  preferredNarrationVoice: normalizeNarrationVoiceId(localStorage.getItem(EDGE_TTS_VOICE_STORAGE_KEY)),
   mathsTranslator: {
     auto: true,
     lastSource: "",
@@ -4837,6 +4842,39 @@ function getLinearSyncFrame(text, elapsedMs, durationMs) {
   };
 }
 
+function getNarrationVoiceOption(voice = state?.preferredNarrationVoice) {
+  const voiceId = String(voice || "").trim();
+  return NARRATION_VOICE_OPTIONS.find((option) => option.id === voiceId)
+    || NARRATION_VOICE_OPTIONS.find((option) => option.id === DEFAULT_NARRATION_VOICE);
+}
+
+function normalizeNarrationVoiceId(voice = state?.preferredNarrationVoice) {
+  const voiceId = String(voice || "").trim();
+  if (ALLOWED_NARRATION_VOICES.includes(voiceId)) {
+    return voiceId;
+  }
+  return DEFAULT_NARRATION_VOICE;
+}
+
+function requireNarrationVoiceId(voice = state?.preferredNarrationVoice) {
+  const voiceId = String(voice || "").trim();
+  if (!ALLOWED_NARRATION_VOICES.includes(voiceId)) {
+    throw new Error("Please choose either the sc3 cloned voice or the Edge TTS voice.");
+  }
+  return voiceId;
+}
+
+function persistPreferredNarrationVoice(voice) {
+  const voiceId = requireNarrationVoiceId(voice);
+  state.preferredNarrationVoice = voiceId;
+  try {
+    localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, voiceId);
+  } catch (error) {
+    console.warn("[voice] Could not persist narration voice:", error);
+  }
+  return voiceId;
+}
+
 function getAudioClockSyncFrame(text = "", elapsedMs = 0, durationMs = 0, options = {}) {
   const safeText = String(text || "");
   const safeDurationMs = Math.max(0, Math.round(Number(durationMs) || 0));
@@ -6021,20 +6059,15 @@ async function useBundledAnjaliSampleAsNarration() {
 }
 
 function updatePreferredVoiceUi() {
-  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
-  try {
-    localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, ONLY_NARRATION_VOICE);
-  } catch (error) {
-    console.warn("[voice] Could not persist locked narration voice:", error);
-  }
+  const voice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
+  state.preferredNarrationVoice = voice;
   if (slideVoiceSelect) {
-    slideVoiceSelect.value = ONLY_NARRATION_VOICE;
-    slideVoiceSelect.disabled = true;
+    slideVoiceSelect.value = voice;
   }
 }
 
 function getNarrationVoiceLabel(voice) {
-  return "Anjali";
+  return getNarrationVoiceOption(voice)?.shortLabel || "sc3";
 }
 
 function setPreviewVoiceChooserVisible(isVisible) {
@@ -6052,16 +6085,18 @@ function updateSpeechToolsUi() {
   }
   if (loadAnjaliNarrationBtn) {
     loadAnjaliNarrationBtn.disabled = !lessonInput.value.trim() || state.generatingNarration;
+    const voiceLabel = getNarrationVoiceLabel(state.preferredNarrationVoice);
     loadAnjaliNarrationBtn.textContent = state.generatingNarration
-      ? "Generating Anjali..."
-      : "Generate Anjali Narration";
+      ? `Generating ${voiceLabel}...`
+      : `Generate ${voiceLabel} Narration`;
     loadAnjaliNarrationBtn.setAttribute("aria-busy", state.generatingNarration ? "true" : "false");
   }
   if (downloadAnjaliBtn) {
     downloadAnjaliBtn.disabled = !lessonInput.value.trim() || state.generatingNarration;
+    const voiceLabel = getNarrationVoiceLabel(state.preferredNarrationVoice);
     downloadAnjaliBtn.textContent = state.generatingNarration
       ? "Preparing Download..."
-      : "Download Anjali Narration";
+      : `Download ${voiceLabel} Narration`;
     downloadAnjaliBtn.setAttribute("aria-busy", state.generatingNarration ? "true" : "false");
   }
   transcribeAudioInput.disabled = state.transcribing;
@@ -8524,24 +8559,20 @@ async function ensurePdfNarrationReadyForPresentation(options = {}) {
 }
 
 function getSelectedEdgeExportVoice() {
-  return ONLY_NARRATION_VOICE;
+  return normalizeNarrationVoiceId(state.preferredNarrationVoice);
 }
 
-function forceExportVoiceToAnjali() {
-  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
-  try {
-    localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, ONLY_NARRATION_VOICE);
-  } catch (error) {
-    console.warn("[voice] Could not persist locked export voice:", error);
-  }
+function syncExportVoiceSelection() {
+  const voice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
+  state.preferredNarrationVoice = voice;
   if (slideVoiceSelect) {
-    slideVoiceSelect.value = ONLY_NARRATION_VOICE;
+    slideVoiceSelect.value = voice;
   }
   updatePreferredVoiceUi();
 }
 
 async function ensureAnjaliNarrationReadyForExport(options = {}) {
-  forceExportVoiceToAnjali();
+  syncExportVoiceSelection();
   const exportVoice = getSelectedEdgeExportVoice();
   const exportText = String(options.textSource || commitLatestLessonText()).trim();
   const hasMatchingNarration = Boolean(
@@ -8589,7 +8620,7 @@ async function ensureAnjaliPdfNarrationReadyForExport(options = {}) {
     throw new Error("No readable PDF text was found in the selected pages.");
   }
 
-  forceExportVoiceToAnjali();
+  syncExportVoiceSelection();
   const exportVoice = getSelectedEdgeExportVoice();
 
   const hasMatchingNarration = Boolean(
@@ -8840,10 +8871,12 @@ async function playPdfPresentation() {
     return;
   }
 
-  const narrationServerReady = await ensureAnjaliCloneServer();
-  if (!narrationServerReady) {
-    startTimedPdfPresentation(`The local Anjali voice server is offline, so the app is presenting ${getPdfPresentationFallbackLabel()} with the timeline controls.`);
-    return;
+  if (normalizeNarrationVoiceId(state.preferredNarrationVoice) === SC3_NARRATION_VOICE) {
+    const narrationServerReady = await ensureAnjaliCloneServer();
+    if (!narrationServerReady) {
+      startTimedPdfPresentation(`The local sc3 voice server is offline, so the app is presenting ${getPdfPresentationFallbackLabel()} with the timeline controls.`);
+      return;
+    }
   }
 
   try {
@@ -10951,18 +10984,10 @@ async function playDirectAudioPreview(audioUrl, voiceLabel) {
   await audioElement.play();
 }
 
-function normalizeEdgeTtsVoiceId() {
-  return ONLY_NARRATION_VOICE;
-}
-
 async function requestNarrationBlobSingle(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
-  const safeVoice = normalizeEdgeTtsVoiceId();
-  const edgeVoiceId = safeVoice;
+  const safeVoice = requireNarrationVoiceId(voice);
+  const voiceOption = getNarrationVoiceOption(safeVoice);
   const requestTimeoutMs = 0;
-  const serverReady = await ensureAnjaliCloneServer();
-  if (!serverReady) {
-    throw new Error("Chatterbox voice server is not ready on port 8426.");
-  }
 
   if (typeof options.onProgress === "function") {
     options.onProgress({
@@ -10976,6 +11001,57 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
     : buildNarrationText(text);
   if (!narrationText) {
     throw new Error("No narration text was available.");
+  }
+
+  if (safeVoice === EDGE_NARRATION_VOICE) {
+    if (typeof options.onProgress === "function") {
+      options.onProgress({
+        label: "Sending text to Edge TTS server...",
+        progress: 0.22
+      });
+    }
+
+    const edgePayload = {
+      text: narrationText,
+      voice: voiceOption.edgeVoiceId,
+      rate: "-16%",
+      pitch: "+0Hz",
+      volume: "+0%"
+    };
+
+    if (typeof window.electronAPI?.narrateEdgeTts === "function") {
+      const result = await window.electronAPI.narrateEdgeTts(edgePayload);
+      if (!result?.audioBase64) {
+        throw new Error("Edge TTS returned no audio data.");
+      }
+      const blob = base64ToBlob(result.audioBase64, result.contentType || "audio/wav");
+      if (!blob.size) {
+        throw new Error("Edge TTS returned an empty audio file.");
+      }
+      return blob;
+    }
+
+    const response = await fetchWithTimeout("http://127.0.0.1:8427/api/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(edgePayload),
+      cache: "no-store"
+    }, options.timeoutMs || getLongNarrationRequestTimeoutMs(narrationText));
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.error || "Edge TTS generation failed.");
+    }
+    const blob = await response.blob();
+    if (!blob.size) {
+      throw new Error("Edge TTS returned an empty audio file.");
+    }
+    return blob;
+  }
+
+  const serverReady = await ensureAnjaliCloneServer();
+  if (!serverReady) {
+    throw new Error("Chatterbox sc3 voice server is not ready on port 8426.");
   }
   const narrationPayload = buildNarrationRequestPayloadFromNarrationText(narrationText);
 
@@ -10996,43 +11072,11 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
       ...narrationPayload,
       generationOptions: {
         ...(narrationPayload.generationOptions || {}),
-          voice: ONLY_NARRATION_VOICE
+        voice: SC3_NARRATION_VOICE
       }
     })
   };
-  const requestPayload = JSON.parse(requestOptions.body);
   let stopProgressPolling = startChatterboxProgressPolling(options);
-
-  if (typeof window.electronAPI?.narrateEdgeTts === "function") {
-    let lastIpcError = null;
-    const maxIpcAttempts = 6;
-    for (let attempt = 1; attempt <= maxIpcAttempts; attempt += 1) {
-      try {
-        const result = await window.electronAPI.narrateEdgeTts(requestPayload);
-        stopProgressPolling();
-        stopProgressPolling = () => {};
-        if (!result?.audioBase64) {
-          throw new Error("Narration generation returned no audio data.");
-        }
-        const blob = base64ToBlob(result.audioBase64, result.contentType || "audio/wav");
-        if (!blob.size) {
-          throw new Error("Narration generation returned an empty audio file.");
-        }
-        return blob;
-      } catch (error) {
-        lastIpcError = error;
-        console.error(`[anjali] Electron IPC narration failed on attempt ${attempt}:`, error);
-        if (attempt >= maxIpcAttempts) {
-          break;
-        }
-        state.anjaliCloneServerReady = false;
-        await restartAnjaliServerFromRenderer();
-        await delay(700 + (attempt * 300));
-      }
-    }
-    stopProgressPolling();
-    throw new Error(lastIpcError?.message || "Narration generation failed through Electron.");
-  }
 
   let response = null;
   let lastFetchError = null;
@@ -11043,7 +11087,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
         await fetchAnjaliEndpoint(`${state.anjaliCloneServerUrl}/set-voice`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ voice: ONLY_NARRATION_VOICE })
+          body: JSON.stringify({ voice: SC3_NARRATION_VOICE })
         }, "Restoring selected voice", { attempts: 2, timeoutMs: 2500 }).catch(() => null);
       }
       response = await fetchAnjaliEndpoint(requestUrl, requestOptions, "Generating Chatterbox narration audio", {
@@ -11162,7 +11206,7 @@ async function generateNarrationChunkWithFallback(chunkText, voice, options = {}
 }
 
 async function requestNarrationBlob(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
-  voice = ONLY_NARRATION_VOICE;
+  voice = requireNarrationVoiceId(voice);
   const narrationText = buildNarrationText(text);
   if (!narrationText) {
     throw new Error("No narration text was available.");
@@ -20285,7 +20329,7 @@ function playSpeechFallback() {
 
 function hasFreshGeneratedAnjaliNarration(currentText = "") {
   const safeText = String(currentText || "").trim();
-  const expectedVoice = state.preferredNarrationVoice || "anjali";
+  const expectedVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
   return Boolean(
     state.narration.url
     && state.narration.blob
@@ -20299,7 +20343,7 @@ function hasFreshGeneratedAnjaliNarration(currentText = "") {
 // ── Play Loading Overlay ────────────────────────────────────────────────────
 // Step-by-step checklist drawn on the canvas while Play is preparing.
 const PLAY_LOADING_STEPS = [
-  { id: "narration", label: "Generating Anjali narration audio..." },
+  { id: "narration", label: "Generating selected voice narration audio..." },
   { id: "audio",    label: "Loading & decoding audio..." },
   { id: "intro",    label: "Playing intro clip..." },
   { id: "starting", label: "Starting lesson playback..." }
@@ -20463,7 +20507,7 @@ async function ensureNarrationReadyForSlide(options = {}) {
     return;
   }
 
-  const voice = state.preferredNarrationVoice || "anjali";
+  const voice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
   const label = `Generated ${getNarrationVoiceLabel(voice).toLowerCase()} narration`;
   const fileName = `generated-${voice}-narration.wav`;
   let syncProfile = null;
@@ -20480,14 +20524,10 @@ async function ensureNarrationReadyForSlide(options = {}) {
 }
 
 async function createTitleNarrationForVoice(voice = state.preferredNarrationVoice || "anjali", options = {}) {
+  voice = requireNarrationVoiceId(voice);
   const titleText = getPresentationTitleText();
   if (!titleText) {
     return null;
-  }
-
-  const serverReady = await ensureAnjaliCloneServer();
-  if (!serverReady) {
-    throw new Error("Title narration needs the voice server on port 8426.");
   }
 
   const blob = await requestNarrationBlob(titleText, voice, {
@@ -20622,7 +20662,7 @@ async function playSlide() {
     } else if (state.introPlayback.enabled) {
       await playPostIntroBlankTransition();
     }
-    await playTitleIntroBeforeLesson(state.preferredNarrationVoice || "anjali");
+    await playTitleIntroBeforeLesson(normalizeNarrationVoiceId(state.preferredNarrationVoice));
     playNarrationAudio();
     return;
   }
@@ -20632,7 +20672,7 @@ async function playSlide() {
     setPlayLoadingStep("narration");
     updatePlayLoadingProgress(0.18, "Generating narration");
     state.generatingNarration = true;
-    startNarrationLiveProgress("Generating Anjali narration...");
+    startNarrationLiveProgress(`Generating ${getNarrationVoiceLabel(state.preferredNarrationVoice).toLowerCase()} narration...`);
     setStatus("Preparing narration for live playback...");
     updateTaskProgressUi(0.2, true, { mirrorStage: true });
     await ensureNarrationReadyForSlide({
@@ -20662,7 +20702,7 @@ async function playSlide() {
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
     resetTaskProgressUi();
     clearPlayLoadingOverlay();
-    await playTitleIntroBeforeLesson(state.preferredNarrationVoice || "anjali");
+    await playTitleIntroBeforeLesson(normalizeNarrationVoiceId(state.preferredNarrationVoice));
     playNarrationAudio();
   } catch (error) {
     console.error(error);
@@ -20672,7 +20712,7 @@ async function playSlide() {
     resetTaskProgressUi();
     clearPlayLoadingOverlay();
     const errMsg = error?.message || "Unknown error during narration generation.";
-    setStatus(`⚠️ Narration failed: ${errMsg} — Check that the voice server is running on port 8426 and try again.`);
+    setStatus(`Narration failed: ${errMsg}`);
     return;
   }
 }
@@ -20689,7 +20729,7 @@ async function openPreviewVoiceChooser() {
   stopPlayback(false);
   stopDictation(false);
   setPreviewVoiceChooserVisible(false);
-  await startTextPreview(state.preferredNarrationVoice || "anjali");
+  await startTextPreview(normalizeNarrationVoiceId(state.preferredNarrationVoice));
 }
 
 // ── Chunked narration: requests FULL text from Anjali (real voice),
@@ -20702,13 +20742,13 @@ async function playChunkedNarration(text) {
   if (!words.length) return;
 
   state.inputPreviewing = true;
-  setSpeechToolsStatus('Generating Anjali audio — please wait…');
+  setSpeechToolsStatus(`Generating ${getNarrationVoiceLabel(state.preferredNarrationVoice)} audio — please wait...`);
   updateSpeechToolsUi();
 
   let previewUrl = null;
   try {
     // One full request to the Anjali server → real voice, real intonation
-    const previewVoice = state.preferredNarrationVoice || 'anjali';
+    const previewVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
     const blob = await requestNarrationBlob(text, previewVoice, {
       timeoutMs: getLongNarrationRequestTimeoutMs(text)
     });
@@ -20785,7 +20825,7 @@ async function startTextPreview(voicePreference) {
   stopPlayback(false);
   stopDictation(false);
   stopInputPreview(false);
-  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
+  state.preferredNarrationVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
   updatePreferredVoiceUi();
 
   // Chunked reading: 5-6 words at a time with pauses
@@ -20979,7 +21019,7 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
   stopDictation(false);
   stopInputPreview(false);
   stopPlayback(false);
-  forceExportVoiceToAnjali();
+  syncExportVoiceSelection();
   state.exportingVideo = true;
   const preparingPdfExportMessage = `Preparing ${modeLabel} video with Anjali narration. Please wait...`;
   setStatus(preparingPdfExportMessage);
@@ -21674,7 +21714,7 @@ async function exportVideo(options = {}) {
   stopDictation(false);
   stopInputPreview(false);
   stopPlayback(false);
-  forceExportVoiceToAnjali();
+  syncExportVoiceSelection();
   state.introPlayback.enabled = introClipRequested;
   state.exportingVideo = true;
   const cacheOnly = options.cacheOnly === true;
@@ -22930,7 +22970,7 @@ async function handleTranscribeAudioUpload() {
 }
 
 async function generateNarrationDownload(voice) {
-  voice = ONLY_NARRATION_VOICE;
+  voice = requireNarrationVoiceId(voice);
   clearNarrationWarmupTimer();
   const text = getEffectiveLessonText();
   const lessonIssue = getLessonTextIssue(text);
@@ -22942,7 +22982,7 @@ async function generateNarrationDownload(voice) {
 
   state.generatingNarration = true;
   updateSpeechToolsUi();
-  startNarrationLiveProgress("Generating anjali narration...");
+  startNarrationLiveProgress(`Generating ${getNarrationVoiceLabel(voice).toLowerCase()} narration...`);
 
   try {
     const label = getNarrationVoiceLabel(voice);
@@ -22984,7 +23024,7 @@ async function generateNarrationDownload(voice) {
   }
 }
 
-async function convertAudioBlobToMp3(audioBlob, inputFileName = "anjali-narration.wav") {
+async function convertAudioBlobToMp3(audioBlob, inputFileName = "narration.wav") {
   const serverReady = await ensureVideoExportServer();
   if (!serverReady) {
     throw new Error("The FFmpeg server is not running, so MP3 conversion is unavailable.");
@@ -22997,7 +23037,7 @@ async function convertAudioBlobToMp3(audioBlob, inputFileName = "anjali-narratio
     body: JSON.stringify({
       audioBase64,
       inputFileName,
-      outputFileName: "anjali-narration.mp3"
+      outputFileName: inputFileName.replace(/\.[^.]+$/i, ".mp3")
     })
   });
 
@@ -23010,6 +23050,8 @@ async function convertAudioBlobToMp3(audioBlob, inputFileName = "anjali-narratio
 }
 
 async function downloadNarrationMp3Only() {
+  const voice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
+  const label = getNarrationVoiceLabel(voice);
   const text = getEffectiveLessonText();
   const lessonIssue = getLessonTextIssue(text);
   if (lessonIssue) {
@@ -23017,22 +23059,23 @@ async function downloadNarrationMp3Only() {
     return;
   }
 
-  setStatus("Generating Anjali narration MP3...");
-  updateTaskProgressUi(0.16, true, { label: "Generating Anjali narration MP3..." });
+  setStatus(`Generating ${label} narration MP3...`);
+  updateTaskProgressUi(0.16, true, { label: `Generating ${label} narration MP3...` });
 
   try {
-    const wavBlob = await requestNarrationBlob(text, ONLY_NARRATION_VOICE, {
+    const wavBlob = await requestNarrationBlob(text, voice, {
       timeoutMs: getLongNarrationRequestTimeoutMs(text),
       onProgress: ({ label, progress }) => {
         updateTaskProgressUi(0.16 + (clamp(progress || 0, 0, 1) * 0.54), true, { label: label || "Generating narration..." });
       }
     });
     updateTaskProgressUi(0.78, true, { label: "Converting narration to MP3..." });
-    const mp3Blob = await convertAudioBlobToMp3(wavBlob, "anjali-narration.wav");
+    const filePrefix = getNarrationVoiceOption(voice)?.fileNamePrefix || voice;
+    const mp3Blob = await convertAudioBlobToMp3(wavBlob, `${filePrefix}-narration.wav`);
     updateTaskProgressUi(0.94, true, { label: "Downloading MP3..." });
-    await triggerFileDownload(mp3Blob, "anjali-narration.mp3");
-    updateTaskProgressUi(1, true, { label: "Anjali MP3 is ready." });
-    setStatus("Anjali narration MP3 downloaded.");
+    await triggerFileDownload(mp3Blob, `${filePrefix}-narration.mp3`);
+    updateTaskProgressUi(1, true, { label: `${label} MP3 is ready.` });
+    setStatus(`${label} narration MP3 downloaded.`);
   } catch (error) {
     console.error(error);
     setStatus(error.message || "MP3 download failed.", { error: true });
@@ -23042,7 +23085,7 @@ async function downloadNarrationMp3Only() {
 }
 
 async function loadGeneratedNarrationIntoApp(voice) {
-  voice = ONLY_NARRATION_VOICE;
+  voice = requireNarrationVoiceId(voice);
   clearNarrationWarmupTimer();
   const text = getEffectiveLessonText();
   const lessonIssue = getLessonTextIssue(text);
@@ -23054,7 +23097,7 @@ async function loadGeneratedNarrationIntoApp(voice) {
 
   state.generatingNarration = true;
   updateSpeechToolsUi();
-  startNarrationLiveProgress("Generating anjali narration for the app...");
+  startNarrationLiveProgress(`Generating ${getNarrationVoiceLabel(voice).toLowerCase()} narration for the app...`);
 
   try {
     const label = getNarrationVoiceLabel(voice);
@@ -23901,7 +23944,7 @@ dictateBtn.addEventListener("click", startDictation);
 stopDictateBtn.addEventListener("click", () => stopDictation(true));
 previewTextBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => openPreviewVoiceChooser()));
 if (previewAnjaliBtn) {
-  previewAnjaliBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => startTextPreview(ONLY_NARRATION_VOICE)));
+  previewAnjaliBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => startTextPreview(normalizeNarrationVoiceId(state.preferredNarrationVoice))));
 }
 stageToolbarGroups.forEach((group) => {
   group.addEventListener("toggle", () => {
@@ -23930,11 +23973,37 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
 
   if (!listEl || !searchEl || !badgeEl) return;
 
-  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
-  badgeEl.textContent = "Anjali";
+  const renderLimitedVoices = () => {
+    const activeVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
+    badgeEl.textContent = getNarrationVoiceLabel(activeVoice);
+    listEl.innerHTML = NARRATION_VOICE_OPTIONS.map((option) => `
+      <div class="voice-item${option.id === activeVoice ? " active" : ""}"
+           data-voice="${option.id}" role="button" tabindex="0"
+           aria-label="${option.label}">
+        <span class="voice-item-info">
+          <span class="voice-item-name">${option.label}</span>
+          <span class="voice-item-meta">${option.engine}</span>
+        </span>
+        ${option.id === activeVoice ? '<span class="active-tick">✔</span>' : ""}
+      </div>`).join("");
+    listEl.querySelectorAll(".voice-item").forEach((item) => {
+      const selectVoice = () => {
+        const voiceId = persistPreferredNarrationVoice(item.dataset.voice);
+        resetNarrationState();
+        invalidateNarrationDependentExports();
+        updateNarrationUi();
+        updatePreferredVoiceUi();
+        renderLimitedVoices();
+      };
+      item.addEventListener("click", selectVoice);
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") selectVoice();
+      });
+    });
+  };
   searchEl.value = "";
   searchEl.disabled = true;
-  listEl.innerHTML = "<p class='upload-copy' style='padding:10px 14px;'>Anjali cloned voice only.</p>";
+  renderLimitedVoices();
   return;
 
   // Locale → display name + flag emoji
@@ -24079,7 +24148,6 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
 // ── Stage Voices Module ─────────────────────────────────────────────────────
 (function initStageVoicePicker() {
   const STORAGE_KEY = EDGE_TTS_VOICE_STORAGE_KEY;
-  const FALLBACK_ID = ONLY_NARRATION_VOICE;
   const PREVIEW_PHRASE = "Hello! I am your AI teaching assistant. Let's learn something wonderful today.";
 
   const selectEl     = document.getElementById("stageVoiceSelect");
@@ -24094,22 +24162,31 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
 
   if (!selectEl || !previewBtn || !useBtn) return;
 
-  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
-  try {
-    localStorage.setItem(STORAGE_KEY, ONLY_NARRATION_VOICE);
-  } catch (error) {
-    console.warn("[StageVoices] Could not persist locked voice:", error);
-  }
-  selectEl.innerHTML = '<option value="anjali" selected>Anjali cloned voice</option>';
-  selectEl.value = ONLY_NARRATION_VOICE;
-  selectEl.disabled = true;
+  const initialVoice = persistPreferredNarrationVoice(normalizeNarrationVoiceId(localStorage.getItem(STORAGE_KEY) || state.preferredNarrationVoice));
+  selectEl.innerHTML = NARRATION_VOICE_OPTIONS
+    .map((option) => `<option value="${option.id}">${option.label}</option>`)
+    .join("");
+  selectEl.value = initialVoice;
+  selectEl.disabled = false;
   previewBtn.disabled = false;
-  useBtn.disabled = true;
+  useBtn.disabled = false;
   if (defaultBtn) defaultBtn.disabled = true;
-  if (badgeEl) badgeEl.textContent = "Anjali";
-  if (defaultName) defaultName.textContent = "Anjali";
-  if (statusEl) statusEl.textContent = "Only Anjali cloned voice is enabled.";
-  previewBtn.addEventListener("click", () => startTextPreview(ONLY_NARRATION_VOICE));
+  if (badgeEl) badgeEl.textContent = getNarrationVoiceLabel(initialVoice);
+  if (defaultName) defaultName.textContent = getNarrationVoiceOption(initialVoice)?.label || getNarrationVoiceLabel(initialVoice);
+  if (statusEl) statusEl.textContent = "Choose sc3 or Edge TTS. The selected engine is used only by itself.";
+  const applyLimitedVoice = () => {
+    const voiceId = persistPreferredNarrationVoice(selectEl.value);
+    updatePreferredVoiceUi();
+    resetNarrationState();
+    invalidateNarrationDependentExports();
+    updateNarrationUi();
+    if (badgeEl) badgeEl.textContent = getNarrationVoiceLabel(voiceId);
+    if (defaultName) defaultName.textContent = getNarrationVoiceOption(voiceId)?.label || getNarrationVoiceLabel(voiceId);
+    if (statusEl) statusEl.textContent = `${getNarrationVoiceLabel(voiceId)} selected. No fallback voice will be used.`;
+  };
+  selectEl.addEventListener("change", applyLimitedVoice);
+  useBtn.addEventListener("click", applyLimitedVoice);
+  previewBtn.addEventListener("click", () => startTextPreview(selectEl.value));
   return;
 
   const LOCALE_META = {
@@ -24609,11 +24686,11 @@ stopRecordBtn.addEventListener("click", stopRecordingNarration);
 clearAudioBtn.addEventListener("click", clearNarration);
 if (loadAnjaliNarrationBtn) {
   loadAnjaliNarrationBtn.addEventListener("click", () => {
-    void runLockedAction("narrationLoad", [loadAnjaliNarrationBtn, downloadAnjaliBtn], async () => loadGeneratedNarrationIntoApp(ONLY_NARRATION_VOICE));
+    void runLockedAction("narrationLoad", [loadAnjaliNarrationBtn, downloadAnjaliBtn], async () => loadGeneratedNarrationIntoApp(normalizeNarrationVoiceId(state.preferredNarrationVoice)));
   });
 }
 if (downloadAnjaliBtn) {
-  downloadAnjaliBtn.addEventListener("click", () => runLockedAction("narrationDownload", [downloadAnjaliBtn, loadAnjaliNarrationBtn], async () => generateNarrationDownload(ONLY_NARRATION_VOICE)));
+  downloadAnjaliBtn.addEventListener("click", () => runLockedAction("narrationDownload", [downloadAnjaliBtn, loadAnjaliNarrationBtn], async () => generateNarrationDownload(normalizeNarrationVoiceId(state.preferredNarrationVoice))));
 }
 if (loadMathsNumbersBtn) {
   loadMathsNumbersBtn.addEventListener("click", () => applyMathsLessonTemplate(MATHS_NUMBERS_TEMPLATE, "Numbers lesson loaded."));
@@ -26220,12 +26297,12 @@ setPureInputMode(false);
       bar.style.width = Math.min(88, 15 + elapsed*0.9) + '%';
       if (d.chatterboxReady) { markReady(); return; }
       if (d.chatterboxError && !d.chatterboxLoading) {
-        sub.textContent = ' Clone failed — Edge TTS fallback active.';
+        sub.textContent = ' sc3 voice clone failed. Select Edge TTS manually if you want to use it.';
         bar.style.background = 'linear-gradient(90deg,#f59e0b,#ef4444)';
         setTimeout(function(){ banner.classList.add('cb-hidden'); }, 6000);
         return;
       }
-      sub.textContent = ' Loading voice model… ' + elapsed + 's | Edge TTS active until ready.';
+      sub.textContent = ' Loading sc3 voice model... ' + elapsed + 's';
       pollTimer = setTimeout(poll, POLL_MS);
     }).catch(function() {
       sub.textContent = ' Waiting for voice server on port 8426…';

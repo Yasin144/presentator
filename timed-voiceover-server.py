@@ -48,7 +48,6 @@ import edge_tts
 PORT              = 8427
 ANJALI_PORT       = 8426          # existing narration server (for health check)
 VOICE_NAME        = "en-IN-NeerjaExpressiveNeural"
-VOICE_FALLBACK    = "en-IN-NeerjaNeural"
 SAMPLE_RATE       = 24000         # Hz
 TOLERANCE_S       = 0.25          # accept ±250 ms from target
 MAX_ITERATIONS    = 8             # binary search cap
@@ -106,13 +105,7 @@ async def _synthesize_mp3(text: str, voice: str, rate: str, pitch: str, volume: 
             chunks.append(chunk["data"])
 
     if not chunks:
-        comm = edge_tts.Communicate(text, voice=VOICE_FALLBACK, rate=rate, pitch=pitch, volume=volume)
-        async for chunk in comm.stream():
-            if chunk["type"] == "audio":
-                chunks.append(chunk["data"])
-
-    if not chunks:
-        raise RuntimeError("Edge TTS returned no audio data.")
+        raise RuntimeError(f"Edge TTS voice '{voice}' returned no audio data.")
     return b"".join(chunks)
 
 
