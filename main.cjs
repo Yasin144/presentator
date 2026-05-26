@@ -1,7 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell, globalShortcut } = require('electron');
-const { spawn }  = require('child_process');
+const { spawn, execFile }  = require('child_process');
 const path       = require('path');
 const fs         = require('fs');
 const http       = require('http');
@@ -213,25 +213,25 @@ function startAnjaliWatchdog() {
   if (anjaliHealthTimer) clearInterval(anjaliHealthTimer);
   anjaliHealthTimer = setInterval(async () => {
     if (isQuitting) return;
-    const alive = await pingPort(8426, '/health', 8000);
+    const alive = await pingPort(8426, '/health', 10000);
     if (alive) {
       anjaliHealthFailureCount = 0;
       return;
     }
 
     anjaliHealthFailureCount += 1;
-    console.warn(`[PP] Edge TTS health-check miss ${anjaliHealthFailureCount}/3`);
-    if (anjaliHealthFailureCount < 3) {
-      return;
+    console.warn(`[PP] Voice server health-check miss ${anjaliHealthFailureCount}/5`);
+    if (anjaliHealthFailureCount < 5) {
+      return;  // allow 5 × 30s = 150 seconds before restart
     }
     anjaliHealthFailureCount = 0;
 
     if (!alive) {
-      console.warn('[PP] Edge TTS health-check FAILED repeatedly - forcing restart...');
+      console.warn('[PP] Voice server health-check FAILED — forcing restart...');
       const entry = servers['AnjaliAI'];
       if (entry) {
-        entry.stopped  = false;      // allow restart
-        entry.restartCount = 0;      // reset back-off
+        entry.stopped  = false;
+        entry.restartCount = 0;
         if (entry.proc && !entry.proc.killed) {
           try {
             if (process.platform === 'win32') {
@@ -244,24 +244,21 @@ function startAnjaliWatchdog() {
               entry.proc.kill('SIGTERM');
             }
           } catch(_) {}
-          // 'exit' handler fires → scheduleRestart() → doSpawn()
         } else {
-          // Process already gone — re-launch after 1s
           entry.lastRestartAt = 0;
           entry.restartCount  = 0;
           setTimeout(() => startAnjaliServer(), 1000);
         }
       }
-      // Tell the renderer so it can show a status message
       BrowserWindow.getAllWindows().forEach(w => {
         w.webContents.send('server-status', {
           server: 'anjali',
           status: 'restarting',
-          message: 'Edge TTS server went offline - restarting automatically...'
+          message: 'Voice server went offline — restarting automatically...'
         });
       });
     }
-  }, 15000); // every 15 seconds; restart only after 3 consecutive misses
+  }, 30000); // ping every 30s; restart only after 5 consecutive misses = 150s grace
 }
 
 // ─── Start individual servers ─────────────────────────────────────────────────
@@ -270,24 +267,76 @@ const PS = process.env.SYSTEMROOT
   : 'powershell';
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const ANJALI_PYTHON = path.join(ROOT, '.voiceclone-venv', 'Scripts', 'python.exe');
+const ANJALI_SERVER = path.join(ROOT, 'anjali-chatterbox-server.py');
 
-function startAnjaliServer() {
-  if (!fs.existsSync(ANJALI_PYTHON)) {
-    console.warn('[PP] Edge TTS Python venv not found - skipping.');
-    return;
-  }
-  spawnManaged('AnjaliAI', ANJALI_PYTHON, [
-    path.join(ROOT, 'anjali-chatterbox-server.py')
-  ], {
-    maxRestarts:      10,
-    restartWindowSec: 180,
-    restartDelayMs:   4000,
-    env: {
-      PYTHONWARNINGS: 'ignore',
-      COQUI_TOS_AGREED: '1',
-    }
+function isAnjaliServerProcessRunning() {
+  return new Promise((resolve) => {
+    const scriptNeedle = 'anjali-chatterbox-server.py';
+    const command = [
+      "Get-CimInstance Win32_Process",
+      "| Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*" + scriptNeedle + "*' }",
+      "| Select-Object -First 1 -ExpandProperty ProcessId"
+    ].join(' ');
+    execFile(PS, ['-NoProfile', '-NonInteractive', '-Command', command], {
+      cwd: ROOT,
+      windowsHide: true,
+      timeout: 5000,
+    }, (error, stdout) => {
+      if (error) {
+        resolve(false);
+        return;
+      }
+      resolve(/\d+/.test(String(stdout || '')));
+    });
   });
 }
+
+async function startAnjaliServer() {
+  const alive = await pingPort(8426, '/health', 5000);
+  if (alive) {
+    console.log('[PP] Voice server on 8426 is alive and warm — Electron will use it as-is.');
+    if (!servers['AnjaliAI']) {
+      servers['AnjaliAI'] = { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+    }
+    return;
+  }
+
+  const alreadyStarting = await isAnjaliServerProcessRunning();
+  if (alreadyStarting) {
+    console.warn('[PP] Chatterbox Python server is already starting — waiting for port 8426 health.');
+    if (!servers['AnjaliAI']) {
+      servers['AnjaliAI'] = { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+    }
+    BrowserWindow.getAllWindows().forEach(w => {
+      w.webContents.send('server-status', {
+        server: 'anjali',
+        status: 'starting',
+        message: 'Chatterbox voice server is starting on port 8426...'
+      });
+    });
+    return;
+  }
+
+  console.log('[PP] Starting Chatterbox Python voice server...');
+  spawnManaged('AnjaliAI', ANJALI_PYTHON, ['-u', ANJALI_SERVER], {
+    cwd: ROOT,
+    restartDelayMs: 5000,
+    maxRestarts: 4,
+    restartWindowSec: 600,
+    env: {
+      PYTHONUTF8: '1',
+      PYTHONUNBUFFERED: '1',
+    }
+  });
+  BrowserWindow.getAllWindows().forEach(w => {
+    w.webContents.send('server-status', {
+      server: 'anjali',
+      status: 'starting',
+      message: 'Launching Chatterbox voice server on port 8426...'
+    });
+  });
+}
+
 
 function startServers() {
   // 1. Transcription server (port 8428)
@@ -302,7 +351,7 @@ function startServers() {
     '-File', path.join(ROOT, 'video-export-server.ps1')
   ], { restartDelayMs: 2000 });
 
-  // 3. Edge TTS server (port 8426) - the only narration/audio TTS engine
+  // 3. Chatterbox TTS server (port 8426) - the only narration/audio TTS engine
   startAnjaliServer();
 
   // 4. Vite dev server (port 5173) — dev mode only
@@ -313,8 +362,9 @@ function startServers() {
     });
   }
 
-  // Start health watchdog after 10s; Edge TTS is ready as soon as the server listens.
-  setTimeout(startAnjaliWatchdog, 10000);
+  // Start watchdog after 3 minutes — gives Chatterbox full time to load on first boot.
+  // Chatterbox needs ~90-120 seconds; the watchdog would kill it if started too early.
+  setTimeout(startAnjaliWatchdog, 180000);
 }
 
 // ─── Free all server ports before launch ──────────────────────────────────────
@@ -325,38 +375,30 @@ function startServers() {
 // Uses taskkill /F which is faster and more reliable than PowerShell Stop-Process.
 // Also kills any stale python.exe NOT from our venv to prevent duplicate servers.
 function freeServerPorts() {
-  return new Promise((resolve) => {
-    const ports = [5173, 8424, 8426, 8428, 8430];
-    const venvPyEscaped = ANJALI_PYTHON.replace(/\\/g, '\\\\');
-
+  return new Promise(async (resolve) => {
+    // NOTE: Port 8426 (voice server) is intentionally EXCLUDED.
+    // The Chatterbox voice server is managed externally by the CMD launcher
+    // and must NEVER be killed by Electron — reloading takes ~2 minutes.
+    const ports = [5173, 8424, 8428, 8430];
     const psLines = [
-      `$myPid  = ${process.pid}`,
-      `$venvPy = '${venvPyEscaped}'`,
-      `$ports  = @(${ports.join(',')})`,
+      `$myPid = ${process.pid}`,
+      `$ports = @(${ports.join(',')})`,
       `foreach ($port in $ports) {`,
       `  $lines = netstat -ano 2>$null | Select-String ":$port\\s"`,
       `  foreach ($line in $lines) {`,
       `    if ($line -match '\\s(\\d+)\\s*$') {`,
       `      $pid = [int]$Matches[1]`,
-      `      if ($pid -ne 0 -and $pid -ne $myPid) {`,
-      `        taskkill /F /PID $pid 2>$null | Out-Null`,
-      `      }`,
+      `      if ($pid -ne 0 -and $pid -ne $myPid) { taskkill /F /PID $pid 2>$null | Out-Null }`,
       `    }`,
       `  }`,
       `}`,
-      // Extra safety: kill any python.exe not from our venv
-      `Get-Process python,python3 -ErrorAction SilentlyContinue | Where-Object {`,
-      `  $_.Id -ne $myPid -and $_.Path -ne $venvPy`,
-      `} | ForEach-Object { taskkill /F /PID $_.Id 2>$null | Out-Null }`,
     ].join('; ');
-
     const child = spawn(PS, ['-NoProfile', '-NonInteractive', '-Command', psLines], {
       detached: false, stdio: 'ignore', windowsHide: true,
     });
     child.on('exit', () => resolve());
     child.on('error', () => resolve());
-    // Hard timeout: 8s (was 5s — too short on slow machines/antivirus)
-    setTimeout(resolve, 8000);
+    setTimeout(resolve, 6000);
   });
 }
 

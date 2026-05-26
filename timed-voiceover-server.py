@@ -56,6 +56,14 @@ RATE_MIN          = -50           # Edge TTS rate floor  (%)
 RATE_MAX          = 200           # Edge TTS rate ceiling (%)
 CACHE_LIMIT       = 64
 
+# Voice reference — EVS C5 8th Lesson, Fact File, Scene 3
+VOICE_REFERENCE_SOURCE = (
+    r"D:\LESSONS\EVS\EVS C5 8TH LESSON\EVS C5 8TH LESSON"
+    r"\EVS C5 8TH Lesson fact file\sc3.mp4"
+)
+# Default rate tuned to match EVS lesson pacing
+DEFAULT_RATE = "-16%"
+
 for _k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
     os.environ.pop(_k, None)
 
@@ -352,6 +360,8 @@ class Handler(BaseHTTPRequestHandler):
                 "cacheEntries": len(_cache),
                 "toleranceS": TOLERANCE_S,
                 "maxIterations": MAX_ITERATIONS,
+                "referenceSource": "EVS C5 8th Lesson — Fact File, Scene 3 (sc3.mp4)",
+                "defaultRate": DEFAULT_RATE,
             })
         else:
             self._json({"error": "Route not found."}, 404)

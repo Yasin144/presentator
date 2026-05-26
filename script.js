@@ -158,6 +158,7 @@ const fontDecreaseBtn = document.getElementById("fontDecreaseBtn");
 const fontIncreaseBtn = document.getElementById("fontIncreaseBtn");
 const fontValue = document.getElementById("fontValue");
 const downloadBtn = document.getElementById("downloadBtn");
+const downloadNarrationMp3Btn = document.getElementById("downloadNarrationMp3Btn");
 const downloadPdfContextBtn = document.getElementById("downloadPdfContextBtn");
 const stageBoldBtn = document.getElementById("stageBoldBtn");
 const stageItalicBtn = document.getElementById("stageItalicBtn");
@@ -321,6 +322,7 @@ const DEFAULT_INTRO_VIDEO_FALLBACK_FILE = "default-intro-optimized.mp4";
 const LEGACY_DEFAULT_INTRO_VIDEO_FILE = "default-intro.mp4";
 const ANJALI_SAMPLE_AUDIO_FILE = "voice-preview-anjali.mp3";
 const EXPORT_NARRATION_VOICE = "anjali";
+const ONLY_NARRATION_VOICE = "anjali";
 const PRESENTATION_TEMPLATE_CLASSIC = "classic";
 const PRESENTATION_TEMPLATE_OUTCOMES = "learning-outcomes";
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
@@ -353,6 +355,11 @@ const EDGE_TTS_MALE_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const EDGE_TTS_VOICE_STORAGE_KEY = "pp_preferred_voice";
+try {
+  localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, ONLY_NARRATION_VOICE);
+} catch (error) {
+  console.warn("[voice] Could not lock stored narration voice:", error);
+}
 const EXPORT_TITLE_PREROLL_MS = 500;
 const TITLE_TO_CONTEXT_GAP_MS = 300;
 const EXPORT_TITLE_OUTRO_MS = 2400;
@@ -395,9 +402,9 @@ const EXPORT_SEGMENT_TARGET_DURATION_MS = 25 * 1000;
 const MUX_CHUNK_UPLOAD_THRESHOLD_BYTES = 96 * 1024 * 1024;
 const MUX_CHUNK_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
 const STRICT_INTER_WORD_PAUSE_MS = 100;   // tight — Edge TTS natural prosody handles rhythm
-const STRICT_SENTENCE_PAUSE_MS = 350;     // short natural breath between sentences
-const STRICT_SOFT_SENTENCE_PAUSE_MS = 150;
-const STRICT_HEADING_PAUSE_MS = 450;
+const STRICT_SENTENCE_PAUSE_MS = 1200;     // short natural breath between sentences
+const STRICT_SOFT_SENTENCE_PAUSE_MS = 600;
+const STRICT_HEADING_PAUSE_MS = 1500;
 const STRICT_SCENE_END_BUFFER_MS = 600;
 const DEFAULT_INTRO_TO_LESSON_DELAY_MS = 2500;
 const DEFAULT_INTRO_POSTER_DURATION_MS = 5000;
@@ -799,7 +806,7 @@ const state = {
   inputPreviewing: false,
   previewAudio: null,
   previewAudioUrl: "",
-  preferredNarrationVoice: localStorage.getItem(EDGE_TTS_VOICE_STORAGE_KEY) || "anjali",
+  preferredNarrationVoice: ONLY_NARRATION_VOICE,
   mathsTranslator: {
     auto: true,
     lastSource: "",
@@ -1193,6 +1200,46 @@ function updateNarrationLiveProgress(label, progress) {
     progress: safeProgress,
     active: true
   });
+}
+
+function startChatterboxProgressPolling(options = {}) {
+  if (typeof options.onProgress !== "function") {
+    return () => {};
+  }
+
+  let stopped = false;
+  const poll = async () => {
+    if (stopped) {
+      return;
+    }
+    try {
+      const response = await fetchWithTimeout(
+        `${state.anjaliCloneServerUrl}/api/narrate/progress`,
+        { method: "GET", cache: "no-store" },
+        1800
+      );
+      const payload = response.ok ? await response.json().catch(() => null) : null;
+      if (!payload) {
+        return;
+      }
+      const pct = clamp(Math.round(Number(payload.pct) || 0), 0, 100);
+      const stage = String(payload.stage || "Generating Chatterbox narration").replace(/\s*\d+%$/, "").trim();
+      const cached = payload.cached ? " (cached)" : "";
+      options.onProgress({
+        label: `${stage}${cached}`,
+        progress: pct / 100,
+        payload
+      });
+    } catch (error) {
+      // Progress polling is best-effort; the narration request itself is authoritative.
+    }
+  };
+
+  const timerId = window.setInterval(poll, 2500);
+  return () => {
+    stopped = true;
+    window.clearInterval(timerId);
+  };
 }
 
 function finishNarrationLiveProgress(message, options = {}) {
@@ -2919,19 +2966,27 @@ async function triggerFileDownload(blob, fileName) {
   // ── Electron: use native OS Save dialog + direct disk write ──────────────
   if (window.electronAPI?.isElectron) {
     try {
+      const extension = String(fileName || "").split(".").pop()?.toLowerCase() || "";
+      const isAudio = extension === "mp3" || extension === "wav" || extension === "webm";
+      const isMp4 = extension === "mp4";
       const result = await window.electronAPI.showSaveDialog({
-        title: 'Save Presentation Video',
+        title: isAudio ? 'Save Narration Audio' : 'Save Presentation Video',
         fileName,
         defaultPath: fileName,
-        filters: [
-          { name: 'MP4 Video', extensions: ['mp4'] },
-          { name: 'All Files', extensions: ['*'] }
-        ],
-        buttonLabel: 'Save Video'
+        filters: isAudio
+          ? [
+            { name: extension === "mp3" ? "MP3 Audio" : "Audio", extensions: [extension || "mp3"] },
+            { name: 'All Files', extensions: ['*'] }
+          ]
+          : [
+            { name: isMp4 ? 'MP4 Video' : 'File', extensions: [extension || "mp4"] },
+            { name: 'All Files', extensions: ['*'] }
+          ],
+        buttonLabel: isAudio ? 'Save Audio' : 'Save Video'
       });
       if (result.canceled || !result.filePath) return;
 
-      setStatus("Writing video to disk...");
+      setStatus(isAudio ? "Writing audio to disk..." : "Writing video to disk...");
       const arrayBuffer = await blob.arrayBuffer();
       const uint8 = new Uint8Array(arrayBuffer);
       let binary = '';
@@ -2942,10 +2997,10 @@ async function triggerFileDownload(blob, fileName) {
       const base64 = btoa(binary);
       const writeResult = await window.electronAPI.writeFile(result.filePath, base64);
       if (writeResult.ok) {
-        setStatus(`✅ Video saved: ${result.filePath}`);
+        setStatus(`${isAudio ? "Audio" : "Video"} saved: ${result.filePath}`);
         window.electronAPI.showItemInFolder(result.filePath);
       } else {
-        setStatus(`Error saving video: ${writeResult.error}`, { error: true });
+        setStatus(`Error saving ${isAudio ? "audio" : "video"}: ${writeResult.error}`, { error: true });
       }
       return;
     } catch (err) {
@@ -4287,7 +4342,7 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
   }
 
   if (/^,+$/.test(displayText)) {
-    return 0; // Keep comma animation flowing with Edge TTS; no artificial hold.
+    return 400; // Chatterbox pauses at commas for about 400ms
   }
 
   // ── 350ms AFTER a standalone hyphen ('-') ──────────────────────────────────
@@ -4326,22 +4381,64 @@ function analyzeSpeechSyncUnits(text = "") {
   const lineContexts = safeText.split(/\r?\n/).map((line) => getSpeechSyncLineContext(line));
   let lineIndex = 0;
 
-  return tokenizeSpeechSyncDisplayText(safeText).map((token) => {
+  const rawTokens = tokenizeSpeechSyncDisplayText(safeText);
+  const units = [];
+
+  for (let i = 0; i < rawTokens.length; i++) {
+    const token = rawTokens[i];
     const lineContext = lineContexts[Math.min(lineIndex, Math.max(0, lineContexts.length - 1))] || getSpeechSyncLineContext("");
+    
+    // Find if it's the first non-whitespace token on the line
+    const lastNewline = safeText.lastIndexOf('\n', token.startIndex);
+    const lineStart = lastNewline === -1 ? 0 : lastNewline + 1;
+    const prefix = safeText.slice(lineStart, token.startIndex);
+    const isFirstOnLine = !/[^\s]/.test(prefix);
+
+    let spokenText = getSpeechSyncUnitSpokenText(token.text);
+
+    if (isFirstOnLine) {
+      // 1. Check for bullet symbols
+      if (/^[\u2022\-\*\+]$/.test(token.text)) {
+        spokenText = "";
+      }
+      // 2. Check for leading numbers like "1." or "2)"
+      else if (/^\d+$/.test(token.text)) {
+        // Look ahead for '.' or ')'
+        let nextIdx = i + 1;
+        while (nextIdx < rawTokens.length && /^[ \t]+$/.test(rawTokens[nextIdx].text)) {
+          nextIdx++;
+        }
+        if (nextIdx < rawTokens.length && /^[\.\)]$/.test(rawTokens[nextIdx].text)) {
+          spokenText = "";
+          token._silentNextIndex = nextIdx;
+        }
+      }
+    }
+
     const unit = {
       displayText: token.text,
       startIndex: token.startIndex,
       endIndex: token.endIndex,
       lineContext,
-      spokenText: getSpeechSyncUnitSpokenText(token.text)
+      spokenText
     };
 
     if (/^\r?\n+$/.test(token.text)) {
       lineIndex += (token.text.match(/\n/g) || []).length;
     }
 
-    return unit;
-  });
+    units.push(unit);
+  }
+
+  // Second pass to silence the '.' or ')' markers of leading numbers
+  for (let i = 0; i < rawTokens.length; i++) {
+    const token = rawTokens[i];
+    if (token._silentNextIndex !== undefined) {
+      units[token._silentNextIndex].spokenText = "";
+    }
+  }
+
+  return units;
 }
 
 function getSpeechSyncProfile(text = "", targetDurationMs = 0) {
@@ -4371,7 +4468,14 @@ function getSpeechSyncProfile(text = "", targetDurationMs = 0) {
   }));
 
   estimatedUnits.forEach((unit, index) => {
-    unit.pauseMs = getSpeechSyncUnitPauseMs(unit, estimatedUnits[index + 1] || null);
+    let nextNonSpace = null;
+    for (let j = index + 1; j < estimatedUnits.length; j++) {
+      if (!/^[ \t]+$/.test(estimatedUnits[j].displayText || "")) {
+        nextNonSpace = estimatedUnits[j];
+        break;
+      }
+    }
+    unit.pauseMs = getSpeechSyncUnitPauseMs(unit, nextNonSpace);
   });
 
   // ── Natural phrase-breath pass ───────────────────────────────────────────
@@ -4666,6 +4770,83 @@ function getResolvedSpeechSyncProfile(text = "", targetDurationMs = 0, options =
   }
 
   return getSpeechSyncProfile(safeText, safeTargetDurationMs);
+}
+
+// Per-bullet typing sync: each bullet/line starts typing when voice reaches it.
+// Completed bullets stay visible. Current bullet types char-by-char. Future hidden.
+// Locked 1:1 to audioElement.currentTime (no estimation).
+function getLinearSyncFrame(text, elapsedMs, durationMs) {
+  var safeText = String(text || '');
+  if (!safeText || !durationMs) {
+    return { displayedText: '', exactCharCountFloat: 0, mouthActive: false, speechElapsedMs: 0 };
+  }
+  var progress = elapsedMs >= durationMs ? 1 : (elapsedMs <= 0 ? 0 : elapsedMs / durationMs);
+  if (progress >= 1) {
+    return { displayedText: safeText, exactCharCountFloat: safeText.length, mouthActive: false, speechElapsedMs: elapsedMs };
+  }
+
+  // Linear character target based on audio clock
+  var charTarget = progress * safeText.length;
+
+  // Split text into segments at newline boundaries (each bullet is a segment)
+  var segments = [];
+  var segStart = 0;
+  for (var i = 0; i < safeText.length; i++) {
+    if (safeText[i] === '\n') {
+      segments.push({ start: segStart, end: i + 1 });
+      segStart = i + 1;
+    }
+  }
+  if (segStart < safeText.length) {
+    segments.push({ start: segStart, end: safeText.length });
+  }
+  if (segments.length === 0) {
+    segments.push({ start: 0, end: safeText.length });
+  }
+
+  // Build displayed text:
+  //   past segments  -> show fully
+  //   current segment -> type proportionally (char-by-char)
+  //   future segments -> hidden
+  var displayedParts = [];
+  var charFloat = 0;
+  for (var j = 0; j < segments.length; j++) {
+    var seg = segments[j];
+    if (seg.end <= charTarget) {
+      // Fully spoken segment - show completely
+      displayedParts.push(safeText.slice(seg.start, seg.end));
+      charFloat = seg.end;
+    } else if (seg.start <= charTarget) {
+      // Currently speaking segment - type it proportionally
+      var segLen = seg.end - seg.start;
+      var segCharFloat = charTarget - seg.start;
+      var segCharIdx = Math.ceil(segCharFloat);
+      displayedParts.push(safeText.slice(seg.start, seg.start + Math.min(segCharIdx, segLen)));
+      charFloat = seg.start + segCharFloat;
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    displayedText: displayedParts.join(''),
+    exactCharCountFloat: charFloat,
+    mouthActive: progress > 0 && progress < 1,
+    speechElapsedMs: elapsedMs
+  };
+}
+
+function getAudioClockSyncFrame(text = "", elapsedMs = 0, durationMs = 0, options = {}) {
+  const safeText = String(text || "");
+  const safeDurationMs = Math.max(0, Math.round(Number(durationMs) || 0));
+  const profile = options.syncProfileData?.profile || null;
+  if (profile?.units?.length && isSpeechSyncProfileUsable(profile, safeDurationMs)) {
+    return getSpeechSyncFrame(safeText, elapsedMs, safeDurationMs, {
+      syncProfileData: options.syncProfileData
+    });
+  }
+  return getLinearSyncFrame(safeText, elapsedMs, safeDurationMs);
 }
 
 function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, options = {}) {
@@ -5840,17 +6021,19 @@ async function useBundledAnjaliSampleAsNarration() {
 }
 
 function updatePreferredVoiceUi() {
+  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
+  try {
+    localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, ONLY_NARRATION_VOICE);
+  } catch (error) {
+    console.warn("[voice] Could not persist locked narration voice:", error);
+  }
   if (slideVoiceSelect) {
-    slideVoiceSelect.value = state.preferredNarrationVoice || "anjali";
+    slideVoiceSelect.value = ONLY_NARRATION_VOICE;
     slideVoiceSelect.disabled = true;
   }
 }
 
 function getNarrationVoiceLabel(voice) {
-  const safeVoice = String(voice || "").trim();
-  if (/Prabhat/i.test(safeVoice)) return "Edge TTS Male";
-  if (/Neerja/i.test(safeVoice) || safeVoice === "anjali") return "Anjali";
-  if (/^en-[A-Z]{2}-/i.test(safeVoice)) return "Edge TTS";
   return "Anjali";
 }
 
@@ -8341,16 +8524,18 @@ async function ensurePdfNarrationReadyForPresentation(options = {}) {
 }
 
 function getSelectedEdgeExportVoice() {
-  const selected = String(state.preferredNarrationVoice || "").trim();
-  return (selected && (selected === "anjali" || /^en-[A-Z]{2}-/i.test(selected)))
-    ? selected
-    : EXPORT_NARRATION_VOICE;
+  return ONLY_NARRATION_VOICE;
 }
 
 function forceExportVoiceToAnjali() {
-  state.preferredNarrationVoice = getSelectedEdgeExportVoice();
+  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
+  try {
+    localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, ONLY_NARRATION_VOICE);
+  } catch (error) {
+    console.warn("[voice] Could not persist locked export voice:", error);
+  }
   if (slideVoiceSelect) {
-    slideVoiceSelect.value = state.preferredNarrationVoice;
+    slideVoiceSelect.value = ONLY_NARRATION_VOICE;
   }
   updatePreferredVoiceUi();
 }
@@ -9023,7 +9208,7 @@ async function startServersFromPage() {
   updateTaskProgressUi(1, true);
 
   if (allReady) {
-    setServerControlsStatus("Electron servers started. Edge TTS is the only narration engine.");
+    setServerControlsStatus("Electron servers started. TTS engine: Chatterbox TTS, locked to sc3-cloned Anjali voice.");
   } else {
     const missing = getMissingLocalServerLabels();
     const suffix = missing.length ? ` Still waiting for ${missing.join(", ")}.` : "";
@@ -9039,7 +9224,7 @@ async function copyStartAllCommand() {
 
   try {
     await navigator.clipboard.writeText(command);
-    setServerControlsStatus("Start command copied. Paste it into PowerShell to launch Edge TTS, transcription, and video export.");
+    setServerControlsStatus("Start command copied. Paste it into PowerShell to launch Chatterbox TTS, transcription, and video export.");
   } catch (error) {
     console.error(error);
     setServerControlsStatus(`Copy failed. Run this in PowerShell: ${command}`);
@@ -9049,14 +9234,14 @@ async function copyStartAllCommand() {
 function updateServerHealthUi() {
   narrationHealthStatus.textContent = state.narrationServerReady
     ? "Legacy narration server: ignored"
-    : "Legacy narration server: disabled (Edge TTS only)";
+    : "Legacy narration server: disabled (Chatterbox TTS only)";
 
   if (anjaliCloneHealthStatus) {
     anjaliCloneHealthStatus.textContent = state.anjaliCloneServerReady
-      ? "Anjali clone server: running on port 8426"
+      ? "TTS engine: Chatterbox TTS, sc3-cloned Anjali voice, running on port 8426"
       : (isAnjaliCloneStartupPending()
-        ? "Anjali clone server: starting on port 8426..."
-        : "Anjali clone server: not running");
+        ? "TTS engine: Chatterbox TTS starting on port 8426..."
+        : "TTS engine: Chatterbox TTS not running");
   }
 
   transcribeHealthStatus.textContent = state.transcribeServerReady
@@ -10766,24 +10951,17 @@ async function playDirectAudioPreview(audioUrl, voiceLabel) {
   await audioElement.play();
 }
 
-function normalizeEdgeTtsVoiceId(voice = state.preferredNarrationVoice || "anjali") {
-  const safeVoice = String(voice || "").trim();
-  if (!safeVoice || safeVoice === "anjali" || safeVoice === "indian-female" || safeVoice === "female" || safeVoice === "fresh") {
-    return EDGE_TTS_DEFAULT_FEMALE_VOICE;
-  }
-  if (safeVoice === "male") {
-    return "en-IN-PrabhatNeural";
-  }
-  return /^en-[A-Z]{2}-/i.test(safeVoice) ? safeVoice : EDGE_TTS_DEFAULT_FEMALE_VOICE;
+function normalizeEdgeTtsVoiceId() {
+  return ONLY_NARRATION_VOICE;
 }
 
 async function requestNarrationBlobSingle(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
-  const safeVoice = normalizeEdgeTtsVoiceId(voice);
+  const safeVoice = normalizeEdgeTtsVoiceId();
   const edgeVoiceId = safeVoice;
   const requestTimeoutMs = 0;
   const serverReady = await ensureAnjaliCloneServer();
   if (!serverReady) {
-    throw new Error("Edge TTS voice server is not ready on port 8426.");
+    throw new Error("Chatterbox voice server is not ready on port 8426.");
   }
 
   if (typeof options.onProgress === "function") {
@@ -10803,7 +10981,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
 
   if (typeof options.onProgress === "function") {
     options.onProgress({
-      label: "Sending text to Edge TTS server...",
+      label: "Sending text to Chatterbox voice server...",
       progress: 0.22
     });
   }
@@ -10818,11 +10996,12 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
       ...narrationPayload,
       generationOptions: {
         ...(narrationPayload.generationOptions || {}),
-        voice: edgeVoiceId
+          voice: ONLY_NARRATION_VOICE
       }
     })
   };
   const requestPayload = JSON.parse(requestOptions.body);
+  let stopProgressPolling = startChatterboxProgressPolling(options);
 
   if (typeof window.electronAPI?.narrateEdgeTts === "function") {
     let lastIpcError = null;
@@ -10830,6 +11009,8 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
     for (let attempt = 1; attempt <= maxIpcAttempts; attempt += 1) {
       try {
         const result = await window.electronAPI.narrateEdgeTts(requestPayload);
+        stopProgressPolling();
+        stopProgressPolling = () => {};
         if (!result?.audioBase64) {
           throw new Error("Narration generation returned no audio data.");
         }
@@ -10849,6 +11030,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
         await delay(700 + (attempt * 300));
       }
     }
+    stopProgressPolling();
     throw new Error(lastIpcError?.message || "Narration generation failed through Electron.");
   }
 
@@ -10861,13 +11043,15 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
         await fetchAnjaliEndpoint(`${state.anjaliCloneServerUrl}/set-voice`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ voice: edgeVoiceId || EDGE_TTS_DEFAULT_FEMALE_VOICE })
+          body: JSON.stringify({ voice: ONLY_NARRATION_VOICE })
         }, "Restoring selected voice", { attempts: 2, timeoutMs: 2500 }).catch(() => null);
       }
-      response = await fetchAnjaliEndpoint(requestUrl, requestOptions, "Generating Edge TTS narration audio", {
+      response = await fetchAnjaliEndpoint(requestUrl, requestOptions, "Generating Chatterbox narration audio", {
         attempts: 2,
         timeoutMs: requestTimeoutMs
       });
+      stopProgressPolling();
+      stopProgressPolling = () => {};
       lastFetchError = null;
       break;
     } catch (error) {
@@ -10880,6 +11064,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
     }
   }
   if (!response) {
+    stopProgressPolling();
     const message = isLocalFetchConnectionError(lastFetchError)
       ? "The voice server request was interrupted after retrying. The app restarted the voice server; please click Play or Export again."
       : (lastFetchError?.message || "Narration generation failed.");
@@ -10887,6 +11072,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
   }
 
   if (!response.ok) {
+    stopProgressPolling();
     const errorPayload = await response.json().catch(() => null);
     throw new Error(errorPayload?.error || "Narration generation failed.");
   }
@@ -10976,6 +11162,7 @@ async function generateNarrationChunkWithFallback(chunkText, voice, options = {}
 }
 
 async function requestNarrationBlob(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
+  voice = ONLY_NARRATION_VOICE;
   const narrationText = buildNarrationText(text);
   if (!narrationText) {
     throw new Error("No narration text was available.");
@@ -16043,7 +16230,6 @@ function drawScene(mouthOpen = 0.12) {
   drawWhiteboardStrokes();
   drawBurnedCaptions();
   drawRuntimeDisplayErrorOverlay();
-  drawNarrationProgressOverlay();
   drawPlayLoadingOverlay();
   
   if (window._renderHologramFrame) {
@@ -17648,7 +17834,7 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
         state.stageVideo.element.currentTime = ((elapsedMs - STAGE_VIDEO_START_DELAY_MS) / 1000) % stageVidDuration;
       }
     }
-    const syncFrame = getSpeechSyncFrame(timelineText, syncElapsedMs, narrationTimelineMs, {
+    const syncFrame = getAudioClockSyncFrame(timelineText, syncElapsedMs, narrationTimelineMs, {
       syncProfileData
     });
     let nextDisplayedText = syncFrame.displayedText;
@@ -19761,12 +19947,16 @@ async function connectAudioGraph(audioElement, includeExportTrack = false, monit
     teardownAudioGraph();
 
     const sourceNode = audioContext.createMediaElementSource(audioElement);
-    // Avatar permanently off — no lip-sync analyser needed.
-    // Audio routes directly: source → gain → destination (no FFT tap).
+    // Real-time lip-sync: analyser samples audio amplitude each rAF tick.
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.6;
+
     const gainNode = audioContext.createGain();
     gainNode.gain.value = monitorGain;
 
-    sourceNode.connect(gainNode);
+    sourceNode.connect(analyser);
+    analyser.connect(gainNode);
     gainNode.connect(audioContext.destination);
 
     let exportDestination = null;
@@ -19777,7 +19967,7 @@ async function connectAudioGraph(audioElement, includeExportTrack = false, monit
 
     state.audioGraph = {
       sourceNode,
-      analyser: null,  // No analyser — avatar off, lip-sync skipped
+      analyser,   // live amplitude-driven lip sync
       gainNode,
       exportDestination
     };
@@ -19956,8 +20146,11 @@ function startNarrationLoop(audioElement) {
     const syncElapsedMs = Math.max(0, elapsedMs - visualLagMs);
     const progress = durationMs ? clamp(elapsedMs / durationMs, 0, 1) : 0;
     const previousText = state.displayedText;
-    const syncFrame = getSpeechSyncFrame(state.text, syncElapsedMs, durationMs, {
-      syncProfileData: state.narration?.syncProfile
+    const syncProfileData = state.narration?.syncProfile?.text === state.text
+      ? state.narration.syncProfile
+      : null;
+    const syncFrame = getAudioClockSyncFrame(state.text, syncElapsedMs, durationMs, {
+      syncProfileData
     });
 
     // ── First-word cold-start fix ──────────────────────────────────────────────
@@ -20114,6 +20307,8 @@ const PLAY_LOADING_STEPS = [
 let _playLoadingActiveStep = "";
 let _playLoadingCompletedSteps = [];
 let _playLoadingRafId = 0;
+let _playLoadingProgress = 0;
+let _playLoadingProgressLabel = "";
 
 function setPlayLoadingStep(stepId) {
   const idx = PLAY_LOADING_STEPS.findIndex((s) => s.id === stepId);
@@ -20133,7 +20328,14 @@ function setPlayLoadingStep(stepId) {
 function clearPlayLoadingOverlay() {
   _playLoadingActiveStep = "";
   _playLoadingCompletedSteps = [];
+  _playLoadingProgress = 0;
+  _playLoadingProgressLabel = "";
   if (_playLoadingRafId) { cancelAnimationFrame(_playLoadingRafId); _playLoadingRafId = 0; }
+}
+
+function updatePlayLoadingProgress(progress = _playLoadingProgress, label = _playLoadingProgressLabel) {
+  _playLoadingProgress = clamp(Number(progress) || 0, 0, 1);
+  _playLoadingProgressLabel = String(label || "").trim();
 }
 
 function drawPlayLoadingOverlay() {
@@ -20142,7 +20344,7 @@ function drawPlayLoadingOverlay() {
   const rowH = 44;
   const padX = 22, padY = 20;
   const titleH = 28;
-  const panelH = padY * 2 + titleH + PLAY_LOADING_STEPS.length * rowH;
+  const panelH = padY * 2 + titleH + PLAY_LOADING_STEPS.length * rowH + 28;
   const px = Math.round((canvas.width - panelW) / 2);
   const py = Math.round((canvas.height - panelH) / 2);
 
@@ -20228,6 +20430,25 @@ function drawPlayLoadingOverlay() {
     ctx.fillStyle = isDone ? "#86efac" : isActive ? "#f0f6fc" : "rgba(255,255,255,0.28)";
     ctx.fillText(step.label, iconX + 20, iconY);
   });
+
+  const barX = px + 22;
+  const barY = py + panelH - 18;
+  const barW = panelW - 44;
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, 6, 3);
+  ctx.fill();
+  ctx.fillStyle = "#38bdf8";
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, Math.max(0, Math.round(barW * clamp(_playLoadingProgress, 0, 1))), 6, 3);
+  ctx.fill();
+  if (_playLoadingProgressLabel) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.font = '600 10px "Nunito", sans-serif';
+    ctx.fillStyle = "rgba(240,246,252,0.82)";
+    ctx.fillText(_playLoadingProgressLabel, px + panelW / 2, barY - 4);
+  }
 
   ctx.restore();
 }
@@ -20409,16 +20630,26 @@ async function playSlide() {
   try {
     // ── Step 1: Generate narration ─────────────────────────────────────────
     setPlayLoadingStep("narration");
+    updatePlayLoadingProgress(0.18, "Generating narration");
+    state.generatingNarration = true;
+    startNarrationLiveProgress("Generating Anjali narration...");
     setStatus("Preparing narration for live playback...");
     updateTaskProgressUi(0.2, true, { mirrorStage: true });
     await ensureNarrationReadyForSlide({
-      timeoutMs: getLongNarrationRequestTimeoutMs(currentText)
+      timeoutMs: getLongNarrationRequestTimeoutMs(currentText),
+      onProgress: ({ label, progress }) => {
+        updateNarrationLiveProgress(label, Math.max(0.18, progress || 0.18));
+        updatePlayLoadingProgress(0.18, label || "Generating narration");
+      }
     });
+    state.generatingNarration = false;
     // ── Step 2: Audio loaded ───────────────────────────────────────────────
     setPlayLoadingStep("audio");
+    updatePlayLoadingProgress(0.62, "Loading generated audio");
     updateTaskProgressUi(0.62, true, { mirrorStage: true, label: state.introPlayback.enabled ? "Narration ready. Playing intro clip..." : "Narration ready. Starting playback..." });
     // ── Step 3: Intro clip ────────────────────────────────────────────────
     setPlayLoadingStep("intro");
+    updatePlayLoadingProgress(0.74, "Preparing intro");
     await playIntroClipIfEnabled();
     if (posterRequested) {
       await playIntroPosterSegment();
@@ -20427,6 +20658,7 @@ async function playSlide() {
     }
     // ── Step 4: Starting playback ─────────────────────────────────────────
     setPlayLoadingStep("starting");
+    updatePlayLoadingProgress(0.9, "Starting lesson playback");
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
     resetTaskProgressUi();
     clearPlayLoadingOverlay();
@@ -20434,6 +20666,8 @@ async function playSlide() {
     playNarrationAudio();
   } catch (error) {
     console.error(error);
+    state.generatingNarration = false;
+    finishNarrationLiveProgress(error.message || "Narration generation failed.", { error: true });
     state.preparedLessonExport.prepareAfterPlayback = false;
     resetTaskProgressUi();
     clearPlayLoadingOverlay();
@@ -20551,7 +20785,7 @@ async function startTextPreview(voicePreference) {
   stopPlayback(false);
   stopDictation(false);
   stopInputPreview(false);
-  state.preferredNarrationVoice = voicePreference || state.preferredNarrationVoice || "anjali";
+  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
   updatePreferredVoiceUi();
 
   // Chunked reading: 5-6 words at a time with pauses
@@ -22696,6 +22930,7 @@ async function handleTranscribeAudioUpload() {
 }
 
 async function generateNarrationDownload(voice) {
+  voice = ONLY_NARRATION_VOICE;
   clearNarrationWarmupTimer();
   const text = getEffectiveLessonText();
   const lessonIssue = getLessonTextIssue(text);
@@ -22749,7 +22984,65 @@ async function generateNarrationDownload(voice) {
   }
 }
 
+async function convertAudioBlobToMp3(audioBlob, inputFileName = "anjali-narration.wav") {
+  const serverReady = await ensureVideoExportServer();
+  if (!serverReady) {
+    throw new Error("The FFmpeg server is not running, so MP3 conversion is unavailable.");
+  }
+
+  const audioBase64 = arrayBufferToBase64(await audioBlob.arrayBuffer());
+  const response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/convert-audio-mp3`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      audioBase64,
+      inputFileName,
+      outputFileName: "anjali-narration.mp3"
+    })
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "MP3 conversion failed.");
+  }
+
+  return response.blob();
+}
+
+async function downloadNarrationMp3Only() {
+  const text = getEffectiveLessonText();
+  const lessonIssue = getLessonTextIssue(text);
+  if (lessonIssue) {
+    setStatus(lessonIssue.message, { error: true });
+    return;
+  }
+
+  setStatus("Generating Anjali narration MP3...");
+  updateTaskProgressUi(0.16, true, { label: "Generating Anjali narration MP3..." });
+
+  try {
+    const wavBlob = await requestNarrationBlob(text, ONLY_NARRATION_VOICE, {
+      timeoutMs: getLongNarrationRequestTimeoutMs(text),
+      onProgress: ({ label, progress }) => {
+        updateTaskProgressUi(0.16 + (clamp(progress || 0, 0, 1) * 0.54), true, { label: label || "Generating narration..." });
+      }
+    });
+    updateTaskProgressUi(0.78, true, { label: "Converting narration to MP3..." });
+    const mp3Blob = await convertAudioBlobToMp3(wavBlob, "anjali-narration.wav");
+    updateTaskProgressUi(0.94, true, { label: "Downloading MP3..." });
+    await triggerFileDownload(mp3Blob, "anjali-narration.mp3");
+    updateTaskProgressUi(1, true, { label: "Anjali MP3 is ready." });
+    setStatus("Anjali narration MP3 downloaded.");
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "MP3 download failed.", { error: true });
+  } finally {
+    resetTaskProgressUi();
+  }
+}
+
 async function loadGeneratedNarrationIntoApp(voice) {
+  voice = ONLY_NARRATION_VOICE;
   clearNarrationWarmupTimer();
   const text = getEffectiveLessonText();
   const lessonIssue = getLessonTextIssue(text);
@@ -23608,7 +23901,7 @@ dictateBtn.addEventListener("click", startDictation);
 stopDictateBtn.addEventListener("click", () => stopDictation(true));
 previewTextBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => openPreviewVoiceChooser()));
 if (previewAnjaliBtn) {
-  previewAnjaliBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => startTextPreview(state.preferredNarrationVoice || "anjali")));
+  previewAnjaliBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => startTextPreview(ONLY_NARRATION_VOICE)));
 }
 stageToolbarGroups.forEach((group) => {
   group.addEventListener("toggle", () => {
@@ -23631,12 +23924,18 @@ pdfClearSelectionBtn.addEventListener("click", clearSelectedPdfPages);
 clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: true }));
 // ── Dynamic Voice Picker ────────────────────────────────────────────────────
 (function initVoicePicker() {
-  const TTS_BASE  = "http://127.0.0.1:8426";
   const listEl    = document.getElementById("voiceListScroll");
   const searchEl  = document.getElementById("voiceSearchInput");
   const badgeEl   = document.getElementById("voiceActiveBadge");
 
   if (!listEl || !searchEl || !badgeEl) return;
+
+  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
+  badgeEl.textContent = "Anjali";
+  searchEl.value = "";
+  searchEl.disabled = true;
+  listEl.innerHTML = "<p class='upload-copy' style='padding:10px 14px;'>Anjali cloned voice only.</p>";
+  return;
 
   // Locale → display name + flag emoji
   const LOCALE_META = {
@@ -23779,9 +24078,8 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
 
 // ── Stage Voices Module ─────────────────────────────────────────────────────
 (function initStageVoicePicker() {
-  const TTS_BASE    = "http://127.0.0.1:8426";
   const STORAGE_KEY = EDGE_TTS_VOICE_STORAGE_KEY;
-  const FALLBACK_ID = "en-IN-NeerjaExpressiveNeural";
+  const FALLBACK_ID = ONLY_NARRATION_VOICE;
   const PREVIEW_PHRASE = "Hello! I am your AI teaching assistant. Let's learn something wonderful today.";
 
   const selectEl     = document.getElementById("stageVoiceSelect");
@@ -23795,6 +24093,24 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
   const defaultName  = document.getElementById("voiceDefaultName");
 
   if (!selectEl || !previewBtn || !useBtn) return;
+
+  state.preferredNarrationVoice = ONLY_NARRATION_VOICE;
+  try {
+    localStorage.setItem(STORAGE_KEY, ONLY_NARRATION_VOICE);
+  } catch (error) {
+    console.warn("[StageVoices] Could not persist locked voice:", error);
+  }
+  selectEl.innerHTML = '<option value="anjali" selected>Anjali cloned voice</option>';
+  selectEl.value = ONLY_NARRATION_VOICE;
+  selectEl.disabled = true;
+  previewBtn.disabled = false;
+  useBtn.disabled = true;
+  if (defaultBtn) defaultBtn.disabled = true;
+  if (badgeEl) badgeEl.textContent = "Anjali";
+  if (defaultName) defaultName.textContent = "Anjali";
+  if (statusEl) statusEl.textContent = "Only Anjali cloned voice is enabled.";
+  previewBtn.addEventListener("click", () => startTextPreview(ONLY_NARRATION_VOICE));
+  return;
 
   const LOCALE_META = {
     "en-IN": { label: "🇮🇳 Indian English"     },
@@ -24293,11 +24609,11 @@ stopRecordBtn.addEventListener("click", stopRecordingNarration);
 clearAudioBtn.addEventListener("click", clearNarration);
 if (loadAnjaliNarrationBtn) {
   loadAnjaliNarrationBtn.addEventListener("click", () => {
-    void runLockedAction("narrationLoad", [loadAnjaliNarrationBtn, downloadAnjaliBtn], async () => loadGeneratedNarrationIntoApp(state.preferredNarrationVoice || "anjali"));
+    void runLockedAction("narrationLoad", [loadAnjaliNarrationBtn, downloadAnjaliBtn], async () => loadGeneratedNarrationIntoApp(ONLY_NARRATION_VOICE));
   });
 }
 if (downloadAnjaliBtn) {
-  downloadAnjaliBtn.addEventListener("click", () => runLockedAction("narrationDownload", [downloadAnjaliBtn, loadAnjaliNarrationBtn], async () => generateNarrationDownload(state.preferredNarrationVoice || "anjali")));
+  downloadAnjaliBtn.addEventListener("click", () => runLockedAction("narrationDownload", [downloadAnjaliBtn, loadAnjaliNarrationBtn], async () => generateNarrationDownload(ONLY_NARRATION_VOICE)));
 }
 if (loadMathsNumbersBtn) {
   loadMathsNumbersBtn.addEventListener("click", () => applyMathsLessonTemplate(MATHS_NUMBERS_TEMPLATE, "Numbers lesson loaded."));
@@ -24524,6 +24840,11 @@ downloadBtn.addEventListener("click", () => {
     suggestedName: getDefaultExportFileName()
   });
 });
+if (downloadNarrationMp3Btn) {
+  downloadNarrationMp3Btn.addEventListener("click", () => {
+    void runLockedAction("narrationMp3Download", [downloadNarrationMp3Btn, downloadBtn], downloadNarrationMp3Only);
+  });
+}
 
 // ── AI Captions: word-level SRT generation ────────────────────────────────────
 function generateWordLevelSrt(text, durationMs, playbackRate = 1) {
@@ -25852,4 +26173,64 @@ setPureInputMode(false);
     markSceneDirty && markSceneDirty();
     drawScene(state.mouthOpen);
   });
+}());
+
+// == Chatterbox Voice Loading Banner ==
+(function initChatterboxBanner() {
+  const HEALTH_URL = 'http://127.0.0.1:8426/health';
+  const POLL_MS    = 3000;
+  const DOTS       = ['\u280b','\u2819','\u2839','\u2838','\u283c','\u2834','\u2826','\u2827','\u2807','\u280f'];
+  const style = document.createElement('style');
+  style.textContent = `
+    #cb-voice-banner{position:fixed;top:0;left:0;right:0;z-index:99999;background:linear-gradient(90deg,#0f172a,#1e293b);color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;box-shadow:0 2px 16px rgba(0,0,0,.5);transition:transform .4s ease,opacity .4s ease;}
+    #cb-voice-banner.cb-hidden{transform:translateY(-100%);opacity:0;pointer-events:none;}
+    #cb-voice-inner{display:flex;align-items:center;gap:10px;padding:8px 16px;}
+    #cb-voice-spinner{font-size:16px;flex-shrink:0;color:#60a5fa;}
+    #cb-voice-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    #cb-voice-text strong{color:#93c5fd;}
+    #cb-voice-sub{color:#94a3b8;font-size:11px;margin-left:4px;}
+    #cb-voice-bar-wrap{width:120px;height:4px;background:#334155;border-radius:2px;flex-shrink:0;overflow:hidden;}
+    #cb-voice-bar{height:100%;width:15%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-radius:2px;transition:width .8s ease;}
+    #cb-voice-ok{display:none;color:#4ade80;font-size:16px;font-weight:700;}
+    #cb-voice-banner.cb-done{background:linear-gradient(90deg,#052e16,#14532d);}
+    #cb-voice-banner.cb-done #cb-voice-spinner,#cb-voice-banner.cb-done #cb-voice-bar-wrap{display:none;}
+    #cb-voice-banner.cb-done #cb-voice-ok{display:inline;}
+    #cb-voice-banner.cb-done strong{color:#86efac;}
+  `;
+  document.head.appendChild(style);
+  const banner = document.createElement('div');
+  banner.id = 'cb-voice-banner';
+  banner.innerHTML = '<div id="cb-voice-inner"><span id="cb-voice-spinner">' + DOTS[0] + '</span><span id="cb-voice-ok">&#10003; Ready</span><span id="cb-voice-text"><strong>Voice Presentator</strong><span id="cb-voice-sub"> Loading EVS C5 lesson voice from sc3.mp4…</span></span><div id="cb-voice-bar-wrap"><div id="cb-voice-bar"></div></div></div>';
+  document.body.prepend(banner);
+  const spinner = document.getElementById('cb-voice-spinner');
+  const sub     = document.getElementById('cb-voice-sub');
+  const bar     = document.getElementById('cb-voice-bar');
+  let dotIdx = 0, pollTimer = null, start = Date.now();
+  const dotTimer = setInterval(function(){ spinner.textContent = DOTS[dotIdx = (dotIdx+1)%DOTS.length]; }, 100);
+  function markReady() {
+    clearInterval(dotTimer); clearTimeout(pollTimer);
+    bar.style.width = '100%';
+    banner.classList.add('cb-done');
+    sub.textContent = '';
+    setTimeout(function(){ banner.classList.add('cb-hidden'); }, 4000);
+  }
+  function poll() {
+    fetch(HEALTH_URL, {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d) {
+      var elapsed = Math.round((Date.now()-start)/1000);
+      bar.style.width = Math.min(88, 15 + elapsed*0.9) + '%';
+      if (d.chatterboxReady) { markReady(); return; }
+      if (d.chatterboxError && !d.chatterboxLoading) {
+        sub.textContent = ' Clone failed — Edge TTS fallback active.';
+        bar.style.background = 'linear-gradient(90deg,#f59e0b,#ef4444)';
+        setTimeout(function(){ banner.classList.add('cb-hidden'); }, 6000);
+        return;
+      }
+      sub.textContent = ' Loading voice model… ' + elapsed + 's | Edge TTS active until ready.';
+      pollTimer = setTimeout(poll, POLL_MS);
+    }).catch(function() {
+      sub.textContent = ' Waiting for voice server on port 8426…';
+      pollTimer = setTimeout(poll, POLL_MS);
+    });
+  }
+  setTimeout(poll, 1800);
 }());

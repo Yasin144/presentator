@@ -476,6 +476,7 @@ function StagePanel() {
           <div className="stage-toolbar-body">
             <div className="stage-toolbar-buttons stage-toolbar-buttons-stack">
               <button id="downloadBtn" className="accent-btn stage-download-btn" type="button">&#8681; Export Video</button>
+              <button id="downloadNarrationMp3Btn" className="ghost-btn stage-download-btn" type="button">Download MP3</button>
               <button id="stageCaptionExportBtn" className="primary-btn stage-download-btn" type="button"
                 style={{"background": "#facc15", "color": "#000", "border": "none", "marginTop": "4px"}}>✨ Captions & Export Video</button>
               <button id="downloadPdfContextBtn" className="primary-btn stage-download-btn hidden" type="button">&#8681;

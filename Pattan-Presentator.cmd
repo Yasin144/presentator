@@ -2,66 +2,72 @@
 setlocal
 set "APP_DIR=%~dp0"
 set "APP_DIR=%APP_DIR:~0,-1%"
+set "PYTHON=%APP_DIR%\.voiceclone-venv\Scripts\python.exe"
+set "SERVER=%APP_DIR%\anjali-chatterbox-server.py"
 
-title Pattan Presentator
-
-cls
-echo.
-echo  ╔══════════════════════════════════════════════╗
-echo  ║          PATTAN PRESENTATOR                  ║
-echo  ║    Native Desktop App  ^|  AI Studio          ║
-echo  ╚══════════════════════════════════════════════╝
-echo.
-echo  Cleaning up old processes...
-echo.
-
+title Voice Presentator — Starting...
 cd /d "%APP_DIR%"
 
-REM Kill any leftover Electron / Node processes from a previous session
+REM ── Kill only Electron (never kill the Python voice server) ──────────────
 powershell -NoProfile -Command "Get-Process -Name 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
+timeout /t 1 /nobreak >nul
 
-REM Kill any processes holding our server ports
-powershell -NoProfile -Command "@(5173,8424,8426,8428,8430) | ForEach-Object { $p=$_; netstat -ano | Select-String "":${p}\s"" | ForEach-Object { $id=($_ -replace '.*\s+(\d+)\s*$','$1').Trim(); if($id -match '^\d+$'){try{Stop-Process -Id ([int]$id) -Force -EA SilentlyContinue}catch{}} } }" >nul 2>&1
-
-timeout /t 2 /nobreak >nul
-
+REM ── Node / Electron dependencies ─────────────────────────────────────────
 if not exist "%APP_DIR%\node_modules\electron\dist\electron.exe" (
-  echo  Installing Electron app dependencies...
+  echo Installing Electron dependencies...
   call npm install --cache "%APP_DIR%\.npm-cache"
-  if errorlevel 1 (
-    echo  Failed to install Node dependencies.
-    pause
-    exit /b 1
-  )
+  if errorlevel 1 ( echo Failed to install Node dependencies. & pause & exit /b 1 )
 )
 
-if not exist "%APP_DIR%\.voiceclone-venv\Scripts\python.exe" (
-  echo  Creating local voice Python environment...
+REM ── Python venv ───────────────────────────────────────────────────────────
+if not exist "%PYTHON%" (
+  echo Creating Python voice environment...
   py -3 -m venv "%APP_DIR%\.voiceclone-venv" 2>nul || python -m venv "%APP_DIR%\.voiceclone-venv"
-  if errorlevel 1 (
-    echo  Failed to create Python voice environment.
-    pause
-    exit /b 1
-  )
+  if errorlevel 1 ( echo Failed to create Python environment. & pause & exit /b 1 )
 )
 
-echo  Checking voice dependencies...
-"%APP_DIR%\.voiceclone-venv\Scripts\python.exe" -c "import edge_tts" >nul 2>&1
+REM ── Install edge_tts if missing ───────────────────────────────────────────
+"%PYTHON%" -c "import edge_tts" >nul 2>&1
 if errorlevel 1 (
-  "%APP_DIR%\.voiceclone-venv\Scripts\python.exe" -m pip install --upgrade pip
-  "%APP_DIR%\.voiceclone-venv\Scripts\python.exe" -m pip install -r "%APP_DIR%\requirements-voice.txt"
-  if errorlevel 1 (
-    echo  Failed to install voice dependencies.
-    pause
-    exit /b 1
+  echo Installing edge_tts...
+  "%PYTHON%" -m pip install edge_tts --quiet >nul 2>&1
+)
+
+REM ── Install Chatterbox TTS if missing ─────────────────────────────────────
+"%PYTHON%" -c "import chatterbox" >nul 2>&1
+if errorlevel 1 (
+  echo Installing Chatterbox TTS - this may take a few minutes...
+  "%PYTHON%" -m pip install chatterbox-tts resemble-perth peft --quiet
+)
+
+REM ── Extract voice reference from sc3.mp4 if missing ──────────────────────
+if not exist "%APP_DIR%\voice-reference-sc3.wav" (
+  set "SC3=D:\LESSONS\EVS\EVS C5 8TH LESSON\EVS C5 8TH LESSON\EVS C5 8TH Lesson fact file\sc3.mp4"
+  if exist "%SC3%" (
+    echo Extracting voice reference from sc3.mp4...
+    ffmpeg -y -i "%SC3%" -vn -ac 1 -ar 22050 -sample_fmt s16 -af "loudnorm=I=-16:TP=-1.5:LRA=11" "%APP_DIR%\voice-reference-sc3.wav" >nul 2>&1
   )
 )
 
-echo  Launching Pattan Presentator...
-echo  (All helper servers start automatically in the Electron app)
-echo.
+REM ── Check if voice server is already running on port 8426 ─────────────────
+powershell -NoProfile -Command "try { $r = Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 3; exit 0 } catch { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+  echo Voice server already running and warm - reusing it.
+  goto :launch_electron
+)
 
-REM Launch Electron using local node_modules
-"%APP_DIR%\node_modules\electron\dist\electron.exe" "%APP_DIR%"
+REM ── Start voice server as DETACHED background process ────────────────────
+REM It runs independently - Electron never kills it.
+echo Starting Chatterbox voice server in background...
+echo (This takes ~60-90 seconds on first load - app will show progress)
+start "Voice Server" /min "%PYTHON%" "%SERVER%"
+
+REM ── Give server a moment to begin loading before Electron opens ───────────
+timeout /t 3 /nobreak >nul
+
+:launch_electron
+REM ── Launch Electron detached — CMD exits immediately ─────────────────────
+echo Launching Voice Presentator...
+start "" "%APP_DIR%\node_modules\electron\dist\electron.exe" "%APP_DIR%"
 
 endlocal

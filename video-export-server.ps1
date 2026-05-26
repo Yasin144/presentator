@@ -913,6 +913,46 @@ function Handle-Request {
     return
   }
 
+  if ($Request.Method -eq "POST" -and $path -eq "/api/convert-audio-mp3") {
+    $inputPath = ""
+    $outputPath = ""
+    try {
+      $payload = Read-JsonBody -Bytes $Request.BodyBytes
+      if (-not $payload -or [string]::IsNullOrWhiteSpace([string]$payload.audioBase64)) {
+        throw "No audio data was provided."
+      }
+
+      $ffmpegPath = Get-FFmpegPath
+      $inputExtension = Get-FileExtension -FileName ([string]$payload.inputFileName) -FallbackExtension ".wav"
+      $sessionId = [System.Guid]::NewGuid().ToString()
+      $inputPath = Join-Path $env:TEMP ("narration-input-" + $sessionId + $inputExtension)
+      $outputPath = Join-Path $env:TEMP ("narration-output-" + $sessionId + ".mp3")
+      [System.IO.File]::WriteAllBytes($inputPath, [System.Convert]::FromBase64String([string]$payload.audioBase64))
+
+      $ffmpegOutput = & $ffmpegPath "-y" "-i" $inputPath "-vn" "-codec:a" "libmp3lame" "-b:a" "192k" $outputPath 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outputPath)) {
+        throw "FFmpeg could not convert narration to MP3. $ffmpegOutput"
+      }
+
+      $downloadName = Get-SafeOutputFileName -FileName ([string]$payload.outputFileName)
+      if (-not $downloadName.ToLowerInvariant().EndsWith(".mp3")) {
+        $downloadName = [System.IO.Path]::GetFileNameWithoutExtension($downloadName) + ".mp3"
+      }
+      Write-FileResponse -Stream $Stream -StatusCode 200 -FilePath $outputPath -ContentType "audio/mpeg" -ExtraHeaders @{
+        "Content-Disposition" = "attachment; filename=`"$downloadName`""
+      }
+    } catch {
+      Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ error = $_.Exception.Message }
+    } finally {
+      foreach ($pathToRemove in @($inputPath, $outputPath)) {
+        if ($pathToRemove -and (Test-Path $pathToRemove)) {
+          Remove-Item $pathToRemove -Force -ErrorAction SilentlyContinue
+        }
+      }
+    }
+    return
+  }
+
   if ($Request.Method -eq "POST" -and $path -eq "/api/mux-upload-session") {
     try {
       $payload = Read-JsonBody -Bytes $Request.BodyBytes
