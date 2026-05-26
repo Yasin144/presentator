@@ -1,4 +1,4 @@
-﻿var avatarConfig = {x: 35, y: 35, w: 0, h: 0, scale: 0.85, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
+var avatarConfig = {x: 35, y: 35, w: 0, h: 0, scale: 0.85, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 var logoConfig = {x: 1620, y: 920, w: 0, h: 0, scale: 0.54, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 
 // ── Burned-in caption overlay ────────────────────────────────────────────────
@@ -353,8 +353,8 @@ const EDGE_TTS_MALE_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const EDGE_TTS_VOICE_STORAGE_KEY = "pp_preferred_voice";
-const EXPORT_TITLE_PREROLL_MS = 1800;
-const TITLE_TO_CONTEXT_GAP_MS = 1000;
+const EXPORT_TITLE_PREROLL_MS = 500;
+const TITLE_TO_CONTEXT_GAP_MS = 300;
 const EXPORT_TITLE_OUTRO_MS = 2400;
 const ANJALI_GENERATION_OPTIONS = Object.freeze({
   repetitionPenalty: 1.02,
@@ -418,9 +418,13 @@ const SPEECH_SYNC_REVEAL_START = 0.0;
 const SPEECH_SYNC_REVEAL_END   = 1.0;
 const SPEECH_SYNC_WORD_COMMIT_MIN = 0.0;
 const SPEECH_SYNC_WORD_COMMIT_MAX = 1.0;
-// Positive = text appears slightly AFTER the word is spoken
-// Keep at 0 — any lag makes the FIRST word feel slow on cold start
-const SPEECH_SYNC_VISUAL_PROGRESS_LAG = 0.0;
+// Positive = text appears slightly AFTER the word is spoken (in seconds).
+// Set to 0.1 (100ms) to compensate for the Edge TTS server's 100ms leading
+// silence pad prepended to every audio chunk.  Without this offset the
+// animation reveals text during the silent pad — making words appear before
+// the voice speaks them.  The first-word cold-start window below covers the
+// remaining gap for short (≤3-word) chunks that use a 220ms pad.
+const SPEECH_SYNC_VISUAL_PROGRESS_LAG = 0.1;
 const MATHS_NUMBERS_TEMPLATE = `# Numbers
 1 is one.
 2 is two.
@@ -19959,11 +19963,13 @@ function startNarrationLoop(audioElement) {
     // ── First-word cold-start fix ──────────────────────────────────────────────
     // The renderer uses `state.displayedText` when speaking (line ~4978).
     // At t=0 getSpeechSyncFrame returns displayedText="" and exactCharCountFloat=0
-    // → nothing renders → screen looks STUCK for the ~175ms Edge TTS leading silence.
-    // Fix: pre-reveal the first word in BOTH displayedText AND exactCharCountFloat.
-    // TTS leading silence is now ~80ms with rate=1; tightened from 175ms so first
-    // word doesn't flash in too early on longer texts.
-    if (syncElapsedMs < 80 && !syncFrame.displayedText && state.text) {
+    // → nothing renders → screen looks STUCK for the Edge TTS leading silence pad.
+    // The server prepends 100ms of silence for most chunks (220ms for ≤3-word
+    // chunks). SPEECH_SYNC_VISUAL_PROGRESS_LAG=0.1 shifts sync by 100ms, so
+    // syncElapsedMs is 0 for the first 100ms of real audio time. We keep the
+    // first-word reveal window at 200ms to safely cover both pad sizes (100ms
+    // and 220ms) and ensure no blank-screen flash at the very start.
+    if (syncElapsedMs < 200 && !syncFrame.displayedText && state.text) {
       const firstSpace = state.text.indexOf(' ');
       syncFrame.displayedText = firstSpace > 0
         ? state.text.slice(0, firstSpace + 1)
@@ -21445,6 +21451,7 @@ async function exportVideo(options = {}) {
   const shouldIncludeIntro = Boolean(state.introPlayback.enabled);
   // Poster is optional and independent — it can be shown even if intro is skipped at fetch time.
   const shouldIncludePoster = Boolean(state.introPoster.available);
+  const shouldUsePosterPreroll = shouldIncludePoster;
   const preparingVideoExportMessage = cacheOnly
     ? "Preparing the downloadable video in the background. Please wait..."
     : (allowIntroOnlyExport
@@ -21525,7 +21532,7 @@ async function exportVideo(options = {}) {
     const introTimelineDurationMs = shouldIncludeIntro
       ? Math.max(0, Math.round(state.introPlayback.durationMs || 0))
       : 0;
-    const posterTimelineDurationMs = shouldIncludePoster ? getIntroPosterDurationMs() : 0;
+    const posterTimelineDurationMs = shouldUsePosterPreroll ? getIntroPosterDurationMs() : 0;
     const totalExportTimelineDurationMs = allowIntroOnlyExport
       ? Math.max(1000, introTimelineDurationMs + posterTimelineDurationMs)
       : lessonTimelineDurationMs + titleIntroTimelineDurationMs + introTimelineDurationMs + posterTimelineDurationMs;
@@ -21649,7 +21656,7 @@ async function exportVideo(options = {}) {
             captureRate: 30,
             effectiveExportQuality,
             exportSnapshot: lessonExportSnapshot,
-            preRollPosterDurationMs: shouldIncludePoster ? getIntroPosterDurationMs() : 0,
+            preRollPosterDurationMs: shouldUsePosterPreroll ? getIntroPosterDurationMs() : 0,
             titlePrerollMs: EXPORT_TITLE_PREROLL_MS,
             titleIntroDurationMs: exportTitleNarrationDurationMs
           }
@@ -21670,7 +21677,7 @@ async function exportVideo(options = {}) {
           captureRate: 30,
           effectiveExportQuality,
           exportSnapshot: lessonExportSnapshot,
-          preRollPosterDurationMs: shouldIncludePoster ? getIntroPosterDurationMs() : 0,
+          preRollPosterDurationMs: shouldUsePosterPreroll ? getIntroPosterDurationMs() : 0,
           titlePrerollMs: EXPORT_TITLE_PREROLL_MS,
           titleIntroDurationMs: exportTitleNarrationDurationMs
         }
@@ -21809,17 +21816,17 @@ async function exportVideo(options = {}) {
       state.mouthOpen = 0.12;
       applyLessonExportSnapshot(lessonExportSnapshot, lessonExportSnapshot.text);
       // Skip drawScene here if poster is about to show — prevents a 1-frame lesson content flash
-      if (!(shouldIncludePoster && state.introPoster.image)) {
+      if (!(shouldUsePosterPreroll && state.introPoster.image)) {
         drawScene(0.12);
         requestExportVideoFrame();
         await waitForNextPaint();
       }
-      if (!(shouldIncludePoster && state.introPoster.image)) {
+      if (!(shouldUsePosterPreroll && state.introPoster.image)) {
         await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
       }
 
       // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
-      if (shouldIncludePoster && state.introPoster.image) {
+      if (shouldUsePosterPreroll && state.introPoster.image) {
         const OUTRO_POSTER_DURATION_MS = 5000;
         const outroLabel = "Holding poster for 5 seconds as outro...";
         setStatus(outroLabel);
@@ -21859,7 +21866,7 @@ async function exportVideo(options = {}) {
       audioFileName = "title-and-lesson-audio.wav";
     }
     const titleAndLessonAudioBlob = audioBlob;
-    if (!includedIntroInExport && shouldIncludePoster) {
+    if (!includedIntroInExport && shouldUsePosterPreroll) {
       const posterOnlyGapBlob = createSilentWavBlob(getIntroPosterDurationMs());
       audioBlob = await combineNarrationBlobs(
         [posterOnlyGapBlob, titleAndLessonAudioBlob],
@@ -21873,7 +21880,7 @@ async function exportVideo(options = {}) {
     if (includedIntroInExport) {
       try {
         const introAudioBlob = await getIntroExportBlob();
-        const posterGapBlob = shouldIncludePoster
+        const posterGapBlob = shouldUsePosterPreroll
           ? createSilentWavBlob(getIntroPosterDurationMs())
           : null;
         audioBlob = allowIntroOnlyExport
@@ -21906,7 +21913,7 @@ async function exportVideo(options = {}) {
           : "The intro clip and its audio will be included before the Anjali lesson narration.");
       } catch (error) {
         console.error(error);
-        const silentPosterGapBlob = shouldIncludePoster
+        const silentPosterGapBlob = shouldUsePosterPreroll
           ? createSilentWavBlob(getIntroPosterDurationMs())
           : null;
         audioBlob = allowIntroOnlyExport
