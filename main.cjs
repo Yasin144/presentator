@@ -535,7 +535,7 @@ async function createWindow() {
   });
 
   ipcMain.handle('narrate-edge-tts', async (_event, payload) => {
-    const response = await postJsonForBuffer(8427, '/api/preview', payload, 180000);
+    const response = await postJsonForBuffer(8427, '/api/preview-mp3', payload, 180000);
     const contentType = String(response.headers['content-type'] || 'audio/wav');
     const bodyText = /application\/json/i.test(contentType)
       ? response.buffer.toString('utf8')

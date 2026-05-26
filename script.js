@@ -394,6 +394,8 @@ const STAGE_IMAGE_MIN_HEIGHT_PX = 72;
 const STAGE_IMAGE_HANDLE_SIZE_PX = 16;
 const NARRATION_CHUNK_MAX_LENGTH = 560;
 const NARRATION_CHUNK_THRESHOLD = 1800;
+const EDGE_NARRATION_CHUNK_MAX_LENGTH = 6000;
+const EDGE_NARRATION_CHUNK_THRESHOLD = 6000;
 const ANJALI_NARRATION_CHUNK_MAX_LENGTH = 220;
 const ANJALI_NARRATION_CHUNK_THRESHOLD = 260;
 const DEFAULT_STAGE_PLAYBACK_RATE = 1.0;
@@ -3925,6 +3927,13 @@ function getNarrationChunkConfig(voice) {
     return {
       maxChunkLength: ANJALI_NARRATION_CHUNK_MAX_LENGTH,
       threshold: ANJALI_NARRATION_CHUNK_THRESHOLD
+    };
+  }
+
+  if (voice === EDGE_NARRATION_VOICE) {
+    return {
+      maxChunkLength: EDGE_NARRATION_CHUNK_MAX_LENGTH,
+      threshold: EDGE_NARRATION_CHUNK_THRESHOLD
     };
   }
 
@@ -11213,7 +11222,9 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
   }
 
   const chunkConfig = getNarrationChunkConfig(voice);
-  const glossaryNarrationChunks = getGlossaryNarrationChunkEntries(text);
+  const glossaryNarrationChunks = voice === EDGE_NARRATION_VOICE
+    ? null
+    : getGlossaryNarrationChunkEntries(text);
   const chunkEntries = glossaryNarrationChunks?.length
     ? glossaryNarrationChunks
     : normalizeNarrationChunkEntries(

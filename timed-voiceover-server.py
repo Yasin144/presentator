@@ -196,6 +196,17 @@ def generate_single_pass(text: str, voice: str, rate: str, pitch: str, volume: s
     return wav
 
 
+def generate_single_pass_mp3(text: str, voice: str, rate: str, pitch: str, volume: str) -> bytes:
+    """Generate Edge TTS MP3 directly, without the slower FFmpeg WAV conversion."""
+    key = "mp3|" + _cache_key(text, rate, pitch, volume, voice)
+    cached = _get_cached(key)
+    if cached is not None:
+        return cached
+    mp3 = asyncio.run(_synthesize_mp3(text, voice, rate, pitch, volume))
+    _store_cached(key, mp3)
+    return mp3
+
+
 def generate_timed(
     text: str,
     target_s: float,
@@ -425,6 +436,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "text is required."}, 400)
                 return
             try:
+                if self.path.startswith("/api/preview-mp3"):
+                    mp3 = generate_single_pass_mp3(_clean_text(text), voice, rate, pitch, volume)
+                    if self._cors(200, "audio/mpeg", len(mp3), finish=False):
+                        self.send_header("Content-Disposition", 'attachment; filename="preview.mp3"')
+                        try:
+                            self.end_headers()
+                        except self._DISC:
+                            return
+                        self._write(mp3)
+                    return
+
                 wav = generate_single_pass(_clean_text(text), voice, rate, pitch, volume)
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
