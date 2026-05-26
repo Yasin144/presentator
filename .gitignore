@@ -53,3 +53,8 @@ electron-screen.png
 *.mp3
 *.wav
 *.webm
+!default-intro.mp4
+!default-intro.wav
+!voice-reference-anjali.mp3
+!voice-reference-anjali.wav
+!voice-reference-sc3.wav
