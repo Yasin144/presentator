@@ -306,7 +306,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
-    def _cors(self, status=200, ctype="application/json", length=0):
+    def _cors(self, status=200, ctype="application/json", length=0, finish=True):
         self.send_response(status)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -314,6 +314,8 @@ class Handler(BaseHTTPRequestHandler):
         if ctype:
             self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(length))
+        if not finish:
+            return True
         try:
             self.end_headers()
             return True
@@ -393,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
 
             wav = result["wav"]
             # Attach metadata as custom response headers
-            if self._cors(200, "audio/wav", len(wav)):
+            if self._cors(200, "audio/wav", len(wav), finish=False):
                 self.send_header("X-Actual-Seconds",  f'{result["actualSeconds"]:.3f}')
                 self.send_header("X-Target-Seconds",  f'{result["targetSeconds"]:.3f}')
                 self.send_header("X-Rate-Used",       result["rate"])
@@ -428,7 +430,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(exc)}, 500)
                 return
             dur = _wav_duration_s(wav)
-            if self._cors(200, "audio/wav", len(wav)):
+            if self._cors(200, "audio/wav", len(wav), finish=False):
                 self.send_header("X-Actual-Seconds", f"{dur:.3f}")
                 self.send_header("Content-Disposition", 'attachment; filename="preview.wav"')
                 try:
