@@ -1120,6 +1120,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <button id="singSongProcessBtn" className="primary-btn" type="button" disabled>Prepare Sing Song</button>
               <button id="singSongSc3ReplaceBtn" className="primary-btn" type="button" disabled>Replace Vocal With sc3</button>
               <button id="singSongDownloadBtn" className="ghost-btn" type="button" disabled>Download Result</button>
+              <button id="singSongDownloadReplacedBtn" className="ghost-btn" type="button" disabled>Download Replaced Song</button>
             </div>
             <div id="singSongProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">

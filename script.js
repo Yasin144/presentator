@@ -263,6 +263,7 @@ const singSongLyricsInput = document.getElementById("singSongLyricsInput");
 const singSongProcessBtn = document.getElementById("singSongProcessBtn");
 const singSongSc3ReplaceBtn = document.getElementById("singSongSc3ReplaceBtn");
 const singSongDownloadBtn = document.getElementById("singSongDownloadBtn");
+const singSongDownloadReplacedBtn = document.getElementById("singSongDownloadReplacedBtn");
 const singSongProgress = document.getElementById("singSongProgress");
 const singSongProgressBar = document.getElementById("singSongProgressBar");
 const singSongProgressLabel = document.getElementById("singSongProgressLabel");
@@ -826,6 +827,8 @@ const state = {
     resultBlob: null,
     resultUrl: "",
     resultFileName: "sing-song-safe-result.mp3",
+    replacedBlob: null,
+    replacedFileName: "sing-song-sc3-replaced.mp3",
     processing: false
   },
   generatingNarration: false,
@@ -22980,6 +22983,8 @@ function clearSingSongResult() {
   state.singSong.resultBlob = null;
   state.singSong.resultUrl = "";
   state.singSong.resultFileName = "sing-song-safe-result.mp3";
+  state.singSong.replacedBlob = null;
+  state.singSong.replacedFileName = "sing-song-sc3-replaced.mp3";
   if (singSongResultPreview) {
     singSongResultPreview.pause();
     singSongResultPreview.removeAttribute("src");
@@ -22988,6 +22993,9 @@ function clearSingSongResult() {
   }
   if (singSongDownloadBtn) {
     singSongDownloadBtn.disabled = true;
+  }
+  if (singSongDownloadReplacedBtn) {
+    singSongDownloadReplacedBtn.disabled = true;
   }
 }
 
@@ -23059,6 +23067,7 @@ async function processSingSongSafe() {
   state.singSong.processing = true;
   if (singSongProcessBtn) singSongProcessBtn.disabled = true;
   if (singSongDownloadBtn) singSongDownloadBtn.disabled = true;
+  if (singSongDownloadReplacedBtn) singSongDownloadReplacedBtn.disabled = true;
   clearSingSongResult();
   setSingSongProgress(8, "Starting safe song module");
   setSingSongStatus("Preparing Sing Song safe mode...");
@@ -23171,6 +23180,8 @@ async function replaceSingSongVocalWithSc3() {
 
     state.singSong.resultBlob = resultBlob;
     state.singSong.resultFileName = `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sc3-vocal.mp3`;
+    state.singSong.replacedBlob = resultBlob;
+    state.singSong.replacedFileName = state.singSong.resultFileName;
     state.singSong.resultUrl = URL.createObjectURL(resultBlob);
     if (singSongResultPreview) {
       singSongResultPreview.src = state.singSong.resultUrl;
@@ -23178,6 +23189,9 @@ async function replaceSingSongVocalWithSc3() {
     }
     if (singSongDownloadBtn) {
       singSongDownloadBtn.disabled = false;
+    }
+    if (singSongDownloadReplacedBtn) {
+      singSongDownloadReplacedBtn.disabled = false;
     }
     setSingSongProgress(100, "Ready");
     setSingSongStatus("sc3 replacement vocal result is ready. Preview it or download it.");
@@ -23204,6 +23218,14 @@ async function downloadSingSongResult() {
     return;
   }
   await triggerFileDownload(state.singSong.resultBlob, state.singSong.resultFileName);
+}
+
+async function downloadSingSongReplacedResult() {
+  if (!state.singSong.replacedBlob) {
+    setSingSongStatus("Create the sc3 replaced song first.", { error: true });
+    return;
+  }
+  await triggerFileDownload(state.singSong.replacedBlob, state.singSong.replacedFileName);
 }
 
 async function handleTranscribeAudioUpload() {
@@ -24772,6 +24794,11 @@ if (singSongSc3ReplaceBtn) {
 if (singSongDownloadBtn) {
   singSongDownloadBtn.addEventListener("click", () => {
     void downloadSingSongResult();
+  });
+}
+if (singSongDownloadReplacedBtn) {
+  singSongDownloadReplacedBtn.addEventListener("click", () => {
+    void downloadSingSongReplacedResult();
   });
 }
 audioInput.addEventListener("change", handleAudioSelection);
