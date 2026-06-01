@@ -1097,6 +1097,39 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
+      <details className="section-card" id="singSongSection">
+        <summary className="section-summary">
+          <span className="summary-head">
+            <span className="section-icon">SNG</span>
+            <span className="summary-copy">
+              <span className="section-title">Sing Song</span>
+              <span className="section-meta">Upload an MP3 and prepare a safe vocal-reduced song bed for sc3 singing work.</span>
+            </span>
+          </span>
+        </summary>
+        <div className="section-content">
+          <div className="upload-block">
+            <label className="field-label" htmlFor="singSongInput">Song MP3</label>
+            <p className="upload-copy">Upload the song MP3. Safe mode removes the center vocal as much as possible and keeps the music timing.</p>
+            <input id="singSongInput" className="image-input" type="file" accept="audio/mpeg,audio/mp3,audio/*" />
+            <audio id="singSongSourcePreview" className="audio-preview hidden" controls preload="metadata"></audio>
+            <div className="toolbar toolbar-compact">
+              <button id="singSongProcessBtn" className="primary-btn" type="button" disabled>Prepare Sing Song</button>
+              <button id="singSongDownloadBtn" className="ghost-btn" type="button" disabled>Download Result</button>
+            </div>
+            <div id="singSongProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
+              aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div className="progress-track">
+                <span id="singSongProgressBar" className="progress-fill"></span>
+              </div>
+              <p id="singSongProgressLabel" className="upload-copy">0% complete</p>
+            </div>
+            <audio id="singSongResultPreview" className="audio-preview hidden" controls preload="metadata"></audio>
+            <p className="upload-copy" id="singSongStatus">No song uploaded.</p>
+          </div>
+        </div>
+      </details>
+
       <details className="section-card" id="aiCaptionSection">
         <summary className="section-summary">
           <span className="summary-head">

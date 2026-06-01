@@ -257,6 +257,15 @@ const transcribeProgress = document.getElementById("transcribeProgress");
 const transcribeProgressBar = document.getElementById("transcribeProgressBar");
 const transcribeProgressLabel = document.getElementById("transcribeProgressLabel");
 const transcribeStatus = document.getElementById("transcribeStatus");
+const singSongInput = document.getElementById("singSongInput");
+const singSongSourcePreview = document.getElementById("singSongSourcePreview");
+const singSongProcessBtn = document.getElementById("singSongProcessBtn");
+const singSongDownloadBtn = document.getElementById("singSongDownloadBtn");
+const singSongProgress = document.getElementById("singSongProgress");
+const singSongProgressBar = document.getElementById("singSongProgressBar");
+const singSongProgressLabel = document.getElementById("singSongProgressLabel");
+const singSongResultPreview = document.getElementById("singSongResultPreview");
+const singSongStatus = document.getElementById("singSongStatus");
 const audioInput = document.getElementById("audioInput");
 const audioStatus = document.getElementById("audioStatus");
 const audioPreview = document.getElementById("audioPreview");
@@ -809,6 +818,14 @@ const state = {
   },
   transcribeSelectedFile: null,
   transcribing: false,
+  singSong: {
+    file: null,
+    sourceUrl: "",
+    resultBlob: null,
+    resultUrl: "",
+    resultFileName: "sing-song-safe-result.mp3",
+    processing: false
+  },
   generatingNarration: false,
   inputPreviewing: false,
   previewAudio: null,
@@ -22933,6 +22950,158 @@ function handleTranscribeAudioSelection(event) {
   updateSpeechToolsUi();
 }
 
+function setSingSongStatus(message, options = {}) {
+  if (singSongStatus) {
+    singSongStatus.textContent = message;
+    singSongStatus.classList.toggle("is-error", Boolean(options.error));
+  }
+  if (options.error) {
+    setStatus(message, { error: true });
+  }
+}
+
+function setSingSongProgress(percent, label = "") {
+  if (!singSongProgress || !singSongProgressBar || !singSongProgressLabel) {
+    return;
+  }
+  const safePercent = clamp(Math.round(Number(percent) || 0), 0, 100);
+  singSongProgress.classList.toggle("hidden", safePercent <= 0 || safePercent >= 100);
+  singSongProgress.setAttribute("aria-valuenow", String(safePercent));
+  singSongProgressBar.style.width = `${safePercent}%`;
+  singSongProgressLabel.textContent = `${safePercent}%${label ? ` - ${label}` : ""}`;
+}
+
+function clearSingSongResult() {
+  if (state.singSong.resultUrl) {
+    URL.revokeObjectURL(state.singSong.resultUrl);
+  }
+  state.singSong.resultBlob = null;
+  state.singSong.resultUrl = "";
+  state.singSong.resultFileName = "sing-song-safe-result.mp3";
+  if (singSongResultPreview) {
+    singSongResultPreview.pause();
+    singSongResultPreview.removeAttribute("src");
+    singSongResultPreview.classList.add("hidden");
+    singSongResultPreview.load();
+  }
+  if (singSongDownloadBtn) {
+    singSongDownloadBtn.disabled = true;
+  }
+}
+
+function handleSingSongSelection(event) {
+  const [file] = Array.from(event.target.files || []);
+  clearSingSongResult();
+  if (state.singSong.sourceUrl) {
+    URL.revokeObjectURL(state.singSong.sourceUrl);
+    state.singSong.sourceUrl = "";
+  }
+  state.singSong.file = file || null;
+  setSingSongProgress(0);
+
+  if (!file) {
+    if (singSongSourcePreview) {
+      singSongSourcePreview.pause();
+      singSongSourcePreview.removeAttribute("src");
+      singSongSourcePreview.classList.add("hidden");
+      singSongSourcePreview.load();
+    }
+    if (singSongProcessBtn) singSongProcessBtn.disabled = true;
+    setSingSongStatus("No song uploaded.");
+    return;
+  }
+
+  state.singSong.sourceUrl = URL.createObjectURL(file);
+  if (singSongSourcePreview) {
+    singSongSourcePreview.src = state.singSong.sourceUrl;
+    singSongSourcePreview.classList.remove("hidden");
+  }
+  if (singSongProcessBtn) singSongProcessBtn.disabled = false;
+  setSingSongStatus(`Selected song: ${file.name}. Click Prepare Sing Song.`);
+}
+
+async function processSingSongSafe() {
+  const file = state.singSong.file;
+  if (!file) {
+    setSingSongStatus("Upload an MP3 first.", { error: true });
+    return;
+  }
+
+  state.singSong.processing = true;
+  if (singSongProcessBtn) singSongProcessBtn.disabled = true;
+  if (singSongDownloadBtn) singSongDownloadBtn.disabled = true;
+  clearSingSongResult();
+  setSingSongProgress(8, "Starting safe song module");
+  setSingSongStatus("Preparing Sing Song safe mode...");
+
+  try {
+    setSingSongProgress(20, "Checking FFmpeg server");
+    const serverReady = await ensureVideoExportServer();
+    if (!serverReady) {
+      throw new Error("The local FFmpeg server is not running.");
+    }
+
+    setSingSongProgress(38, "Reading MP3");
+    const audioBase64 = arrayBufferToBase64(await file.arrayBuffer());
+    setSingSongProgress(58, "Removing center vocal");
+    const response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/sing-song-safe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audioBase64,
+        inputFileName: file.name,
+        outputFileName: `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sing-song-safe.mp3`
+      })
+    }, "Preparing Sing Song safe result", { attempts: 1, timeoutMs: 0 });
+
+    setSingSongProgress(86, "Receiving result");
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.error || "Sing Song preparation failed.");
+    }
+
+    const resultBlob = await response.blob();
+    if (!resultBlob.size) {
+      throw new Error("Sing Song returned an empty audio file.");
+    }
+
+    const resultName = response.headers.get("X-Output-File") || `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sing-song-safe.mp3`;
+    state.singSong.resultBlob = resultBlob;
+    state.singSong.resultFileName = resultName;
+    state.singSong.resultUrl = URL.createObjectURL(resultBlob);
+    if (singSongResultPreview) {
+      singSongResultPreview.src = state.singSong.resultUrl;
+      singSongResultPreview.classList.remove("hidden");
+    }
+    if (singSongDownloadBtn) {
+      singSongDownloadBtn.disabled = false;
+    }
+    setSingSongProgress(100, "Ready");
+    setSingSongStatus("Sing Song safe result is ready. Preview it or download it.");
+    setStatus("Sing Song safe result is ready.");
+  } catch (error) {
+    console.error(error);
+    setSingSongStatus(error.message || "Sing Song preparation failed.", { error: true });
+    setSingSongProgress(0);
+  } finally {
+    state.singSong.processing = false;
+    if (singSongProcessBtn) singSongProcessBtn.disabled = !state.singSong.file;
+    window.setTimeout(() => {
+      if (!state.singSong.processing) {
+        setSingSongProgress(0);
+      }
+    }, 900);
+  }
+}
+
+async function downloadSingSongResult() {
+  if (!state.singSong.resultBlob) {
+    setSingSongStatus("Prepare a Sing Song result first.", { error: true });
+    return;
+  }
+  await triggerFileDownload(state.singSong.resultBlob, state.singSong.resultFileName);
+}
+
 async function handleTranscribeAudioUpload() {
   const file = state.transcribeSelectedFile;
   if (!file) {
@@ -24483,6 +24652,19 @@ copyStartAllBtn.addEventListener("click", copyStartAllCommand);
 checkServersBtn.addEventListener("click", checkServerHealth);
 transcribeAudioInput.addEventListener("change", handleTranscribeAudioSelection);
 submitTranscribeBtn.addEventListener("click", handleTranscribeAudioUpload);
+if (singSongInput) {
+  singSongInput.addEventListener("change", handleSingSongSelection);
+}
+if (singSongProcessBtn) {
+  singSongProcessBtn.addEventListener("click", () => {
+    void runLockedAction("singSongSafe", [singSongProcessBtn, singSongDownloadBtn], processSingSongSafe);
+  });
+}
+if (singSongDownloadBtn) {
+  singSongDownloadBtn.addEventListener("click", () => {
+    void downloadSingSongResult();
+  });
+}
 audioInput.addEventListener("change", handleAudioSelection);
 videoInput.addEventListener("change", handleVideoSelection);
 introClipEnabled.addEventListener("change", (event) => {
