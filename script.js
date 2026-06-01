@@ -9682,6 +9682,75 @@ function audioBufferToWavBlob(audioBuffer) {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
+async function trimAudioBlobSilence(blob, options = {}) {
+  if (!blob?.size) {
+    return blob;
+  }
+
+  const threshold = Number.isFinite(Number(options.threshold)) ? Number(options.threshold) : 0.0035;
+  const keepMs = Math.max(0, Math.round(Number(options.keepMs) || 90));
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  const OfflineAudioContextConstructor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!AudioContextConstructor || !OfflineAudioContextConstructor) {
+    return blob;
+  }
+
+  const audioContext = new AudioContextConstructor();
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    const frameCount = decoded.length || 0;
+    const channelCount = decoded.numberOfChannels || 1;
+    if (!frameCount) {
+      return blob;
+    }
+
+    let firstAudible = frameCount;
+    let lastAudible = -1;
+    const stride = Math.max(1, Math.floor(decoded.sampleRate / 2000));
+    for (let sample = 0; sample < frameCount; sample += stride) {
+      let peak = 0;
+      for (let channel = 0; channel < channelCount; channel += 1) {
+        const data = decoded.getChannelData(channel);
+        peak = Math.max(peak, Math.abs(data[sample] || 0));
+      }
+      if (peak >= threshold) {
+        firstAudible = Math.min(firstAudible, sample);
+        lastAudible = Math.max(lastAudible, sample);
+      }
+    }
+
+    if (lastAudible < firstAudible) {
+      return blob;
+    }
+
+    const keepFrames = Math.round((keepMs / 1000) * decoded.sampleRate);
+    const startFrame = Math.max(0, firstAudible - keepFrames);
+    const endFrame = Math.min(frameCount, lastAudible + keepFrames);
+    if (startFrame <= 0 && endFrame >= frameCount - 1) {
+      return blob;
+    }
+
+    const outputFrames = Math.max(1, endFrame - startFrame);
+    const offlineContext = new OfflineAudioContextConstructor(channelCount, outputFrames, decoded.sampleRate);
+    const trimmedBuffer = offlineContext.createBuffer(channelCount, outputFrames, decoded.sampleRate);
+    for (let channel = 0; channel < channelCount; channel += 1) {
+      trimmedBuffer.copyToChannel(decoded.getChannelData(channel).subarray(startFrame, endFrame), channel, 0);
+    }
+    const source = offlineContext.createBufferSource();
+    source.buffer = trimmedBuffer;
+    source.connect(offlineContext.destination);
+    source.start(0);
+    const rendered = await offlineContext.startRendering();
+    return audioBufferToWavBlob(rendered);
+  } catch (error) {
+    console.warn("[audio] Silence trim failed; using original audio.", error);
+    return blob;
+  } finally {
+    await audioContext.close();
+  }
+}
+
 function arrayBufferToBase64(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);
   let binary = "";
@@ -21872,13 +21941,19 @@ async function exportVideo(options = {}) {
       const titleNarration = await createTitleNarrationForVoice(getSelectedEdgeExportVoice(), {
         skipPreparedExportSchedule: true
       });
-      exportTitleNarrationBlob = titleNarration?.blob || null;
+      exportTitleNarrationBlob = titleNarration?.blob
+        ? await trimAudioBlobSilence(titleNarration.blob, { keepMs: 120 })
+        : null;
       exportTitleNarrationDurationMs = titleNarration?.durationMs || 0;
+      if (exportTitleNarrationBlob) {
+        exportTitleNarrationDurationMs = Math.max(1000, await measureNarrationBlobDurationMs(exportTitleNarrationBlob));
+      }
       exportNarrationBlob = await ensureAnjaliNarrationReadyForExport({
         textSource: exportText,
         timeoutMs: getLongNarrationRequestTimeoutMs(exportText),
         skipPreparedExportSchedule: true
       });
+      exportNarrationBlob = await trimAudioBlobSilence(exportNarrationBlob, { keepMs: 140 });
       exportNarrationDurationMs = Math.max(
         1000,
         await measureNarrationBlobDurationMs(exportNarrationBlob)
