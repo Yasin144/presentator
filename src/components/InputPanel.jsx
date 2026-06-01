@@ -1119,9 +1119,11 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <div className="toolbar toolbar-compact">
               <button id="singSongProcessBtn" className="primary-btn" type="button" disabled>Prepare Sing Song</button>
               <button id="singSongSc3ReplaceBtn" className="primary-btn" type="button" disabled>Auto Replace Vocal With sc3</button>
+              <button id="singSongModelBtn" className="primary-btn" type="button" disabled>Use sc3 Singing Model</button>
               <button id="singSongDownloadBtn" className="ghost-btn" type="button" disabled>Download Result</button>
               <button id="singSongDownloadReplacedBtn" className="ghost-btn" type="button" disabled>Download Replaced Song</button>
             </div>
+            <p className="upload-copy" id="singSongModelStatus">sc3 singing model is separate from normal narration.</p>
             <div id="singSongProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div className="progress-track">

@@ -262,6 +262,7 @@ const singSongSourcePreview = document.getElementById("singSongSourcePreview");
 const singSongLyricsInput = document.getElementById("singSongLyricsInput");
 const singSongProcessBtn = document.getElementById("singSongProcessBtn");
 const singSongSc3ReplaceBtn = document.getElementById("singSongSc3ReplaceBtn");
+const singSongModelBtn = document.getElementById("singSongModelBtn");
 const singSongDownloadBtn = document.getElementById("singSongDownloadBtn");
 const singSongDownloadReplacedBtn = document.getElementById("singSongDownloadReplacedBtn");
 const singSongProgress = document.getElementById("singSongProgress");
@@ -269,6 +270,7 @@ const singSongProgressBar = document.getElementById("singSongProgressBar");
 const singSongProgressLabel = document.getElementById("singSongProgressLabel");
 const singSongResultPreview = document.getElementById("singSongResultPreview");
 const singSongStatus = document.getElementById("singSongStatus");
+const singSongModelStatus = document.getElementById("singSongModelStatus");
 const audioInput = document.getElementById("audioInput");
 const audioStatus = document.getElementById("audioStatus");
 const audioPreview = document.getElementById("audioPreview");
@@ -716,6 +718,9 @@ const state = {
   transcribeServerReady: false,
   videoExportServerUrl: "http://127.0.0.1:8430",
   videoExportServerReady: false,
+  sc3SingingServerUrl: "http://127.0.0.1:8431",
+  sc3SingingServerReady: false,
+  sc3SingingModelReady: false,
   text: "",
   presentationTemplate: PRESENTATION_TEMPLATE_CLASSIC,
   outcomesTitle: "",
@@ -22967,6 +22972,13 @@ function setSingSongStatus(message, options = {}) {
   }
 }
 
+function setSingSongModelStatus(message, options = {}) {
+  if (singSongModelStatus) {
+    singSongModelStatus.textContent = message;
+    singSongModelStatus.classList.toggle("is-error", Boolean(options.error));
+  }
+}
+
 function setSingSongProgress(percent, label = "") {
   if (!singSongProgress || !singSongProgressBar || !singSongProgressLabel) {
     return;
@@ -23001,6 +23013,30 @@ function clearSingSongResult() {
   }
 }
 
+async function ensureSc3SingingModelServer() {
+  try {
+    const response = await fetchWithTimeout(`${state.sc3SingingServerUrl}/health`, {
+      method: "GET",
+      cache: "no-store"
+    }, 3500);
+    const payload = await response.clone().json().catch(() => null);
+    state.sc3SingingServerReady = response.ok;
+    state.sc3SingingModelReady = Boolean(payload?.modelReady);
+
+    if (state.sc3SingingModelReady) {
+      setSingSongModelStatus("sc3 singing model is ready. This is separate from normal narration.");
+    } else {
+      setSingSongModelStatus(payload?.message || "sc3 singing model is not installed yet.", { error: true });
+    }
+  } catch (error) {
+    state.sc3SingingServerReady = false;
+    state.sc3SingingModelReady = false;
+    setSingSongModelStatus("sc3 singing model server is not running on port 8431.", { error: true });
+  }
+
+  return state.sc3SingingServerReady && state.sc3SingingModelReady;
+}
+
 function handleSingSongSelection(event) {
   const [file] = Array.from(event.target.files || []);
   clearSingSongResult();
@@ -23020,6 +23056,7 @@ function handleSingSongSelection(event) {
     }
     if (singSongProcessBtn) singSongProcessBtn.disabled = true;
     if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = true;
+    if (singSongModelBtn) singSongModelBtn.disabled = true;
     setSingSongStatus("No song uploaded.");
     return;
   }
@@ -23031,7 +23068,9 @@ function handleSingSongSelection(event) {
   }
   if (singSongProcessBtn) singSongProcessBtn.disabled = false;
   if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = false;
+  if (singSongModelBtn) singSongModelBtn.disabled = false;
   setSingSongStatus(`Selected song: ${file.name}. Click Auto Replace Vocal With sc3. Lyrics are optional.`);
+  void ensureSc3SingingModelServer();
 }
 
 async function createSingSongInstrumentalBed(file, progressOffset = 0, progressSpan = 45) {
@@ -23244,6 +23283,86 @@ async function replaceSingSongVocalWithSc3() {
     state.singSong.processing = false;
     if (singSongProcessBtn) singSongProcessBtn.disabled = !state.singSong.file;
     if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = !state.singSong.file;
+    window.setTimeout(() => {
+      if (!state.singSong.processing) {
+        setSingSongProgress(0);
+      }
+    }, 900);
+  }
+}
+
+async function replaceSingSongWithSc3SingingModel() {
+  const file = state.singSong.file;
+  const lyrics = String(singSongLyricsInput?.value || "").trim();
+  if (!file) {
+    setSingSongStatus("Upload an MP3 first.", { error: true });
+    return;
+  }
+
+  state.singSong.processing = true;
+  if (singSongProcessBtn) singSongProcessBtn.disabled = true;
+  if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = true;
+  if (singSongModelBtn) singSongModelBtn.disabled = true;
+  if (singSongDownloadBtn) singSongDownloadBtn.disabled = true;
+  clearSingSongResult();
+  setSingSongProgress(8, "Checking sc3 singing model");
+  setSingSongStatus("Checking the separate sc3 singing model...");
+
+  try {
+    const modelReady = await ensureSc3SingingModelServer();
+    if (!modelReady) {
+      throw new Error("The separate sc3 singing model is not installed or ready. Normal sc3 narration was not touched.");
+    }
+
+    setSingSongProgress(22, "Sending song to singing model");
+    const response = await fetchWithTimeout(`${state.sc3SingingServerUrl}/api/convert-song`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        songBase64: arrayBufferToBase64(await file.arrayBuffer()),
+        inputFileName: file.name,
+        lyrics,
+        outputFileName: `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sc3-singing-model.mp3`
+      })
+    }, 0);
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.audioBase64) {
+      throw new Error(payload?.error || "The sc3 singing model did not return an MP3.");
+    }
+
+    const resultBlob = base64ToBlob(payload.audioBase64, payload.contentType || "audio/mpeg");
+    if (!resultBlob.size) {
+      throw new Error("The sc3 singing model returned an empty MP3.");
+    }
+
+    state.singSong.resultBlob = resultBlob;
+    state.singSong.resultFileName = payload.fileName || `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sc3-singing-model.mp3`;
+    state.singSong.replacedBlob = resultBlob;
+    state.singSong.replacedFileName = state.singSong.resultFileName;
+    state.singSong.resultUrl = URL.createObjectURL(resultBlob);
+    if (singSongResultPreview) {
+      singSongResultPreview.src = state.singSong.resultUrl;
+      singSongResultPreview.classList.remove("hidden");
+    }
+    if (singSongDownloadBtn) {
+      singSongDownloadBtn.disabled = false;
+    }
+    if (singSongDownloadReplacedBtn) {
+      singSongDownloadReplacedBtn.disabled = false;
+    }
+    setSingSongProgress(100, "Ready");
+    setSingSongStatus("sc3 singing model result is ready. Preview it or download it.");
+    setStatus("sc3 singing model result is ready.");
+  } catch (error) {
+    console.error(error);
+    setSingSongStatus(error.message || "sc3 singing model failed.", { error: true });
+    setSingSongProgress(0);
+  } finally {
+    state.singSong.processing = false;
+    if (singSongProcessBtn) singSongProcessBtn.disabled = !state.singSong.file;
+    if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = !state.singSong.file;
+    if (singSongModelBtn) singSongModelBtn.disabled = !state.singSong.file;
     window.setTimeout(() => {
       if (!state.singSong.processing) {
         setSingSongProgress(0);
@@ -24829,6 +24948,11 @@ if (singSongProcessBtn) {
 if (singSongSc3ReplaceBtn) {
   singSongSc3ReplaceBtn.addEventListener("click", () => {
     void runLockedAction("singSongSc3Replace", [singSongProcessBtn, singSongSc3ReplaceBtn, singSongDownloadBtn], replaceSingSongVocalWithSc3);
+  });
+}
+if (singSongModelBtn) {
+  singSongModelBtn.addEventListener("click", () => {
+    void runLockedAction("singSongModel", [singSongProcessBtn, singSongSc3ReplaceBtn, singSongModelBtn, singSongDownloadBtn], replaceSingSongWithSc3SingingModel);
   });
 }
 if (singSongDownloadBtn) {

@@ -1,0 +1,17 @@
+{
+  "command": [
+    "python",
+    "your-singing-model-infer.py",
+    "--input",
+    "{song}",
+    "--lyrics",
+    "{lyrics}",
+    "--model-dir",
+    "{modelDir}",
+    "--output",
+    "{output}"
+  ],
+  "cwd": "D:\\voice\\AI_Models\\sc3-singing",
+  "timeoutSeconds": 1800,
+  "env": {}
+}

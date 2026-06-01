@@ -269,6 +269,7 @@ const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const ANJALI_PYTHON = path.join(ROOT, '.voiceclone-venv', 'Scripts', 'python.exe');
 const ANJALI_SERVER = path.join(ROOT, 'anjali-chatterbox-server.py');
 const EDGE_TTS_SERVER = path.join(ROOT, 'timed-voiceover-server.py');
+const SC3_SINGING_SERVER = path.join(ROOT, 'sc3-singing-server.py');
 
 function isAnjaliServerProcessRunning() {
   return new Promise((resolve) => {
@@ -367,7 +368,21 @@ function startServers() {
     }
   });
 
-  // 5. Vite dev server (port 5173) — dev mode only
+  // 5. Optional sc3 singing model server (port 8431) - separate from narration
+  if (fs.existsSync(SC3_SINGING_SERVER)) {
+    spawnManaged('Sc3Singing', ANJALI_PYTHON, ['-u', SC3_SINGING_SERVER], {
+      cwd: ROOT,
+      restartDelayMs: 3000,
+      maxRestarts: 4,
+      restartWindowSec: 600,
+      env: {
+        PYTHONUTF8: '1',
+        PYTHONUNBUFFERED: '1',
+      }
+    });
+  }
+
+  // 6. Vite dev server (port 5173) — dev mode only
   if (IS_DEV) {
     spawnManaged('ViteDevServer', NPM, ['run', 'dev'], {
       cwd:   ROOT,
@@ -392,7 +407,7 @@ function freeServerPorts() {
     // NOTE: Port 8426 (voice server) is intentionally EXCLUDED.
     // The Chatterbox voice server is managed externally by the CMD launcher
     // and must NEVER be killed by Electron — reloading takes ~2 minutes.
-    const ports = [5173, 8424, 8428, 8430];
+    const ports = [5173, 8424, 8428, 8430, 8431];
     const psLines = [
       `$myPid = ${process.pid}`,
       `$ports = @(${ports.join(',')})`,
@@ -567,11 +582,12 @@ async function createWindow() {
 
   // ── IPC: Get server health status ─────────────────────────────────────────
   ipcMain.handle('get-server-health', async () => {
-    const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, viteAlive] = await Promise.all([
+    const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, sc3SingingAlive, viteAlive] = await Promise.all([
       pingPort(8426),
       pingPort(8427),
       pingPort(8428),
       pingPort(8430),
+      pingPort(8431),
       pingPort(5173, '/')
     ]);
     return {
@@ -579,6 +595,7 @@ async function createWindow() {
       edgeTts:     edgeTtsAlive,
       transcribe:  transcribeAlive,
       videoExport: videoExportAlive,
+      sc3Singing:  sc3SingingAlive,
       vite:        viteAlive,
       timestamp: Date.now()
     };
