@@ -22979,6 +22979,40 @@ function setSingSongModelStatus(message, options = {}) {
   }
 }
 
+function notifySongCreationComplete(message = "Your song is ready in the Sing Song module.") {
+  if (typeof window.Notification !== "function") {
+    return;
+  }
+
+  const showNotification = () => {
+    try {
+      new window.Notification("Song creation complete", {
+        body: message,
+        silent: false
+      });
+    } catch (error) {
+      console.warn("Song completion notification failed:", error);
+    }
+  };
+
+  if (window.Notification.permission === "granted") {
+    showNotification();
+    return;
+  }
+
+  if (window.Notification.permission === "default") {
+    window.Notification.requestPermission()
+      .then((permission) => {
+        if (permission === "granted") {
+          showNotification();
+        }
+      })
+      .catch((error) => {
+        console.warn("Song completion notification permission failed:", error);
+      });
+  }
+}
+
 function setSingSongProgress(percent, label = "") {
   if (!singSongProgress || !singSongProgressBar || !singSongProgressLabel) {
     return;
@@ -23174,6 +23208,7 @@ async function processSingSongSafe() {
     setSingSongProgress(100, "Ready");
     setSingSongStatus("Sing Song safe result is ready. Preview it or download it.");
     setStatus("Sing Song safe result is ready.");
+    notifySongCreationComplete("Sing Song safe result is ready to preview or download.");
   } catch (error) {
     console.error(error);
     setSingSongStatus(error.message || "Sing Song preparation failed.", { error: true });
@@ -23275,6 +23310,7 @@ async function replaceSingSongVocalWithSc3() {
     setSingSongProgress(100, "Ready");
     setSingSongStatus("sc3 replacement vocal result is ready. Preview it or download it.");
     setStatus("sc3 replacement vocal result is ready.");
+    notifySongCreationComplete("sc3 replacement vocal song is ready to preview or download.");
   } catch (error) {
     console.error(error);
     setSingSongStatus(error.message || "sc3 vocal replacement failed.", { error: true });
@@ -23354,6 +23390,7 @@ async function replaceSingSongWithSc3SingingModel() {
     setSingSongProgress(100, "Ready");
     setSingSongStatus("sc3 singing model result is ready. Preview it or download it.");
     setStatus("sc3 singing model result is ready.");
+    notifySongCreationComplete("sc3 singing model song is ready to preview or download.");
   } catch (error) {
     console.error(error);
     setSingSongStatus(error.message || "sc3 singing model failed.", { error: true });
