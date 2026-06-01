@@ -376,6 +376,32 @@ function bootCaptionStudio() {
         
         statusText.innerHTML = "Fetching audio data...";
         const arrayBuffer = await fileToProcess.arrayBuffer();
+        try {
+            statusText.innerHTML = "Extracting audio with local FFmpeg server...";
+            const mediaBase64 = arrayBufferToBase64(arrayBuffer);
+            const response = await fetch('http://127.0.0.1:8430/api/extract-audio-wav', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mediaBase64,
+                    inputFileName: fileToProcess.name || 'caption-video.mp4'
+                })
+            });
+            if (!response.ok) {
+                const payload = await response.json().catch(() => null);
+                throw new Error((payload && payload.error) || 'FFmpeg audio extraction failed.');
+            }
+            const wavArrayBuffer = await response.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(wavArrayBuffer.slice(0));
+            return {
+                buffer: audioBuffer.getChannelData(0),
+                duration: audioBuffer.duration,
+                wavBase64: arrayBufferToBase64(wavArrayBuffer)
+            };
+        } catch (serverError) {
+            console.warn("Local FFmpeg audio extraction failed, trying browser decode:", serverError);
+        }
+
         statusText.innerHTML = "Decoding audio data locally...";
         
         let audioBuffer;
@@ -408,6 +434,95 @@ function bootCaptionStudio() {
         return {
             buffer: audioBuffer.getChannelData(0),
             duration: audioBuffer.duration
+        };
+    }
+
+    function arrayBufferToBase64(arrayBuffer) {
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
+    }
+
+    function audioSamplesToWavBase64(samples, sampleRate = 16000) {
+        const bytesPerSample = 2;
+        const wavBuffer = new ArrayBuffer(44 + samples.length * bytesPerSample);
+        const view = new DataView(wavBuffer);
+        let offset = 0;
+        const writeString = (value) => {
+            for (let i = 0; i < value.length; i += 1) {
+                view.setUint8(offset, value.charCodeAt(i));
+                offset += 1;
+            }
+        };
+        writeString('RIFF');
+        view.setUint32(offset, 36 + samples.length * bytesPerSample, true); offset += 4;
+        writeString('WAVE');
+        writeString('fmt ');
+        view.setUint32(offset, 16, true); offset += 4;
+        view.setUint16(offset, 1, true); offset += 2;
+        view.setUint16(offset, 1, true); offset += 2;
+        view.setUint32(offset, sampleRate, true); offset += 4;
+        view.setUint32(offset, sampleRate * bytesPerSample, true); offset += 4;
+        view.setUint16(offset, bytesPerSample, true); offset += 2;
+        view.setUint16(offset, 16, true); offset += 2;
+        writeString('data');
+        view.setUint32(offset, samples.length * bytesPerSample, true); offset += 4;
+        for (let i = 0; i < samples.length; i += 1) {
+            const value = Math.max(-1, Math.min(1, samples[i] || 0));
+            view.setInt16(offset, value < 0 ? value * 0x8000 : value * 0x7fff, true);
+            offset += 2;
+        }
+        const bytes = new Uint8Array(wavBuffer);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
+    }
+
+    function buildLinearCaptionChunks(text, duration) {
+        const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+        if (!words.length) return [];
+        const safeDuration = Math.max(1, Number(duration) || words.length * 0.45);
+        const chunks = [];
+        const chunkSize = 7;
+        for (let i = 0; i < words.length; i += chunkSize) {
+            const chunkWords = words.slice(i, i + chunkSize);
+            const start = (i / words.length) * safeDuration;
+            const end = (Math.min(words.length, i + chunkWords.length) / words.length) * safeDuration;
+            chunks.push({
+                text: chunkWords.join(' '),
+                timestamp: [start, Math.max(start + 0.35, end)]
+            });
+        }
+        return chunks;
+    }
+
+    async function transcribeWithLocalServer(extractedAudio) {
+        const serverUrl = (window.state && window.state.transcribeServerUrl) || 'http://127.0.0.1:8428';
+        const audioBase64 = extractedAudio.wavBase64 || audioSamplesToWavBase64(extractedAudio.buffer, 16000);
+        const response = await fetch(`${serverUrl}/api/transcribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: 'caption-audio.wav', audioBase64 })
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => null);
+            throw new Error((payload && payload.error) || 'Local transcription server failed.');
+        }
+        const payload = await response.json();
+        const text = String((payload && payload.text) || '').trim();
+        if (!text) {
+            throw new Error('No speech was recognized from the video audio.');
+        }
+        return {
+            text,
+            chunks: buildLinearCaptionChunks(text, extractedAudio.duration)
         };
     }
     
@@ -480,6 +595,17 @@ function bootCaptionStudio() {
             audioDataArray = await extractAudio(activeFile);
             
             if (pBar) pBar.style.width = "15%";
+            let result = null;
+            try {
+                statusText.innerHTML = "⏳ Step 2: Sending audio to local transcription server...";
+                result = await transcribeWithLocalServer(audioDataArray);
+                if (pBar) pBar.style.width = "100%";
+            } catch (localError) {
+                console.warn("Local caption transcription failed, trying browser worker:", localError);
+                statusText.innerHTML = "Local transcription failed. Trying browser caption engine...";
+            }
+
+            if (!result) {
             if (!captionWorker) {
                 statusText.innerHTML = "⏳ Step 2: Initializing AI Engine...";
                 
@@ -562,7 +688,7 @@ function bootCaptionStudio() {
                 statusText.innerHTML = "Auto-Translating any detected language directly to English...";
             }
 
-            const result = await new Promise((resolve, reject) => {
+            result = await new Promise((resolve, reject) => {
                 captionWorker.onerror = (e) => reject(new Error("Worker runtime crash: " + (e.message || "Unknown error")));
                 captionWorker.onmessage = (e) => {
                     if (e.data.type === 'chunk_progress') {
@@ -586,6 +712,7 @@ function bootCaptionStudio() {
                     duration: audioDataArray.duration || sourceVideo.duration || 60
                 });
             });
+            }
 
             let rawChunks = result.chunks || [];
             let cleanCaptions = [];
@@ -635,7 +762,7 @@ function bootCaptionStudio() {
             
             if(generatedCaptions.length === 0 && result.text) {
                 let strippedText = result.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g, '').trim();
-                if (strippedText.length > 0) generatedCaptions = [{text: strippedText, timestamp: [0, sourceVideo.duration]}];
+                if (strippedText.length > 0) generatedCaptions = buildLinearCaptionChunks(strippedText, sourceVideo.duration);
             }
             
             editorPanel.classList.remove('hidden'); populateEditor();

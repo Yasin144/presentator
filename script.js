@@ -10086,6 +10086,29 @@ async function decodeAudioFileToWav(file) {
   }
 }
 
+async function extractMediaAudioToWavBlob(file, fileName = "media.mp4") {
+  const mediaBase64 = arrayBufferToBase64(await file.arrayBuffer());
+  const response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/extract-audio-wav`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mediaBase64,
+      inputFileName: fileName
+    })
+  }, "Extracting media audio", { attempts: 1, timeoutMs: 0 });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "Could not extract audio from the media file.");
+  }
+
+  const wavBlob = await response.blob();
+  if (!wavBlob.size) {
+    throw new Error("The extracted media audio was empty.");
+  }
+  return wavBlob;
+}
+
 function getScenePalette(theme) {
   switch (theme) {
     case "Ocean":
@@ -25577,9 +25600,9 @@ document.addEventListener("click", async (e) => {
         const videoArrayBuffer = await response.arrayBuffer();
         const videoBlob = new Blob([videoArrayBuffer], { type: "video/mp4" });
 
-        // Decode audio from video file to WAV
-        setStatus("Decoding video audio to WAV for transcription...");
-        const wavBlob = await decodeAudioFileToWav(videoBlob);
+        // Extract audio from the video file to WAV
+        setStatus("Extracting video audio to WAV for transcription...");
+        const wavBlob = await extractMediaAudioToWavBlob(videoBlob, state.stageVideo.fileName || "stage-video.mp4");
         const wavBase64 = arrayBufferToBase64(await wavBlob.arrayBuffer());
 
         // Send to transcription server
