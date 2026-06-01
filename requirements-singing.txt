@@ -1,3 +1,4 @@
+setuptools<81
 openvoice-cli==0.0.5
 demucs==4.0.1
 torch==2.6.0

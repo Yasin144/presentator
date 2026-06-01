@@ -19,7 +19,7 @@ if (!(Test-Path -LiteralPath $PythonExe)) {
   }
 }
 
-& $PythonExe -m pip install --upgrade pip setuptools wheel
+& $PythonExe -m pip install --upgrade pip wheel
 & $PythonExe -m pip install -r (Join-Path $Root "requirements-singing.txt")
 
 New-Item -ItemType Directory -Force -Path $ModelDir | Out-Null
