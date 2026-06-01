@@ -11238,13 +11238,15 @@ async function generateNarrationChunkWithFallback(chunkText, voice, options = {}
 
 async function requestNarrationBlob(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
   voice = requireNarrationVoiceId(voice);
-  const narrationText = buildNarrationText(text);
+  const narrationText = options.rawNarrationText === true
+    ? String(text || "").trim()
+    : buildNarrationText(text);
   if (!narrationText) {
     throw new Error("No narration text was available.");
   }
 
   const chunkConfig = getNarrationChunkConfig(voice);
-  const glossaryNarrationChunks = voice === EDGE_NARRATION_VOICE
+  const glossaryNarrationChunks = options.rawNarrationText === true || voice === EDGE_NARRATION_VOICE
     ? null
     : getGlossaryNarrationChunkEntries(text);
   const chunkEntries = glossaryNarrationChunks?.length
@@ -23186,6 +23188,7 @@ async function replaceSingSongVocalWithSc3() {
 
     setSingSongProgress(66, "Generating sc3 vocal");
     const sc3VocalBlob = await requestNarrationBlob(lyrics, SC3_NARRATION_VOICE, {
+      rawNarrationText: true,
       timeoutMs: getLongNarrationRequestTimeoutMs(lyrics),
       onProgress: ({ label, progress }) => {
         setSingSongProgress(66 + Math.round(clamp(progress || 0, 0, 1) * 16), label || "Generating sc3 vocal");
