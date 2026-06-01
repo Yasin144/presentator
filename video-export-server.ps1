@@ -1003,6 +1003,53 @@ function Handle-Request {
     return
   }
 
+  if ($Request.Method -eq "POST" -and $path -eq "/api/sing-song-mix-sc3") {
+    $instrumentalPath = ""
+    $vocalPath = ""
+    $outputPath = ""
+    try {
+      $payload = Read-JsonBody -Bytes $Request.BodyBytes
+      if (-not $payload -or [string]::IsNullOrWhiteSpace([string]$payload.instrumentalBase64) -or [string]::IsNullOrWhiteSpace([string]$payload.vocalBase64)) {
+        throw "Instrumental and sc3 vocal audio are both required."
+      }
+
+      $ffmpegPath = Get-FFmpegPath
+      $sessionId = [System.Guid]::NewGuid().ToString()
+      $instrumentalExtension = Get-FileExtension -FileName ([string]$payload.instrumentalFileName) -FallbackExtension ".mp3"
+      $vocalExtension = Get-FileExtension -FileName ([string]$payload.vocalFileName) -FallbackExtension ".wav"
+      $instrumentalPath = Join-Path $env:TEMP ("sing-song-bed-" + $sessionId + $instrumentalExtension)
+      $vocalPath = Join-Path $env:TEMP ("sing-song-sc3-" + $sessionId + $vocalExtension)
+      $outputPath = Join-Path $env:TEMP ("sing-song-sc3-output-" + $sessionId + ".mp3")
+      [System.IO.File]::WriteAllBytes($instrumentalPath, [System.Convert]::FromBase64String([string]$payload.instrumentalBase64))
+      [System.IO.File]::WriteAllBytes($vocalPath, [System.Convert]::FromBase64String([string]$payload.vocalBase64))
+
+      $filter = "[0:a]volume=0.88,highpass=f=40,lowpass=f=16000[bed];[1:a]volume=1.20,dynaudnorm=f=150:g=15,adelay=0|0[vox];[bed][vox]amix=inputs=2:duration=longest:dropout_transition=0,alimiter=limit=0.98[out]"
+      $ffmpegOutput = & $ffmpegPath "-y" "-i" $instrumentalPath "-i" $vocalPath "-filter_complex" $filter "-map" "[out]" "-vn" "-codec:a" "libmp3lame" "-b:a" "192k" $outputPath 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outputPath)) {
+        throw "FFmpeg could not mix the sc3 vocal into the song. $ffmpegOutput"
+      }
+
+      $downloadName = Get-SafeOutputFileName -FileName ([string]$payload.outputFileName)
+      if (-not $downloadName.ToLowerInvariant().EndsWith(".mp3")) {
+        $downloadName = [System.IO.Path]::GetFileNameWithoutExtension($downloadName) + ".mp3"
+      }
+      Write-FileResponse -Stream $Stream -StatusCode 200 -FilePath $outputPath -ContentType "audio/mpeg" -ExtraHeaders @{
+        "Content-Disposition" = "attachment; filename=`"$downloadName`""
+        "X-Output-File" = $downloadName
+        "X-Sing-Song-Mode" = "sc3-vocal-mix"
+      }
+    } catch {
+      Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ error = $_.Exception.Message }
+    } finally {
+      foreach ($pathToRemove in @($instrumentalPath, $vocalPath, $outputPath)) {
+        if ($pathToRemove -and (Test-Path $pathToRemove)) {
+          Remove-Item $pathToRemove -Force -ErrorAction SilentlyContinue
+        }
+      }
+    }
+    return
+  }
+
   if ($Request.Method -eq "POST" -and $path -eq "/api/mux-upload-session") {
     try {
       $payload = Read-JsonBody -Bytes $Request.BodyBytes

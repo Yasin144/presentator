@@ -259,7 +259,9 @@ const transcribeProgressLabel = document.getElementById("transcribeProgressLabel
 const transcribeStatus = document.getElementById("transcribeStatus");
 const singSongInput = document.getElementById("singSongInput");
 const singSongSourcePreview = document.getElementById("singSongSourcePreview");
+const singSongLyricsInput = document.getElementById("singSongLyricsInput");
 const singSongProcessBtn = document.getElementById("singSongProcessBtn");
+const singSongSc3ReplaceBtn = document.getElementById("singSongSc3ReplaceBtn");
 const singSongDownloadBtn = document.getElementById("singSongDownloadBtn");
 const singSongProgress = document.getElementById("singSongProgress");
 const singSongProgressBar = document.getElementById("singSongProgressBar");
@@ -23007,6 +23009,7 @@ function handleSingSongSelection(event) {
       singSongSourcePreview.load();
     }
     if (singSongProcessBtn) singSongProcessBtn.disabled = true;
+    if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = true;
     setSingSongStatus("No song uploaded.");
     return;
   }
@@ -23017,7 +23020,33 @@ function handleSingSongSelection(event) {
     singSongSourcePreview.classList.remove("hidden");
   }
   if (singSongProcessBtn) singSongProcessBtn.disabled = false;
+  if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = false;
   setSingSongStatus(`Selected song: ${file.name}. Click Prepare Sing Song.`);
+}
+
+async function createSingSongInstrumentalBed(file, progressOffset = 0, progressSpan = 45) {
+  const audioBase64 = arrayBufferToBase64(await file.arrayBuffer());
+  const response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/sing-song-safe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      audioBase64,
+      inputFileName: file.name,
+      outputFileName: `${file.name.replace(/\.[^.]+$/i, "") || "song"}-vocal-reduced.mp3`
+    })
+  }, "Preparing Sing Song instrumental bed", { attempts: 1, timeoutMs: 0 });
+
+  setSingSongProgress(progressOffset + Math.round(progressSpan * 0.85), "Receiving instrumental bed");
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "Could not prepare the vocal-reduced song bed.");
+  }
+
+  const blob = await response.blob();
+  if (!blob.size) {
+    throw new Error("The vocal-reduced song bed was empty.");
+  }
+  return blob;
 }
 
 async function processSingSongSafe() {
@@ -23042,30 +23071,9 @@ async function processSingSongSafe() {
     }
 
     setSingSongProgress(38, "Reading MP3");
-    const audioBase64 = arrayBufferToBase64(await file.arrayBuffer());
     setSingSongProgress(58, "Removing center vocal");
-    const response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/sing-song-safe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        audioBase64,
-        inputFileName: file.name,
-        outputFileName: `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sing-song-safe.mp3`
-      })
-    }, "Preparing Sing Song safe result", { attempts: 1, timeoutMs: 0 });
-
-    setSingSongProgress(86, "Receiving result");
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(payload?.error || "Sing Song preparation failed.");
-    }
-
-    const resultBlob = await response.blob();
-    if (!resultBlob.size) {
-      throw new Error("Sing Song returned an empty audio file.");
-    }
-
-    const resultName = response.headers.get("X-Output-File") || `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sing-song-safe.mp3`;
+    const resultBlob = await createSingSongInstrumentalBed(file, 40, 45);
+    const resultName = `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sing-song-safe.mp3`;
     state.singSong.resultBlob = resultBlob;
     state.singSong.resultFileName = resultName;
     state.singSong.resultUrl = URL.createObjectURL(resultBlob);
@@ -23086,6 +23094,102 @@ async function processSingSongSafe() {
   } finally {
     state.singSong.processing = false;
     if (singSongProcessBtn) singSongProcessBtn.disabled = !state.singSong.file;
+    window.setTimeout(() => {
+      if (!state.singSong.processing) {
+        setSingSongProgress(0);
+      }
+    }, 900);
+  }
+}
+
+async function replaceSingSongVocalWithSc3() {
+  const file = state.singSong.file;
+  const lyrics = String(singSongLyricsInput?.value || "").trim();
+  if (!file) {
+    setSingSongStatus("Upload an MP3 first.", { error: true });
+    return;
+  }
+  if (!lyrics) {
+    setSingSongStatus("Paste the song words first so sc3 has a vocal line to speak.", { error: true });
+    return;
+  }
+
+  state.singSong.processing = true;
+  if (singSongProcessBtn) singSongProcessBtn.disabled = true;
+  if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = true;
+  if (singSongDownloadBtn) singSongDownloadBtn.disabled = true;
+  clearSingSongResult();
+  setSingSongProgress(6, "Starting sc3 replacement vocal");
+  setSingSongStatus("Preparing sc3 replacement vocal...");
+
+  try {
+    setSingSongProgress(14, "Checking servers");
+    const [ffmpegReady, sc3Ready] = await Promise.all([
+      ensureVideoExportServer(),
+      ensureAnjaliCloneServer()
+    ]);
+    if (!ffmpegReady) {
+      throw new Error("The local FFmpeg server is not running.");
+    }
+    if (!sc3Ready) {
+      throw new Error("The sc3 voice server is not ready.");
+    }
+
+    setSingSongProgress(28, "Removing original vocal");
+    const instrumentalBlob = await createSingSongInstrumentalBed(file, 28, 28);
+
+    setSingSongProgress(58, "Generating sc3 vocal");
+    const sc3VocalBlob = await requestNarrationBlob(lyrics, SC3_NARRATION_VOICE, {
+      timeoutMs: getLongNarrationRequestTimeoutMs(lyrics),
+      onProgress: ({ label, progress }) => {
+        setSingSongProgress(58 + Math.round(clamp(progress || 0, 0, 1) * 22), label || "Generating sc3 vocal");
+      }
+    });
+
+    setSingSongProgress(84, "Mixing sc3 vocal with song");
+    const response = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/sing-song-mix-sc3`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instrumentalBase64: arrayBufferToBase64(await instrumentalBlob.arrayBuffer()),
+        vocalBase64: arrayBufferToBase64(await sc3VocalBlob.arrayBuffer()),
+        instrumentalFileName: "vocal-reduced-song.mp3",
+        vocalFileName: "sc3-vocal.wav",
+        outputFileName: `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sc3-vocal.mp3`
+      })
+    }, "Mixing sc3 replacement vocal", { attempts: 1, timeoutMs: 0 });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.error || "Could not mix the sc3 vocal into the song.");
+    }
+
+    const resultBlob = await response.blob();
+    if (!resultBlob.size) {
+      throw new Error("The sc3 replacement song was empty.");
+    }
+
+    state.singSong.resultBlob = resultBlob;
+    state.singSong.resultFileName = `${file.name.replace(/\.[^.]+$/i, "") || "song"}-sc3-vocal.mp3`;
+    state.singSong.resultUrl = URL.createObjectURL(resultBlob);
+    if (singSongResultPreview) {
+      singSongResultPreview.src = state.singSong.resultUrl;
+      singSongResultPreview.classList.remove("hidden");
+    }
+    if (singSongDownloadBtn) {
+      singSongDownloadBtn.disabled = false;
+    }
+    setSingSongProgress(100, "Ready");
+    setSingSongStatus("sc3 replacement vocal result is ready. Preview it or download it.");
+    setStatus("sc3 replacement vocal result is ready.");
+  } catch (error) {
+    console.error(error);
+    setSingSongStatus(error.message || "sc3 vocal replacement failed.", { error: true });
+    setSingSongProgress(0);
+  } finally {
+    state.singSong.processing = false;
+    if (singSongProcessBtn) singSongProcessBtn.disabled = !state.singSong.file;
+    if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = !state.singSong.file;
     window.setTimeout(() => {
       if (!state.singSong.processing) {
         setSingSongProgress(0);
@@ -24658,6 +24762,11 @@ if (singSongInput) {
 if (singSongProcessBtn) {
   singSongProcessBtn.addEventListener("click", () => {
     void runLockedAction("singSongSafe", [singSongProcessBtn, singSongDownloadBtn], processSingSongSafe);
+  });
+}
+if (singSongSc3ReplaceBtn) {
+  singSongSc3ReplaceBtn.addEventListener("click", () => {
+    void runLockedAction("singSongSc3Replace", [singSongProcessBtn, singSongSc3ReplaceBtn, singSongDownloadBtn], replaceSingSongVocalWithSc3);
   });
 }
 if (singSongDownloadBtn) {

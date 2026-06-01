@@ -1113,8 +1113,12 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <p className="upload-copy">Upload the song MP3. Safe mode removes the center vocal as much as possible and keeps the music timing.</p>
             <input id="singSongInput" className="image-input" type="file" accept="audio/mpeg,audio/mp3,audio/*" />
             <audio id="singSongSourcePreview" className="audio-preview hidden" controls preload="metadata"></audio>
+            <label className="field-label" htmlFor="singSongLyricsInput">Lyrics for sc3 vocal</label>
+            <textarea id="singSongLyricsInput" className="lesson-input" rows={5}
+              placeholder="Paste the song words here for the sc3 replacement vocal."></textarea>
             <div className="toolbar toolbar-compact">
               <button id="singSongProcessBtn" className="primary-btn" type="button" disabled>Prepare Sing Song</button>
+              <button id="singSongSc3ReplaceBtn" className="primary-btn" type="button" disabled>Replace Vocal With sc3</button>
               <button id="singSongDownloadBtn" className="ghost-btn" type="button" disabled>Download Result</button>
             </div>
             <div id="singSongProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
