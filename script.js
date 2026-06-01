@@ -337,8 +337,8 @@ const LEGACY_DEFAULT_INTRO_VIDEO_FILE = "default-intro.mp4";
 const ANJALI_SAMPLE_AUDIO_FILE = "voice-preview-anjali.mp3";
 const SC3_NARRATION_VOICE = "anjali";
 const EDGE_NARRATION_VOICE = "edge";
-const EXPORT_NARRATION_VOICE = SC3_NARRATION_VOICE;
-const DEFAULT_NARRATION_VOICE = SC3_NARRATION_VOICE;
+const EXPORT_NARRATION_VOICE = EDGE_NARRATION_VOICE;
+const DEFAULT_NARRATION_VOICE = EDGE_NARRATION_VOICE;
 const PRESENTATION_TEMPLATE_CLASSIC = "classic";
 const PRESENTATION_TEMPLATE_OUTCOMES = "learning-outcomes";
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
@@ -360,15 +360,8 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const EDGE_TTS_DEFAULT_FEMALE_VOICE = "en-IN-NeerjaExpressiveNeural";
-const ALLOWED_NARRATION_VOICES = Object.freeze([SC3_NARRATION_VOICE, EDGE_NARRATION_VOICE]);
+const ALLOWED_NARRATION_VOICES = Object.freeze([EDGE_NARRATION_VOICE]);
 const NARRATION_VOICE_OPTIONS = Object.freeze([
-  {
-    id: SC3_NARRATION_VOICE,
-    label: "sc3 cloned voice",
-    shortLabel: "sc3",
-    engine: "Chatterbox TTS",
-    fileNamePrefix: "sc3"
-  },
   {
     id: EDGE_NARRATION_VOICE,
     label: "Edge TTS voice",
@@ -3950,7 +3943,7 @@ function splitNarrationIntoChunks(text, maxChunkLength = NARRATION_CHUNK_MAX_LEN
 }
 
 function getNarrationChunkConfig(voice) {
-  if (voice === "anjali") {
+  if (voice === SC3_NARRATION_VOICE && ALLOWED_NARRATION_VOICES.includes(SC3_NARRATION_VOICE)) {
     return {
       maxChunkLength: ANJALI_NARRATION_CHUNK_MAX_LENGTH,
       threshold: ANJALI_NARRATION_CHUNK_THRESHOLD
@@ -4895,7 +4888,7 @@ function normalizeNarrationVoiceId(voice = state?.preferredNarrationVoice) {
 function requireNarrationVoiceId(voice = state?.preferredNarrationVoice) {
   const voiceId = String(voice || "").trim();
   if (!ALLOWED_NARRATION_VOICES.includes(voiceId)) {
-    throw new Error("Please choose either the sc3 cloned voice or the Edge TTS voice.");
+    throw new Error("Please choose the Edge TTS voice.");
   }
   return voiceId;
 }
@@ -5365,7 +5358,7 @@ function scheduleNarrationWarmup(delayMs = 700) {
   clearNarrationWarmupTimer();
 
   const text = state.text.trim();
-  const voice = state.preferredNarrationVoice || "anjali";
+  const voice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
   if (!shouldWarmupNarration(text, voice)) {
     return;
   }
@@ -6072,21 +6065,21 @@ async function useBundledAnjaliSampleAsNarration() {
       source: "Anjali narration",
       blob: null,
       textSource: state.text || lessonInput.value.trim(),
-      voice: "anjali"
+      voice: DEFAULT_NARRATION_VOICE
     };
 
     updateNarrationUi();
     setRecordingUi(false);
-    setAudioStatus(`Anjali narration: ${ANJALI_SAMPLE_AUDIO_FILE}`);
-    state.preferredNarrationVoice = "anjali";
+    setAudioStatus(`Edge TTS narration: ${ANJALI_SAMPLE_AUDIO_FILE}`);
+    state.preferredNarrationVoice = DEFAULT_NARRATION_VOICE;
     updatePreferredVoiceUi();
     invalidateNarrationDependentExports({
       keepPromise: true,
       preservePrepareAfterPlayback: true
     });
-    setMathsHelperStatus("Anjali's narration is now loaded in the narration area. This works best for short intros or short teaching clips.");
-    setNarrationGenStatus("Anjali narration is loaded into the app.");
-    setStatus("Anjali narration is ready. Play uses this audio, and download will include it.");
+    setMathsHelperStatus("Edge TTS narration is now loaded in the narration area. This works best for short intros or short teaching clips.");
+    setNarrationGenStatus("Edge TTS narration is loaded into the app.");
+    setStatus("Edge TTS narration is ready. Play uses this audio, and download will include it.");
   } catch (error) {
     console.error(error);
     setMathsHelperStatus("The sample player is ready, but automatic loading failed here. If needed, use the narration upload and choose voice-preview-anjali.mp3 manually.");
@@ -6103,7 +6096,7 @@ function updatePreferredVoiceUi() {
 }
 
 function getNarrationVoiceLabel(voice) {
-  return getNarrationVoiceOption(voice)?.shortLabel || "sc3";
+  return getNarrationVoiceOption(voice)?.shortLabel || "Edge TTS";
 }
 
 function setPreviewVoiceChooserVisible(isVisible) {
@@ -8569,7 +8562,7 @@ async function ensurePdfNarrationReadyForPresentation(options = {}) {
     throw new Error("No readable PDF text was found in the selected pages.");
   }
 
-  const voice = "anjali";
+  const voice = DEFAULT_NARRATION_VOICE;
   if (
     state.pdf.narration.url
     && state.pdf.narration.textSource === pdfText
@@ -8907,14 +8900,6 @@ async function playPdfPresentation() {
     return;
   }
 
-  if (normalizeNarrationVoiceId(state.preferredNarrationVoice) === SC3_NARRATION_VOICE) {
-    const narrationServerReady = await ensureAnjaliCloneServer();
-    if (!narrationServerReady) {
-      startTimedPdfPresentation(`The local sc3 voice server is offline, so the app is presenting ${getPdfPresentationFallbackLabel()} with the timeline controls.`);
-      return;
-    }
-  }
-
   try {
     setStatus("Preparing PDF narration...");
     updateTaskProgressUi(0.2, true, { mirrorStage: true });
@@ -9136,7 +9121,7 @@ function getMissingLocalServerLabels() {
 }
 
 function getAnjaliCloneStoppedMessage() {
-  return "Anjali clone server stopped. Click Start Servers or Check Servers, then wait for port 8426 to come back.";
+  return "Edge TTS server stopped. Click Start Servers or Check Servers, then wait for port 8426 to come back.";
 }
 
 function isAnjaliCloneStartupPending() {
@@ -9165,7 +9150,7 @@ function handleAnjaliCloneServerTransition(isReady) {
 
   if (!isReady) {
     if (state.localServerStartup.active) {
-      setServerControlsStatus("Anjali clone server is starting on port 8426. XTTS warm-up can take a few minutes on this laptop.");
+      setServerControlsStatus("Edge TTS server is starting on port 8426.");
       return;
     }
     const message = getAnjaliCloneStoppedMessage();
@@ -9185,8 +9170,8 @@ function handleAnjaliCloneServerTransition(isReady) {
   }
 
   if (previousReady === false) {
-    setServerControlsStatus("Anjali clone server is running again on port 8426.");
-    if (/Anjali clone server stopped/i.test(state.runtimeErrorMessage || "")) {
+    setServerControlsStatus("Edge TTS server is running again on port 8426.");
+    if (/Edge TTS server stopped|Anjali clone server stopped/i.test(state.runtimeErrorMessage || "")) {
       clearRuntimeDisplayError();
     }
   }
@@ -9277,7 +9262,7 @@ async function startServersFromPage() {
   updateTaskProgressUi(1, true);
 
   if (allReady) {
-    setServerControlsStatus("Electron servers started. TTS engine: Chatterbox TTS, locked to sc3-cloned Anjali voice.");
+    setServerControlsStatus("Electron servers started. TTS engine: Edge TTS on port 8426.");
   } else {
     const missing = getMissingLocalServerLabels();
     const suffix = missing.length ? ` Still waiting for ${missing.join(", ")}.` : "";
@@ -9293,7 +9278,7 @@ async function copyStartAllCommand() {
 
   try {
     await navigator.clipboard.writeText(command);
-    setServerControlsStatus("Start command copied. Paste it into PowerShell to launch Chatterbox TTS, transcription, and video export.");
+    setServerControlsStatus("Start command copied. Paste it into PowerShell to launch Edge TTS, transcription, and video export.");
   } catch (error) {
     console.error(error);
     setServerControlsStatus(`Copy failed. Run this in PowerShell: ${command}`);
@@ -9303,14 +9288,14 @@ async function copyStartAllCommand() {
 function updateServerHealthUi() {
   narrationHealthStatus.textContent = state.narrationServerReady
     ? "Legacy narration server: ignored"
-    : "Legacy narration server: disabled (Chatterbox TTS only)";
+    : "Legacy narration server: disabled (Edge TTS only)";
 
   if (anjaliCloneHealthStatus) {
     anjaliCloneHealthStatus.textContent = state.anjaliCloneServerReady
-      ? "TTS engine: Chatterbox TTS, sc3-cloned Anjali voice, running on port 8426"
+      ? "TTS engine: Edge TTS running on port 8426"
       : (isAnjaliCloneStartupPending()
-        ? "TTS engine: Chatterbox TTS starting on port 8426..."
-        : "TTS engine: Chatterbox TTS not running");
+        ? "TTS engine: Edge TTS starting on port 8426..."
+        : "TTS engine: Edge TTS not running");
   }
 
   transcribeHealthStatus.textContent = state.transcribeServerReady
@@ -9453,7 +9438,7 @@ async function ensureAnjaliCloneServer() {
       setNarrationGenStatus("Anjali voice is starting on port 8426. Please wait while the voice model warms up.");
       setServerControlsStatus("Anjali voice server is starting. Please wait while the voice model finishes loading.");
     } else {
-      setNarrationGenStatus("Anjali cloned narration needs the local Anjali clone server on port 8426. If it just started, give it a little time to warm up.");
+      setNarrationGenStatus("Edge TTS narration needs the local Edge TTS server on port 8426. If it just started, give it a moment.");
     }
   }
 
@@ -11112,7 +11097,7 @@ async function playDirectAudioPreview(audioUrl, voiceLabel) {
   await audioElement.play();
 }
 
-async function requestNarrationBlobSingle(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
+async function requestNarrationBlobSingle(text, voice = normalizeNarrationVoiceId(state.preferredNarrationVoice), options = {}) {
   const safeVoice = requireNarrationVoiceId(voice);
   const voiceOption = getNarrationVoiceOption(safeVoice);
   const requestTimeoutMs = 0;
@@ -11333,7 +11318,7 @@ async function generateNarrationChunkWithFallback(chunkText, voice, options = {}
   };
 }
 
-async function requestNarrationBlob(text, voice = state.preferredNarrationVoice || "anjali", options = {}) {
+async function requestNarrationBlob(text, voice = normalizeNarrationVoiceId(state.preferredNarrationVoice), options = {}) {
   voice = requireNarrationVoiceId(voice);
   const narrationText = options.rawNarrationText === true
     ? String(text || "").trim()
@@ -11357,7 +11342,7 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
         : [{ text: narrationText, gapAfterMs: 0 }]
     );
 
-  const trackAnjaliGeneration = voice === "anjali";
+  const trackAnjaliGeneration = voice === SC3_NARRATION_VOICE && ALLOWED_NARRATION_VOICES.includes(SC3_NARRATION_VOICE);
   if (trackAnjaliGeneration) {
     beginAnjaliGenerationActivity();
   }
@@ -20682,7 +20667,7 @@ async function ensureNarrationReadyForSlide(options = {}) {
   await setNarrationFromBlob(blob, fileName, label, currentText, voice, { syncProfile });
 }
 
-async function createTitleNarrationForVoice(voice = state.preferredNarrationVoice || "anjali", options = {}) {
+async function createTitleNarrationForVoice(voice = normalizeNarrationVoiceId(state.preferredNarrationVoice), options = {}) {
   voice = requireNarrationVoiceId(voice);
   const titleText = getPresentationTitleText();
   if (!titleText) {
@@ -20706,7 +20691,7 @@ async function createTitleNarrationForVoice(voice = state.preferredNarrationVoic
   };
 }
 
-async function playTitleIntroBeforeLesson(voice = state.preferredNarrationVoice || "anjali") {
+async function playTitleIntroBeforeLesson(voice = normalizeNarrationVoiceId(state.preferredNarrationVoice)) {
   state.titleIntroActive = true;
   state.displayedText = "";
   state.exactCharCountFloat = 0;
@@ -23613,7 +23598,7 @@ async function generateNarrationDownload(voice) {
 
   try {
     const label = getNarrationVoiceLabel(voice);
-    const sourceLabel = voice === "anjali"
+    const sourceLabel = voice === SC3_NARRATION_VOICE
       ? `Generated ${label.toLowerCase()} narration`
       : `${label} narration`;
     state.preferredNarrationVoice = voice;
@@ -23728,7 +23713,7 @@ async function loadGeneratedNarrationIntoApp(voice) {
 
   try {
     const label = getNarrationVoiceLabel(voice);
-    const sourceLabel = voice === "anjali"
+    const sourceLabel = voice === SC3_NARRATION_VOICE
       ? `Generated ${label.toLowerCase()} narration`
       : `${label} narration`;
     state.preferredNarrationVoice = voice;
@@ -23867,9 +23852,7 @@ async function showScreen() {
   } else {
     setStatus(state.images.length
       ? `Screen is ready. Drag images anywhere on the full slide and resize them as needed.${videoHint}${pageHint}`
-      : (state.preferredNarrationVoice === "anjali"
-        ? `Screen is ready. Play and Download will use the latest output text in Anjali voice automatically.${videoHint}${pageHint}`
-        : `Screen is ready. Play and Download will use the saved ${getNarrationVoiceLabel(state.preferredNarrationVoice).toLowerCase()} voice when the local speech server is running.${videoHint}${pageHint}`));
+      : `Screen is ready. Play and Download will use Edge TTS when the local speech server is running.${videoHint}${pageHint}`);
   }
 }
 
@@ -24800,7 +24783,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
   if (defaultBtn) defaultBtn.disabled = true;
   if (badgeEl) badgeEl.textContent = getNarrationVoiceLabel(initialVoice);
   if (defaultName) defaultName.textContent = getNarrationVoiceOption(initialVoice)?.label || getNarrationVoiceLabel(initialVoice);
-  if (statusEl) statusEl.textContent = "Choose sc3 or Edge TTS. The selected engine is used only by itself.";
+  if (statusEl) statusEl.textContent = "Edge TTS is selected for this C-drive app.";
   const applyLimitedVoice = () => {
     const voiceId = persistPreferredNarrationVoice(selectEl.value);
     updatePreferredVoiceUi();

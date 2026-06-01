@@ -1,413 +1,791 @@
-"""
-Voice Presentator â€” Chatterbox TTS Server
-==========================================
-Clones the EXACT voice from EVS C5 8th Lesson sc3.mp4.
-NO Edge TTS. NO fallback. NO other voice.
-Chatterbox loads FIRST â€” HTTP server starts only when voice is ready.
-"""
+import asyncio
 import io
 import json
 import os
 import socket
-import sys
+import struct
 import threading
-import time
 import traceback
 import wave
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-# Force UTF-8 stdout
-if hasattr(sys.stdout, "reconfigure"):
-    try: sys.stdout.reconfigure(encoding="utf-8")
-    except Exception: pass
+# ── Edge TTS — free Microsoft Azure Neural voices, no API key needed ──────────
+import edge_tts
+import edge_tts.communicate as edge_tts_communicate
+import edge_tts.voices as edge_tts_voices
+import ssl
 
-# Strip proxies
-for _k in ("HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy"):
-    os.environ.pop(_k, None)
+# Some Windows Python installs do not trust the Microsoft speech endpoint chain
+# even when certifi is present. This keeps the local Edge TTS server usable.
+EDGE_TTS_SSL_CONTEXT = ssl._create_unverified_context()
+edge_tts_communicate._SSL_CTX = EDGE_TTS_SSL_CONTEXT
+edge_tts_voices._SSL_CTX = EDGE_TTS_SSL_CONTEXT
 
-# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-PROJECT_ROOT  = Path(__file__).resolve().parent
-PORT          = 8426
-CACHE_LIMIT   = 256
+PROJECT_ROOT = Path(__file__).resolve().parent
+PORT = 8426
+NARRATION_CACHE_LIMIT = 48
+COMMA_PAUSE_MS = 0
 
-# Voice reference â€” EXACT voice from EVS C5 8th Lesson sc3.mp4
-VOICE_REF_WAV = str(PROJECT_ROOT / "voice-reference-sc3.wav")
-VOICE_REF_SRC = (
-    r"D:\LESSONS\EVS\EVS C5 8TH LESSON\EVS C5 8TH LESSON"
-    r"\EVS C5 8TH Lesson fact file\sc3.mp4"
-)
-
-# â”€â”€ Load Chatterbox SYNCHRONOUSLY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# The HTTP server does NOT start until the model and voice are fully ready.
-# This guarantees the FIRST narration ever uses the sc3.mp4 cloned voice.
-print("+------------------------------------------------------------------+", flush=True)
-print("|   Voice Presentator â€” Loading sc3.mp4 voice clone               |", flush=True)
-print("|   Please wait â€” this takes ~60 seconds on first load            |", flush=True)
-print("+------------------------------------------------------------------+", flush=True)
-
-if not Path(VOICE_REF_WAV).exists():
-    print(f"[ERROR] Voice reference WAV not found: {VOICE_REF_WAV}", flush=True)
-    print(f"[ERROR] Run the launcher to extract it from sc3.mp4.", flush=True)
-    sys.exit(1)
-
-try:
-    import torch
-    from chatterbox.tts import ChatterboxTTS
-
-    cpu_count = os.cpu_count() or 4
-    torch.set_num_threads(cpu_count)
-    torch.set_num_interop_threads(max(1, cpu_count // 2))
-    print(f"[Voice] Using {cpu_count} CPU threads", flush=True)
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[Voice] Loading Chatterbox model on {device}...", flush=True)
-    MODEL = ChatterboxTTS.from_pretrained(device=device)
-
-    # Cap max_new_tokens inside t3.inference() — this is where the sampling loop runs.
-    # ChatterboxTTS.generate() doesn't expose max_new_tokens; it's internal to t3.
-    # Patching here cuts generation from ~400s (1000 tokens) to ~140s (350 tokens).
-    _orig_t3_inf = MODEL.t3.inference
-    def _capped_t3_inference(*args, **kwargs):
-        kwargs['max_new_tokens'] = min(kwargs.get('max_new_tokens', 350), 350)
-        return _orig_t3_inf(*args, **kwargs)
-    MODEL.t3.inference = _capped_t3_inference
-    print(f"[Voice] max_new_tokens capped to 350 inside t3.inference for speed.", flush=True)
-
-    print(f"[Voice] Pre-computing sc3.mp4 voice embeddings...", flush=True)
-    MODEL.prepare_conditionals(VOICE_REF_WAV, exaggeration=0.2)
-
-    SAMPLE_RATE = getattr(MODEL, "sr", 24000)
-    print(f"[Voice] âœ“ Ready! sr={SAMPLE_RATE}, device={device}", flush=True)
-    print(f"[Voice] sc3.mp4 voice is locked. Starting server on port {PORT}...", flush=True)
-
-except Exception as e:
-    print(f"[FATAL] Chatterbox failed to load: {e}", flush=True)
-    traceback.print_exc()
-    sys.exit(1)
-
-# â”€â”€ Audio helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-def _to_wav(tensor) -> bytes:
-    audio = tensor.squeeze().cpu().float()
-    pcm   = (audio.clamp(-1.0, 1.0).numpy() * 32767).astype("int16")
-    buf   = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SAMPLE_RATE)
-        w.writeframes(pcm.tobytes())
-    return buf.getvalue()
-
-
-def _add_pad(wav: bytes, ms: int = 40) -> bytes:
-    with wave.open(io.BytesIO(wav), "rb") as r:
-        p = r.getparams(); f = r.readframes(r.getnframes())
-    sil = b"\x00\x00" * max(1, int(p.framerate * ms / 1000)) * p.nchannels
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setparams(p); w.writeframes(sil + f)
-    return buf.getvalue()
-
-
-# â”€â”€ Text cleaner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-def _clean(text: str) -> str:
-    import re
-    t = str(text or "").strip()
-    t = re.sub(r'\s*&\s*', ' and ', t)
-    t = re.sub(r'\s*@\s*', ' at ', t)
-    t = re.sub(r'(?<=\d)\s*%\b', ' percent', t)
-    t = re.sub(r'\bvs\.?\b', 'versus', t, flags=re.I)
-    t = re.sub(r'\betc\.?\b', 'etcetera', t, flags=re.I)
-    t = re.sub(r'\bPause\.?\s*', '', t, flags=re.I)
-    t = re.sub(r'^#{1,6}\s+', '', t, flags=re.M)
-    t = re.sub(r'[*_~`]{1,3}', '', t)
-    t = re.sub(r'^\s*[\u2022\-\*\+]\s+', '', t, flags=re.M)
-    t = re.sub(r'^\s*\d+[.)]\s+', '', t, flags=re.M)
-    t = re.sub(r'<[^>]+>', '', t)
-    t = re.sub(r'[<>@#$%^&+=\[\]{}\\/~|]', ' ', t)
-    t = re.sub(r'[ \t]+', ' ', t)
-    return t.strip()
-
-
-# â”€â”€ Synthesis engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-_cache      = OrderedDict()
-_cache_lock = threading.Lock()
-_synth_lock = threading.Lock()
-
-# Real-time synthesis progress â€” polled by the app banner
-_progress = {
-    "active":  False,
-    "stage":   "idle",
-    "pct":     0,
-    "cached":  False,
-    "text":    "",
-    "tokens":  0,
-    "total_tokens": 0,
-}
-_progress_lock = threading.Lock()
-_current_synth_text = ""
-
-STAGES = [
-    ("Cleaning textâ€¦",               5),
-    ("Preparing voice embeddingsâ€¦",  15),
-    ("Generating speech tokensâ€¦",    20),
-    ("Synthesising audio waveformâ€¦", 82),
-    ("Encoding WAVâ€¦",                92),
-    ("Done",                        100),
+# Best Indian English female voices (in preference order)
+# NeerjaExpressiveNeural — warm, enthusiastic, very natural Indian English
+# NeerjaNeural           — slightly more formal, also excellent
+VOICE_NAME     = "en-IN-NeerjaExpressiveNeural"
+VOICE_FALLBACK = "en-IN-NeerjaNeural"
+FALLBACK_EDGE_VOICES = [
+    {"ShortName": "en-IN-NeerjaExpressiveNeural", "FriendlyName": "Microsoft Neerja Expressive - English (India)", "Gender": "Female", "Locale": "en-IN"},
+    {"ShortName": "en-IN-NeerjaNeural", "FriendlyName": "Microsoft Neerja - English (India)", "Gender": "Female", "Locale": "en-IN"},
+    {"ShortName": "en-IN-PrabhatNeural", "FriendlyName": "Microsoft Prabhat - English (India)", "Gender": "Male", "Locale": "en-IN"},
+    {"ShortName": "en-US-JennyNeural", "FriendlyName": "Microsoft Jenny - English (United States)", "Gender": "Female", "Locale": "en-US"},
+    {"ShortName": "en-GB-SoniaNeural", "FriendlyName": "Microsoft Sonia - English (United Kingdom)", "Gender": "Female", "Locale": "en-GB"},
 ]
 
-def _set_progress(stage: str, pct: int, active=True, cached=False, text=""):
-    with _progress_lock:
-        safe_pct = int(max(0, min(100, pct)))
-        if active and _progress.get("active") and safe_pct < int(_progress.get("pct") or 0):
-            safe_pct = int(_progress.get("pct") or safe_pct)
-        _progress["active"]  = active
-        _progress["stage"]   = stage
-        _progress["pct"]     = safe_pct
-        _progress["cached"]  = cached
-        _progress["text"]    = text[:80] if text else ""
+# Prosody tuning — matches the energetic Info-Kids educational style
+VOICE_RATE   = "-14%"   # slightly slower — clearer, more teacher-like pacing
+VOICE_PITCH  = "+0Hz"   # natural pitch
+VOICE_VOLUME = "+0%"    # natural volume
+
+for proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+    os.environ.pop(proxy_key, None)
 
 
-def _start_generate_progress(text: str, start_pct: int = 20, end_pct: int = 81):
-    stop_event = threading.Event()
-    clean_text = str(text or "")
-    word_count = max(1, len(clean_text.split()))
-    estimated_seconds = max(18.0, min(220.0, word_count * 3.2))
+class AnjaliEdgeEngine:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.cache = OrderedDict()
+        self.voice  = VOICE_NAME
+        self.rate   = VOICE_RATE
+        self.pitch  = VOICE_PITCH
+        self.volume = VOICE_VOLUME
+        self.target_profile = {
+            "voiceId":  "anjali",
+            "gender":   "female",
+            "locale":   "en-IN",
+            "accent":   "indian",
+            "style":    "expressive-educator",
+            "engine":   "edge-tts",
+            "voice":    VOICE_NAME,
+        }
+        # These mirror the old Chatterbox generate_options shape so the
+        # health endpoint / UI still gets a valid JSON object.
+        self.generate_options = {
+            "voice":    VOICE_NAME,
+            "rate":     VOICE_RATE,
+            "pitch":    VOICE_PITCH,
+            "volume":   VOICE_VOLUME,
+        }
 
-    def _run():
-        started = time.monotonic()
-        last_pct = start_pct
-        while not stop_event.is_set():
-            elapsed = time.monotonic() - started
-            pct = min(end_pct, start_pct + int(((end_pct - start_pct) * elapsed) / estimated_seconds))
-            if pct > last_pct:
-                last_pct = pct
-                _set_progress(f"Generating speech tokens... {pct}%", pct, active=True, text=text)
-            stop_event.wait(0.25)
+    # ── Health ────────────────────────────────────────────────────────────────
+    def get_health(self):
+        return {
+            "ok":              True,
+            "voice":           "anjali",
+            "engine":          "edge-tts",
+            "profile":         self.target_profile,
+            "generationOptions": self.generate_options,
+            "device":          "cloud",
+            "modelLoaded":     True,   # Edge TTS needs no local model
+            "cacheEntries":    len(self.cache),
+            "referenceReady":  True,
+            "referenceFile":   VOICE_NAME,
+            "sampleRate":      24000,
+            "error":           "",
+        }
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    return stop_event
+    # ── Cache ─────────────────────────────────────────────────────────────────
+    def _cache_key(self, text):
+        return f"{self.voice}|{self.rate}|{self.pitch}|{self.volume}|comma={COMMA_PAUSE_MS}||{text.strip()}"
 
+    def _get_cached(self, text):
+        key = self._cache_key(text)
+        with self.lock:
+            entry = self.cache.get(key)
+            if entry is not None:
+                self.cache.move_to_end(key)
+            return entry
 
-def synthesize(text: str) -> bytes:
-    with _synth_lock:
-        _set_progress(STAGES[0][0], STAGES[0][1], active=True, text=text)
-        clean = _clean(text)
-        if not clean:
-            _set_progress("idle", 0, active=False)
-            raise ValueError("Empty text after cleaning.")
+    def _store_cached(self, text, wav_bytes):
+        key = self._cache_key(text)
+        with self.lock:
+            self.cache[key] = wav_bytes
+            self.cache.move_to_end(key)
+            while len(self.cache) > NARRATION_CACHE_LIMIT:
+                self.cache.popitem(last=False)
 
-        # Cache hit — instant
-        wav = None
-        with _cache_lock:
-            if clean in _cache:
-                _cache.move_to_end(clean)
-                wav = _cache[clean]
-        if wav is not None:
-            _set_progress("Done", 100, active=False, cached=True, text=text)
-            return wav
+    # ── Audio conversion ──────────────────────────────────────────────────────
+    @staticmethod
+    def _mp3_bytes_to_wav(mp3_bytes: bytes, target_sr: int = 24000,
+                          leading_pad_ms: int = 60) -> bytes:
+        """
+        Convert MP3 bytes → 24 kHz mono PCM WAV using ffmpeg subprocess.
 
-        _set_progress(STAGES[1][0], STAGES[1][1], active=True, text=text)
-
+        leading_pad_ms: milliseconds of silence prepended to every WAV segment.
+        After a comma/colon/slash pause the audio decoder needs a few ms to
+        'wake up' before the next word starts.  Without this pad the very first
+        phoneme of the word after a pause gets clipped (e.g. 'smart' → 'mart').
+        60 ms is below the threshold of perception but enough to prevent clipping.
+        """
+        import subprocess, tempfile, os
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_in:
+            tmp_in.write(mp3_bytes)
+            tmp_in_path = tmp_in.name
+        tmp_out_path = tmp_in_path.replace(".mp3", ".wav")
         try:
-            _set_progress(STAGES[2][0], STAGES[2][1], active=True, text=text)
-            progress_stop = _start_generate_progress(text)
-            try:
-                wav_t = MODEL.generate(
-                    clean,
-                    audio_prompt_path=None,
-                    exaggeration=0.2,
-                    cfg_weight=0.5,
-                    temperature=0.7,
-                    repetition_penalty=1.2,
-                )
-            finally:
-                progress_stop.set()
-            _set_progress(STAGES[3][0], STAGES[3][1], active=True, text=text)
-        except Exception:
-            _set_progress("idle", 0, active=False)
-            raise
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-i",  tmp_in_path,
+                    "-af", f"adelay={leading_pad_ms}:all=1,aresample={target_sr}",
+                    "-ac", "1",
+                    "-ar", str(target_sr),
+                    "-sample_fmt", "s16",
+                    tmp_out_path,
+                ],
+                capture_output=True, check=True,
+            )
+            with open(tmp_out_path, "rb") as f:
+                return f.read()
+        finally:
+            for p in (tmp_in_path, tmp_out_path):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
 
-        _set_progress(STAGES[4][0], STAGES[4][1], active=True, text=text)
-        wav = _add_pad(_to_wav(wav_t))
 
-        with _cache_lock:
-            _cache[clean] = wav
-            _cache.move_to_end(clean)
-            while len(_cache) > CACHE_LIMIT:
-                _cache.popitem(last=False)
+    # ── Core synthesis ────────────────────────────────────────────────────────
+    @staticmethod
+    def _clean_text_for_tts(text: str) -> str:
+        """
+        Strip every symbol or artefact that Edge TTS would read out loud.
+        Handles markdown, bullet points, math symbols, legacy prosody tokens.
+        """
+        import re
+        t = str(text or "").strip()
 
-        _set_progress(STAGES[5][0], active=False, pct=100, cached=False, text=text)
+        # ── Common lesson symbols before generic symbol cleanup ──
+        t = re.sub(r'\s*&\s*', ' and ', t)
+        t = re.sub(r'\s*@\s*', ' at ', t)
+        t = re.sub(r'(?<=\d)\s*%\b', ' percent', t)
+        t = re.sub(r'\bvs\.?\b', 'versus', t, flags=re.IGNORECASE)
+        t = re.sub(r'\betc\.?\b', 'etcetera', t, flags=re.IGNORECASE)
+
+        # ── Legacy Chatterbox prosody tokens ──
+        t = re.sub(r'\bPause\.\s*', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'\bPause\b', '', t, flags=re.IGNORECASE)
+
+        # ── Markdown headings (## Heading → Heading) ──
+        t = re.sub(r'^#{1,6}\s+', '', t, flags=re.MULTILINE)
+
+        # ── Bold / italic markers (** __ * _ ~~) ──
+        t = re.sub(r'[*_~]{1,3}', '', t)
+
+        # ── Bullet / list markers at line start ──
+        t = re.sub(r'^\s*[\u2022\u2023\u25E6\u2043\u2219\-\*\+]\s+', '', t, flags=re.MULTILINE)
+
+        # ── Numbered list markers (1. 2. a. etc.) ──
+        t = re.sub(r'^\s*\d+[.)]\s+', '', t, flags=re.MULTILINE)
+        t = re.sub(r'^\s*[a-zA-Z][.)]\s+', '', t, flags=re.MULTILINE)
+
+        # ── Horizontal rules (--- === ___) ──
+        t = re.sub(r'^[-=_]{3,}\s*$', '', t, flags=re.MULTILINE)
+
+        # ── Backticks / code markers ──
+        t = re.sub(r'`{1,3}[^`]*`{1,3}', '', t)   # inline/block code → remove
+        t = re.sub(r'`', '', t)
+
+        # ── Pipe / table markers ──
+        t = re.sub(r'\|', ' ', t)
+
+        # ── Angle brackets used as arrows or tags ──
+        t = re.sub(r'<[^>]+>', '', t)   # strip HTML-like tags
+        t = re.sub(r'[<>]', '', t)
+
+        # ── Remaining symbols Edge TTS might vocalize ──
+        # Keep: . , ! ? : ; ' " ( ) — these help natural prosody
+        # Remove: @ # $ % ^ & + = [ ] { } \ / ~ `
+        # NOTE: / and standalone - are handled BEFORE cleaning in synthesize()
+        t = re.sub(r'[@#$%^&+=\[\]{}\\/~]', ' ', t)
+
+        # ── Collapse multiple punctuation ──
+        t = re.sub(r'([.!?])\s*\1+', r'\1', t)   # ... → .
+        t = re.sub(r',\s*,+', ',', t)
+
+        # ── Collapse whitespace ──
+        t = re.sub(r'[ \t]+', ' ', t)
+        t = re.sub(r'\n{3,}', '\n\n', t)
+        t = t.strip()
+
+        return t
+
+
+    # ── Silence / WAV helpers ─────────────────────────────────────────────────
+    @staticmethod
+    def _make_silence_wav(duration_s: float, sample_rate: int = 24000) -> bytes:
+        """Return a silent mono 16-bit PCM WAV of the given duration."""
+        n_frames = int(duration_s * sample_rate)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)          # 16-bit
+            wf.setframerate(sample_rate)
+            wf.writeframes(b"\x00\x00" * n_frames)
+        return buf.getvalue()
+
+    @staticmethod
+    def _add_wav_leading_silence(wav_bytes: bytes, leading_pad_ms: int = 60) -> bytes:
+        if not wav_bytes or leading_pad_ms <= 0:
+            return wav_bytes
+        with wave.open(io.BytesIO(wav_bytes), "rb") as reader:
+            params = reader.getparams()
+            frames = reader.readframes(reader.getnframes())
+        silence_frames = max(1, int(params.framerate * leading_pad_ms / 1000))
+        silence = b"\x00" * silence_frames * params.nchannels * params.sampwidth
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as writer:
+            writer.setparams(params)
+            writer.writeframes(silence + frames)
+        return buf.getvalue()
+
+    @staticmethod
+    def _insert_wav_silence_at_ms(wav_bytes: bytes, insert_points_ms: list, pause_ms: int = COMMA_PAUSE_MS) -> bytes:
+        if not wav_bytes or not insert_points_ms or pause_ms <= 0:
+            return wav_bytes
+
+        with wave.open(io.BytesIO(wav_bytes), "rb") as reader:
+            params = reader.getparams()
+            frames = reader.readframes(reader.getnframes())
+
+        bytes_per_frame = params.nchannels * params.sampwidth
+        total_frames = len(frames) // bytes_per_frame
+        silence_frames = max(1, int(params.framerate * pause_ms / 1000))
+        silence = b"\x00" * silence_frames * bytes_per_frame
+        fade_frames = max(1, int(params.framerate * 0.012))
+        frame_indexes = sorted({
+            max(0, min(total_frames, int(round((float(ms) / 1000.0) * params.framerate))))
+            for ms in insert_points_ms
+        })
+
+        def fade_pcm16(segment: bytes, *, fade_in: bool = False, fade_out: bool = False) -> bytes:
+            if not segment or params.sampwidth != 2:
+                return segment
+            data = bytearray(segment)
+            frame_count = len(data) // bytes_per_frame
+            if frame_count <= 1:
+                return bytes(data)
+
+            for frame in range(frame_count):
+                gain = 1.0
+                if fade_in:
+                    gain = min(gain, frame / max(1, frame_count - 1))
+                if fade_out:
+                    gain = min(gain, (frame_count - 1 - frame) / max(1, frame_count - 1))
+                if gain >= 0.999:
+                    continue
+                for channel in range(params.nchannels):
+                    offset = (frame * bytes_per_frame) + (channel * params.sampwidth)
+                    sample = int.from_bytes(data[offset:offset + 2], "little", signed=True)
+                    faded = max(-32768, min(32767, int(sample * gain)))
+                    data[offset:offset + 2] = int(faded).to_bytes(2, "little", signed=True)
+            return bytes(data)
+
+        def append_segment(output_bytes: bytearray, segment: bytes, *, fade_in: bool = False, fade_out: bool = False) -> None:
+            if not segment:
+                return
+            if params.sampwidth != 2:
+                output_bytes.extend(segment)
+                return
+
+            frame_count = len(segment) // bytes_per_frame
+            effective_fade_frames = min(fade_frames, max(1, frame_count // 2))
+            fade_bytes = effective_fade_frames * bytes_per_frame
+            head = segment[:fade_bytes] if fade_in else b""
+            tail = segment[-fade_bytes:] if fade_out else b""
+            middle_start = fade_bytes if fade_in else 0
+            middle_end = len(segment) - fade_bytes if fade_out else len(segment)
+
+            if head:
+                output_bytes.extend(fade_pcm16(head, fade_in=True))
+            if middle_end > middle_start:
+                output_bytes.extend(segment[middle_start:middle_end])
+            if tail:
+                output_bytes.extend(fade_pcm16(tail, fade_out=True))
+
+        output = bytearray()
+        last_frame = 0
+        fade_in_next = False
+        for frame_index in frame_indexes:
+            if frame_index < last_frame:
+                continue
+            append_segment(
+                output,
+                frames[last_frame * bytes_per_frame:frame_index * bytes_per_frame],
+                fade_in=fade_in_next,
+                fade_out=True,
+            )
+            output.extend(silence)
+            fade_in_next = True
+            last_frame = frame_index
+        append_segment(output, frames[last_frame * bytes_per_frame:], fade_in=fade_in_next)
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as writer:
+            writer.setparams(params)
+            writer.writeframes(bytes(output))
+        return buf.getvalue()
+
+    @staticmethod
+    def _windows_sapi_to_wav(text: str, leading_pad_ms: int = 60) -> bytes:
+        """Legacy offline Windows voice fallback. Disabled for app narration."""
+        import subprocess, tempfile, os
+
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w", encoding="utf-8") as tmp_text:
+            tmp_text.write(text or "")
+            tmp_text_path = tmp_text.name
+        tmp_out_path = tmp_text_path.replace(".txt", ".wav")
+        ps_script = f"""
+Add-Type -AssemblyName System.Speech
+$text = Get-Content -LiteralPath '{tmp_text_path}' -Raw
+$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$voice = $synth.GetInstalledVoices() |
+  ForEach-Object {{ $_.VoiceInfo }} |
+  Where-Object {{ $_.Gender -eq 'Female' -and $_.Culture.Name -like 'en*' }} |
+  Select-Object -First 1
+if ($voice) {{ $synth.SelectVoice($voice.Name) }}
+$synth.Rate = -1
+$synth.Volume = 100
+$synth.SetOutputToWaveFile('{tmp_out_path}')
+$synth.Speak($text)
+$synth.Dispose()
+"""
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            with open(tmp_out_path, "rb") as handle:
+                wav = handle.read()
+            return AnjaliEdgeEngine._add_wav_leading_silence(wav, leading_pad_ms)
+        finally:
+            for path in (tmp_text_path, tmp_out_path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _concat_wavs(wavs: list) -> bytes:
+        """Concatenate a list of mono WAV byte-strings (same sample rate)."""
+        if not wavs:
+            raise ValueError("No WAV chunks to concatenate.")
+        buf = io.BytesIO()
+        all_frames = b""
+        params = None
+        for w in wavs:
+            with wave.open(io.BytesIO(w)) as wf:
+                if params is None:
+                    params = wf.getparams()
+                all_frames += wf.readframes(wf.getnframes())
+        with wave.open(buf, "wb") as wout:
+            wout.setparams(params)
+            wout.writeframes(all_frames)
+        return buf.getvalue()
+
+    @staticmethod
+    def _get_comma_pause_insert_points_ms(text: str, boundaries: list, leading_pad_ms: int = 0) -> list:
+        """Map commas in text to the clean gap before the following Edge TTS word."""
+        import re
+
+        safe_text = str(text or "").strip()
+        if not safe_text or not boundaries:
+            return []
+
+        tokens = re.findall(r"[A-Za-z0-9']+|,+", safe_text)
+        word_index = 0
+        insert_points = []
+
+        for token in tokens:
+            if re.fullmatch(r",+", token):
+                if 0 <= word_index < len(boundaries):
+                    boundary = boundaries[word_index]
+                    insert_ms = (float(boundary.get("offset", 0)) / 10000.0) + leading_pad_ms
+                    insert_points.append(insert_ms)
+                else:
+                    previous_word_index = word_index - 1
+                    if 0 <= previous_word_index < len(boundaries):
+                        boundary = boundaries[previous_word_index]
+                        insert_ms = (
+                            (float(boundary.get("offset", 0)) + float(boundary.get("duration", 0))) / 10000.0
+                        ) + leading_pad_ms
+                        insert_points.append(insert_ms)
+                continue
+
+            word_index += 1
+
+        return insert_points
+
+    # ── Core synthesis ────────────────────────────────────────────────────────
+    def synthesize(self, text: str) -> bytes:
+        """
+        Synthesize the full text as ONE Edge TTS request.
+
+        Previously the text was split at commas/colons/slashes and each
+        segment was synthesized separately then stitched with WAV silence.
+        That approach caused onset clipping on every word that followed a
+        pause boundary — the audio decoder had no time to 'wake up' after
+        the gap.
+
+        Now the full text is sent to Edge TTS in a single call.  Edge TTS
+        naturally pauses at commas, colons, sentence boundaries etc., and
+        the resulting WAV is one continuous audio file with no seams.
+        Result: zero inter-segment clipping, smooth clean narration.
+
+        For short KV terms (≤3 words, e.g. "clever", "cunning") a larger
+        leading pad (160 ms) is used because the browser audio element takes
+        longer to initialise for very short clips played after an inter-entry
+        gap.  Longer texts (definitions, sentences) keep the 60 ms default.
+        """
+        import re
+
+        # ── Cache check ────────────────────────────────────────────────────────
+        cache_key = self._clean_text_for_tts(text)
+        if not cache_key:
+            raise ValueError("Text is required.")
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        # ── Decide leading pad based on text length ────────────────────────────
+        # Short segments (KV terms like "clever", "cunning") played after an
+        # inter-entry gap need more buffer time for the audio decoder to wake up.
+        word_count = len(cache_key.split())
+        pad_ms = 220 if word_count <= 3 else 100
+
+        # ── Edge TTS synthesis. Commas stay natural; no extra silence is added.
+        cleaned_text = cache_key   # already cleaned above
+        try:
+            tts_text = cleaned_text
+            mp3, boundaries = self._run_async(self._edge_synthesize_with_boundaries(tts_text))
+            wav = self._mp3_bytes_to_wav(mp3, leading_pad_ms=pad_ms)
+            comma_insert_points_ms = self._get_comma_pause_insert_points_ms(cleaned_text, boundaries, pad_ms)
+            if comma_insert_points_ms:
+                wav = self._insert_wav_silence_at_ms(wav, comma_insert_points_ms, COMMA_PAUSE_MS)
+        except Exception as err:
+            print(f"[Anjali] Synthesis failed ({err!r}): {cleaned_text[:80]!r}", flush=True)
+            raise RuntimeError("Edge TTS synthesis failed. Windows/browser voice fallback is disabled.") from err
+
+        self._store_cached(cache_key, wav)
         return wav
 
 
-# â”€â”€ HTTP Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Persistent async event loop (thread-safe) ─────────────────────────────
+    # asyncio.run() creates a NEW event loop per call — this causes
+    # "This event loop is already running" errors inside ThreadingHTTPServer.
+    # Instead we spin up ONE background loop and submit coroutines to it.
+    _loop: "asyncio.AbstractEventLoop | None" = None
+    _loop_lock = threading.Lock()
 
-_DISC = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
+    @classmethod
+    def _get_loop(cls) -> "asyncio.AbstractEventLoop":
+        with cls._loop_lock:
+            if cls._loop is None or not cls._loop.is_running():
+                import concurrent.futures
+                ready = concurrent.futures.Future()
+                def _run():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    cls._loop = loop
+                    ready.set_result(True)
+                    loop.run_forever()
+                t = threading.Thread(target=_run, daemon=True, name="AnjaliAsyncLoop")
+                t.start()
+                ready.result(timeout=5)   # wait until loop is running
+            return cls._loop
+
+    def _run_async(self, coro) -> bytes:
+        """Submit a coroutine to the persistent background event loop and wait."""
+        import concurrent.futures
+        future = asyncio.run_coroutine_threadsafe(coro, self._get_loop())
+        return future.result(timeout=60)   # 60 s hard timeout per TTS call
+
+    async def _edge_synthesize(self, text: str) -> bytes:
+        """Call Edge TTS and return raw MP3 bytes (plain text, no SSML)."""
+        communicate = edge_tts.Communicate(
+            text,
+            voice=self.voice,
+            rate=self.rate,
+            pitch=self.pitch,
+            volume=self.volume,
+        )
+        chunks = []
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                chunks.append(chunk["data"])
+
+        if not chunks:
+            communicate = edge_tts.Communicate(
+                text,
+                voice=VOICE_FALLBACK,
+                rate=self.rate,
+                pitch=self.pitch,
+                volume=self.volume,
+            )
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+
+        if not chunks:
+            raise RuntimeError("Edge TTS returned no audio data.")
+
+        return b"".join(chunks)
+
+    async def _edge_synthesize_with_boundaries(self, text: str):
+        """Call Edge TTS and return raw MP3 bytes with word boundary timings."""
+        communicate = edge_tts.Communicate(
+            text,
+            voice=self.voice,
+            rate=self.rate,
+            pitch=self.pitch,
+            volume=self.volume,
+            boundary="WordBoundary",
+        )
+        chunks = []
+        boundaries = []
+        try:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    boundaries.append(chunk)
+        except Exception:
+            if self.voice == VOICE_FALLBACK:
+                raise
+            communicate = edge_tts.Communicate(
+                text,
+                voice=VOICE_FALLBACK,
+                rate=self.rate,
+                pitch=self.pitch,
+                volume=self.volume,
+                boundary="WordBoundary",
+            )
+            chunks = []
+            boundaries = []
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    boundaries.append(chunk)
+
+        if not chunks:
+            raise RuntimeError("Edge TTS returned no audio data.")
+
+        return b"".join(chunks), boundaries
+
+
+ENGINE = AnjaliEdgeEngine()
+
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version   = "VoicePresentator/4.0"
+    server_version = "AnjaliEdgeServer/2.0"
     protocol_version = "HTTP/1.1"
+    CLIENT_DISCONNECT_ERRORS = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
 
-    def log_message(self, fmt, *args):
-        if self.path.startswith("/api/narrate/progress"):
-            return
-        print(f"{self.address_string()} [{self.log_date_time_string()}] {fmt % args}", flush=True)
+    def log_message(self, format, *args):
+        print("%s - - [%s] %s" % (self.address_string(), self.log_date_time_string(), format % args), flush=True)
 
-    def _headers(self, status=200, ctype="application/json; charset=utf-8", length=0):
-        self.send_response(status)
+    def _send_headers(self, status_code=200, content_type="application/json; charset=utf-8", content_length=0):
+        self.send_response(status_code)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        if ctype: self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(length))
+        if content_type:
+            self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(content_length))
         self.send_header("Connection", "close")
         try:
-            self.end_headers(); return True
-        except _DISC:
+            self.end_headers()
+        except self.CLIENT_DISCONNECT_ERRORS:
             return False
+        return True
 
-    def _write(self, data: bytes):
+    def _safe_write(self, payload):
         try:
-            self.wfile.write(data); self.wfile.flush()
-            try: self.connection.shutdown(socket.SHUT_WR)
-            except OSError: pass
-            self.close_connection = True; return True
-        except _DISC:
+            self.wfile.write(payload)
+            self.wfile.flush()
+            try:
+                self.connection.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
+            self.close_connection = True
+        except self.CLIENT_DISCONNECT_ERRORS:
             return False
+        return True
 
-    def _json(self, obj, status=200):
-        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        if self._headers(status, "application/json; charset=utf-8", len(body)):
-            self._write(body)
-
-    def _read_json(self):
-        n   = int(self.headers.get("Content-Length", "0") or "0")
-        raw = self.rfile.read(n) if n else b"{}"
-        return json.loads(raw.decode("utf-8"))
+    def _send_json(self, payload, status_code=200):
+        body = json.dumps(payload).encode("utf-8")
+        if not self._send_headers(status_code=status_code, content_type="application/json; charset=utf-8", content_length=len(body)):
+            return False
+        return self._safe_write(body)
 
     def do_OPTIONS(self):
-        self._headers(204, "", 0)
+        self._send_headers(status_code=204, content_type="", content_length=0)
 
     def do_GET(self):
         if self.path.startswith("/health") or self.path == "/":
-            self._json({
-                "ok":            True,
-                "voice":         "sc3-cloned",
-                "engine":        "chatterbox-tts",
-                "modelLoaded":   True,          # always True â€” server only starts when ready
-                "warming":       False,
-                "locked":        True,
-                "chatterboxReady": True,
-                "chatterboxLoading": False,
-                "chatterboxError":   "",
-                "referenceFile": VOICE_REF_WAV,
-                "referenceReady": Path(VOICE_REF_WAV).exists(),
-                "referenceSource": "EVS C5 8th Lesson - Fact File, Scene 3 (sc3.mp4)",
-                "sampleRate":    SAMPLE_RATE,
-                "cacheEntries":  len(_cache),
-                "device":        device,
-                "error":         "",
-            })
+            self._send_json(ENGINE.get_health())
             return
 
+        # ── /voices — list all available English Edge TTS voices ─────────────
         if self.path.startswith("/voices"):
-            self._json({
-                "ok": True, "locked": True,
-                "voices": [{
-                    "shortName":    "sc3-cloned",
-                    "friendlyName": "EVS C5 8th Lesson Voice (sc3.mp4 Clone) [LOCKED]",
-                    "gender": "Female", "locale": "en-IN",
-                    "current": True, "locked": True,
-                }],
-                "active": "sc3-cloned",
-            })
+            try:
+                all_voices = FALLBACK_EDGE_VOICES
+                english = [
+                    {
+                        "shortName":   v["ShortName"],
+                        "friendlyName": v["FriendlyName"],
+                        "gender":      v["Gender"],
+                        "locale":      v["Locale"],
+                        "current":     v["ShortName"] == ENGINE.voice,
+                    }
+                    for v in all_voices
+                    if v["Locale"].startswith("en-")
+                ]
+                # Sort: current locale first, then alphabetically
+                current_locale = ENGINE.voice.rsplit("-", 2)[0] + "-" + ENGINE.voice.split("-")[1]
+                english.sort(key=lambda v: (0 if v["locale"] == current_locale else 1, v["locale"], v["shortName"]))
+                self._send_json({"ok": True, "voices": english, "active": ENGINE.voice})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status_code=500)
             return
 
         if self.path.startswith("/api/proxy/tts"):
-            import urllib.parse, urllib.request
+            from urllib.parse import urlparse, parse_qs
+            import urllib.request
             try:
-                from urllib.parse import urlparse, parse_qs
-                qs  = parse_qs(urlparse(self.path).query)
-                tl  = qs.get("tl",["en"])[0]
-                q   = qs.get("q",[""])[0]
+                qs = parse_qs(urlparse(self.path).query)
+                tl = qs.get("tl", ["en"])[0]
+                q  = qs.get("q",  [""])[0]
                 url = f"https://translate.googleapis.com/translate_tts?ie=UTF-8&tl={tl}&client=tw-ob&q={urllib.parse.quote(q)}"
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req) as resp:
                     data = resp.read()
-                    if self._headers(200, "audio/mpeg", len(data)): self._write(data)
+                    if not self._send_headers(status_code=200, content_type="audio/mpeg", content_length=len(data)):
+                        return
+                    self._safe_write(data)
             except Exception as e:
-                self._json({"error": str(e)}, 500)
+                self._send_json({"error": str(e)}, status_code=500)
             return
 
-        if self.path.startswith("/api/narrate/progress"):
-            with _progress_lock:
-                snap = dict(_progress)
-            self._json(snap)
-            return
-        self._json({"error": "Route not found."}, 404)
+        self._send_json({"error": "Route not found."}, status_code=404)
 
     def do_POST(self):
+        # Vision analyze stub (kept for compatibility)
         if self.path == "/api/vision/analyze":
             try:
+                content_length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(content_length) if content_length else b"{}"
+                data = json.loads(raw_body.decode("utf-8"))
                 import re
-                data  = self._read_json()
-                m     = re.search(r'Analyze this mathematical concept[^"]*"([^"]+)"', data.get("prompt",""))
-                resp  = f"Let's explore: {m.group(1)}" if m else "Great learning exercise!"
-                self._json({"text": resp})
+                prompt_text = data.get("prompt", "")
+                match = re.search(r'Analyze this mathematical concept or equation: "([^"]+)"', prompt_text)
+                if match:
+                    equation = match.group(1).strip()
+                    eq_match = re.search(r"(\d+)\s*\+\s*(\d+)\s*=\s*(\d+)", equation)
+                    if eq_match:
+                        n1, n2, n3 = eq_match.groups()
+                        resp = f"Let's learn how to add! We start with {n1}. Adding {n2} more gives us {n3}. Maths is wonderful!\n{n1} + {n2} = {n3}"
+                    else:
+                        resp = f"Let's explore this concept: {equation}"
+                else:
+                    resp = "Great visual exercise! Let's keep learning."
+                self._send_json({"text": resp})
             except Exception as e:
-                self._json({"error": str(e)}, 500)
+                self._send_json({"error": str(e)}, status_code=500)
             return
 
+        # Preload stub — Edge TTS needs no preloading
         if self.path == "/api/preload":
-            self._json({"ok": True, "message": "sc3.mp4 voice clone is ready â€” no preload needed."})
+            self._send_json({"ok": True, "message": "Edge TTS needs no preload — ready instantly."})
             return
 
+        # ── /set-voice — change the active voice and flush the cache ─────────
         if self.path == "/set-voice":
-            self._json({"ok": True, "voice": "sc3-cloned", "locked": True,
-                        "message": "Voice is permanently locked to sc3.mp4 clone."})
-            return
-
-        if self.path.startswith("/api/narrate/progress"):
-            with _progress_lock:
-                snap = dict(_progress)
-            self._json(snap)
+            try:
+                content_length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(content_length) if content_length else b"{}"
+                data = json.loads(raw_body.decode("utf-8"))
+                new_voice = str(data.get("voice", "")).strip()
+                valid_fallback_voice_ids = {voice["ShortName"] for voice in FALLBACK_EDGE_VOICES}
+                if (
+                    not new_voice
+                    or new_voice.lower() in {"tts server offline", "offline", "default"}
+                    or not new_voice.startswith("en-")
+                ):
+                    new_voice = VOICE_NAME
+                if new_voice not in valid_fallback_voice_ids and not new_voice.startswith("en-"):
+                    self._send_json({"error": "voice is required"}, status_code=400)
+                    return
+                ENGINE.voice = new_voice
+                # Clear cache so next requests use the new voice
+                with ENGINE.lock:
+                    ENGINE.cache.clear()
+                print(f"[Anjali] Voice changed to: {new_voice}", flush=True)
+                self._send_json({"ok": True, "voice": new_voice})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status_code=500)
             return
 
         if not self.path.startswith("/api/narrate"):
-            self._json({"error": "Route not found."}, 404)
+            self._send_json({"error": "Route not found."}, status_code=404)
             return
 
-        # â”€â”€ Narrate â€” sc3.mp4 cloned voice ONLY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Main narration endpoint ───────────────────────────────────────────
         try:
-            payload   = self._read_json()
-            text      = payload.get("text", "")
-            wav_bytes = synthesize(text)
-            if self._headers(200, "audio/wav", len(wav_bytes)):
-                self._write(wav_bytes)
-        except _DISC:
+            content_length = int(self.headers.get("Content-Length", "0") or "0")
+            raw_body = self.rfile.read(content_length) if content_length else b"{}"
+            payload  = json.loads(raw_body.decode("utf-8"))
+            text     = payload.get("text", "")
+
+            # Allow caller to override prosody
+            gen_opts = payload.get("generationOptions") or {}
+            if isinstance(gen_opts, dict):
+                if gen_opts.get("rate"):
+                    ENGINE.rate = str(gen_opts["rate"])
+                if gen_opts.get("pitch"):
+                    ENGINE.pitch = str(gen_opts["pitch"])
+                if gen_opts.get("volume"):
+                    ENGINE.volume = str(gen_opts["volume"])
+                if gen_opts.get("voice"):
+                    ENGINE.voice = str(gen_opts["voice"])
+
+            wav_bytes = ENGINE.synthesize(text)
+            if not self._send_headers(status_code=200, content_type="audio/wav", content_length=len(wav_bytes)):
+                return
+            self._safe_write(wav_bytes)
+
+        except self.CLIENT_DISCONNECT_ERRORS:
             return
         except Exception as exc:
+            error_payload = {
+                "error":     str(exc),
+                "traceback": traceback.format_exc(limit=3),
+            }
             try:
-                self._json({"error": str(exc), "traceback": traceback.format_exc(3)}, 500)
-            except _DISC:
-                pass
+                self._send_json(error_payload, status_code=500)
+            except self.CLIENT_DISCONNECT_ERRORS:
+                return
 
 
-# â”€â”€ Start server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-if __name__ == "__main__":
-    sep = "=" * 66
-    print(f"+{sep}+", flush=True)
-    print(f"|   Voice Presentator  â€”  http://127.0.0.1:{PORT}                    |", flush=True)
-    print(f"|   Engine : Chatterbox TTS (sc3.mp4 voice clone)                 |", flush=True)
-    print(f"|   Locked : ONLY sc3.mp4 voice â€” no other voice possible         |", flush=True)
-    print(f"+{sep}+", flush=True)
+def main():
+    print(f"Anjali Edge TTS server listening on http://127.0.0.1:{PORT}", flush=True)
+    print(f"Voice: {VOICE_NAME}  |  Rate: {VOICE_RATE}  |  Engine: Microsoft Azure Neural (free)", flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

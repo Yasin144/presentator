@@ -266,17 +266,17 @@ const PS = process.env.SYSTEMROOT
   ? path.join(process.env.SYSTEMROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   : 'powershell';
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const ANJALI_PYTHON = path.join(ROOT, '.voiceclone-venv', 'Scripts', 'python.exe');
+const ANJALI_PYTHON = path.join(ROOT, '.edge-tts-venv', 'Scripts', 'python.exe');
 const ANJALI_SERVER = path.join(ROOT, 'anjali-chatterbox-server.py');
 const EDGE_TTS_SERVER = path.join(ROOT, 'timed-voiceover-server.py');
-const SC3_SINGING_SERVER = path.join(ROOT, 'sc3-singing-server.py');
 
 function isAnjaliServerProcessRunning() {
   return new Promise((resolve) => {
     const scriptNeedle = 'anjali-chatterbox-server.py';
+    const rootNeedle = ROOT.replace(/'/g, "''");
     const command = [
       "Get-CimInstance Win32_Process",
-      "| Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*" + scriptNeedle + "*' }",
+      "| Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*" + scriptNeedle + "*' -and $_.CommandLine -like '*" + rootNeedle + "*' }",
       "| Select-Object -First 1 -ExpandProperty ProcessId"
     ].join(' ');
     execFile(PS, ['-NoProfile', '-NonInteractive', '-Command', command], {
@@ -293,7 +293,27 @@ function isAnjaliServerProcessRunning() {
   });
 }
 
+function killForeignAnjaliServerOnPort() {
+  return new Promise((resolve) => {
+    const rootNeedle = ROOT.replace(/'/g, "''");
+    const command = [
+      "$root = '" + rootNeedle + "'",
+      "$pids = Get-NetTCPConnection -LocalPort 8426 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique",
+      "foreach ($ownerPid in $pids) {",
+      "  $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $ownerPid) -ErrorAction SilentlyContinue",
+      "  if ($proc -and $proc.CommandLine -notlike ('*' + $root + '*')) { taskkill /F /PID $ownerPid 2>$null | Out-Null }",
+      "}"
+    ].join('; ');
+    execFile(PS, ['-NoProfile', '-NonInteractive', '-Command', command], {
+      cwd: ROOT,
+      windowsHide: true,
+      timeout: 5000,
+    }, () => resolve());
+  });
+}
+
 async function startAnjaliServer() {
+  await killForeignAnjaliServerOnPort();
   const alive = await pingPort(8426, '/health', 5000);
   if (alive) {
     console.log('[PP] Voice server on 8426 is alive and warm — Electron will use it as-is.');
@@ -305,7 +325,7 @@ async function startAnjaliServer() {
 
   const alreadyStarting = await isAnjaliServerProcessRunning();
   if (alreadyStarting) {
-    console.warn('[PP] Chatterbox Python server is already starting — waiting for port 8426 health.');
+    console.warn('[PP] Edge TTS Python server is already starting — waiting for port 8426 health.');
     if (!servers['AnjaliAI']) {
       servers['AnjaliAI'] = { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
     }
@@ -313,13 +333,13 @@ async function startAnjaliServer() {
       w.webContents.send('server-status', {
         server: 'anjali',
         status: 'starting',
-        message: 'Chatterbox voice server is starting on port 8426...'
+        message: 'Edge TTS voice server is starting on port 8426...'
       });
     });
     return;
   }
 
-  console.log('[PP] Starting Chatterbox Python voice server...');
+  console.log('[PP] Starting Edge TTS Python voice server...');
   spawnManaged('AnjaliAI', ANJALI_PYTHON, ['-u', ANJALI_SERVER], {
     cwd: ROOT,
     restartDelayMs: 5000,
@@ -334,7 +354,7 @@ async function startAnjaliServer() {
     w.webContents.send('server-status', {
       server: 'anjali',
       status: 'starting',
-      message: 'Launching Chatterbox voice server on port 8426...'
+      message: 'Launching Edge TTS voice server on port 8426...'
     });
   });
 }
@@ -353,7 +373,7 @@ function startServers() {
     '-File', path.join(ROOT, 'video-export-server.ps1')
   ], { restartDelayMs: 2000 });
 
-  // 3. Chatterbox TTS server (port 8426) - sc3 cloned voice option
+  // 3. Edge TTS server (port 8426) - primary narration server
   startAnjaliServer();
 
   // 4. Edge TTS server (port 8427) - separate voice option, never a fallback
@@ -368,21 +388,7 @@ function startServers() {
     }
   });
 
-  // 5. Optional sc3 singing model server (port 8431) - separate from narration
-  if (fs.existsSync(SC3_SINGING_SERVER)) {
-    spawnManaged('Sc3Singing', ANJALI_PYTHON, ['-u', SC3_SINGING_SERVER], {
-      cwd: ROOT,
-      restartDelayMs: 3000,
-      maxRestarts: 4,
-      restartWindowSec: 600,
-      env: {
-        PYTHONUTF8: '1',
-        PYTHONUNBUFFERED: '1',
-      }
-    });
-  }
-
-  // 6. Vite dev server (port 5173) — dev mode only
+  // 5. Vite dev server (port 5173) — dev mode only
   if (IS_DEV) {
     spawnManaged('ViteDevServer', NPM, ['run', 'dev'], {
       cwd:   ROOT,
@@ -390,9 +396,8 @@ function startServers() {
     });
   }
 
-  // Start watchdog after 3 minutes — gives Chatterbox full time to load on first boot.
-  // Chatterbox needs ~90-120 seconds; the watchdog would kill it if started too early.
-  setTimeout(startAnjaliWatchdog, 180000);
+  // Start watchdog after a short grace period.
+  setTimeout(startAnjaliWatchdog, 30000);
 }
 
 // ─── Free all server ports before launch ──────────────────────────────────────
@@ -405,8 +410,7 @@ function startServers() {
 function freeServerPorts() {
   return new Promise(async (resolve) => {
     // NOTE: Port 8426 (voice server) is intentionally EXCLUDED.
-    // The Chatterbox voice server is managed externally by the CMD launcher
-    // and must NEVER be killed by Electron — reloading takes ~2 minutes.
+    // The Edge TTS voice server is managed externally by the CMD launcher.
     const ports = [5173, 8424, 8428, 8430, 8431];
     const psLines = [
       `$myPid = ${process.pid}`,
@@ -415,8 +419,8 @@ function freeServerPorts() {
       `  $lines = netstat -ano 2>$null | Select-String ":$port\\s"`,
       `  foreach ($line in $lines) {`,
       `    if ($line -match '\\s(\\d+)\\s*$') {`,
-      `      $pid = [int]$Matches[1]`,
-      `      if ($pid -ne 0 -and $pid -ne $myPid) { taskkill /F /PID $pid 2>$null | Out-Null }`,
+      `      $ownerPid = [int]$Matches[1]`,
+      `      if ($ownerPid -ne 0 -and $ownerPid -ne $myPid) { taskkill /F /PID $ownerPid 2>$null | Out-Null }`,
       `    }`,
       `  }`,
       `}`,
