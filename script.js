@@ -23029,7 +23029,7 @@ function handleSingSongSelection(event) {
   }
   if (singSongProcessBtn) singSongProcessBtn.disabled = false;
   if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = false;
-  setSingSongStatus(`Selected song: ${file.name}. Click Prepare Sing Song.`);
+  setSingSongStatus(`Selected song: ${file.name}. Click Auto Replace Vocal With sc3. Lyrics are optional.`);
 }
 
 async function createSingSongInstrumentalBed(file, progressOffset = 0, progressSpan = 45) {
@@ -23055,6 +23055,43 @@ async function createSingSongInstrumentalBed(file, progressOffset = 0, progressS
     throw new Error("The vocal-reduced song bed was empty.");
   }
   return blob;
+}
+
+async function detectSingSongLyricsFromUpload(file) {
+  setSingSongProgress(20, "Checking transcription server");
+  const transcribeReady = await ensureTranscribeServer();
+  if (!transcribeReady) {
+    throw new Error("The transcription server is not ready, so the song words could not be detected.");
+  }
+
+  setSingSongProgress(30, "Preparing song for word detection");
+  const wavBlob = await decodeAudioFileToWav(file);
+  const wavBase64 = arrayBufferToBase64(await wavBlob.arrayBuffer());
+  setSingSongProgress(42, "Detecting song words");
+  const response = await fetch(`${state.transcribeServerUrl}/api/transcribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileName: file.name,
+      audioBase64: wavBase64
+    })
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "The song words could not be detected.");
+  }
+
+  const payload = await response.json();
+  const detectedText = String(payload?.text || "").trim();
+  if (!detectedText) {
+    throw new Error("No clear song words were detected. Paste the lyrics once and try again.");
+  }
+
+  if (singSongLyricsInput && !String(singSongLyricsInput.value || "").trim()) {
+    singSongLyricsInput.value = detectedText;
+  }
+  return detectedText;
 }
 
 async function processSingSongSafe() {
@@ -23113,13 +23150,9 @@ async function processSingSongSafe() {
 
 async function replaceSingSongVocalWithSc3() {
   const file = state.singSong.file;
-  const lyrics = String(singSongLyricsInput?.value || "").trim();
+  let lyrics = String(singSongLyricsInput?.value || "").trim();
   if (!file) {
     setSingSongStatus("Upload an MP3 first.", { error: true });
-    return;
-  }
-  if (!lyrics) {
-    setSingSongStatus("Paste the song words first so sc3 has a vocal line to speak.", { error: true });
     return;
   }
 
@@ -23144,14 +23177,18 @@ async function replaceSingSongVocalWithSc3() {
       throw new Error("The sc3 voice server is not ready.");
     }
 
-    setSingSongProgress(28, "Removing original vocal");
-    const instrumentalBlob = await createSingSongInstrumentalBed(file, 28, 28);
+    if (!lyrics) {
+      lyrics = await detectSingSongLyricsFromUpload(file);
+    }
 
-    setSingSongProgress(58, "Generating sc3 vocal");
+    setSingSongProgress(46, "Removing original vocal");
+    const instrumentalBlob = await createSingSongInstrumentalBed(file, 46, 18);
+
+    setSingSongProgress(66, "Generating sc3 vocal");
     const sc3VocalBlob = await requestNarrationBlob(lyrics, SC3_NARRATION_VOICE, {
       timeoutMs: getLongNarrationRequestTimeoutMs(lyrics),
       onProgress: ({ label, progress }) => {
-        setSingSongProgress(58 + Math.round(clamp(progress || 0, 0, 1) * 22), label || "Generating sc3 vocal");
+        setSingSongProgress(66 + Math.round(clamp(progress || 0, 0, 1) * 16), label || "Generating sc3 vocal");
       }
     });
 
