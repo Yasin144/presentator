@@ -150,8 +150,8 @@ function InputPanel() {
                 to use the default <strong>LEARNING OUTCOMES</strong> heading.</p>
               <div className="toolbar toolbar-compact">
                 <input id="outcomesTitleInput" className="text-field-input outcomes-title-input" type="text" maxLength="72"
-                  placeholder="e.g. LEARNING OUTCOMES" disabled />
-                <button id="saveOutcomesTitleBtn" className="primary-btn" type="button" disabled>Save Title</button>
+                  placeholder="e.g. LEARNING OUTCOMES" />
+                <button id="saveOutcomesTitleBtn" className="primary-btn" type="button">Save Title</button>
               </div>
               <p className="upload-copy" id="outcomesTitleStatus">Switch to Learning Outcomes if you want to save a custom
                 title for that template.</p>
@@ -1103,25 +1103,28 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <span className="section-icon">SNG</span>
             <span className="summary-copy">
               <span className="section-title">Sing Song</span>
-              <span className="section-meta">Upload an MP3 and prepare a safe vocal-reduced song bed for sc3 singing work.</span>
+              <span className="section-meta">Upload an audio file and replace the vocal tone directly with sc3.</span>
             </span>
           </span>
         </summary>
         <div className="section-content">
           <div className="upload-block">
             <label className="field-label" htmlFor="singSongInput">Song MP3</label>
-            <p className="upload-copy">Upload the song MP3. Safe mode removes the center vocal as much as possible and keeps the music timing.</p>
+            <p className="upload-copy">Upload the audio, then click Auto Replace Vocal With sc3 to convert the uploaded vocal directly.</p>
             <input id="singSongInput" className="image-input" type="file" accept="audio/mpeg,audio/mp3,audio/*" />
             <audio id="singSongSourcePreview" className="audio-preview hidden" controls preload="metadata"></audio>
-            <label className="field-label" htmlFor="singSongLyricsInput">Lyrics for sc3 vocal (optional)</label>
-            <textarea id="singSongLyricsInput" className="lesson-input" rows={5}
-              placeholder="Optional: paste/correct lyrics. If empty, the app will try to detect words from the uploaded MP3."></textarea>
+            <label className="field-label" htmlFor="sc3VideoInput">Video</label>
+            <p className="upload-copy">Upload a video, then replace its full audio with pure sc3 voice while keeping the video.</p>
+            <input id="sc3VideoInput" className="image-input" type="file" accept="video/mp4,video/webm,video/*" />
+            <video id="sc3VideoSourcePreview" className="audio-preview hidden" controls preload="metadata"></video>
             <div className="toolbar toolbar-compact">
               <button id="singSongProcessBtn" className="primary-btn" type="button" disabled>Prepare Sing Song</button>
               <button id="singSongSc3ReplaceBtn" className="primary-btn" type="button" disabled>Auto Replace Vocal With sc3</button>
-              <button id="singSongModelBtn" className="primary-btn" type="button" disabled>Use sc3 Singing Model</button>
+              <button id="sc3VideoReplaceBtn" className="primary-btn" type="button" disabled>Replace Video Audio With sc3</button>
+              <button id="singSongModelBtn" className="primary-btn hidden" type="button" disabled>Use sc3 Singing Model</button>
               <button id="singSongDownloadBtn" className="ghost-btn" type="button" disabled>Download Result</button>
               <button id="singSongDownloadReplacedBtn" className="ghost-btn" type="button" disabled>Download Replaced Song</button>
+              <button id="sc3VideoDownloadBtn" className="ghost-btn" type="button" disabled>Download Replaced Video</button>
             </div>
             <p className="upload-copy" id="singSongModelStatus">sc3 singing model is separate from normal narration.</p>
             <div id="singSongProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
@@ -1132,6 +1135,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <p id="singSongProgressLabel" className="upload-copy">0% complete</p>
             </div>
             <audio id="singSongResultPreview" className="audio-preview hidden" controls preload="metadata"></audio>
+            <video id="sc3VideoResultPreview" className="audio-preview hidden" controls preload="metadata"></video>
             <p className="upload-copy" id="singSongStatus">No song uploaded.</p>
           </div>
         </div>

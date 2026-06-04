@@ -252,7 +252,29 @@ function Handle-Request {
 }
 
 try {
-  $listener.Start()
+  # Retry loop: kill anything holding the port and retry up to 12 times
+  $maxAttempts = 12
+  $bound = $false
+  for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    try {
+      $netLines = netstat -ano 2>$null | Select-String ":$port\s"
+      foreach ($nl in $netLines) {
+        if ($nl -match '\s(\d+)\s*$') {
+          $stalePid = [int]$Matches[1]
+          if ($stalePid -gt 0) { taskkill /F /PID $stalePid 2>$null | Out-Null }
+        }
+      }
+      Start-Sleep -Milliseconds 400
+      $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+      $listener.Start()
+      $bound = $true
+      break
+    } catch [System.Net.Sockets.SocketException] {
+      if ($attempt -ge $maxAttempts) { throw }
+      Write-Host "[transcribe] Port $port busy, retrying ($attempt/$maxAttempts)..."
+      Start-Sleep -Seconds 1
+    }
+  }
   Write-Host "Transcription server listening on $baseUrl"
 
   while ($true) {

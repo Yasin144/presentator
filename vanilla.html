@@ -1050,6 +1050,118 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
+      <!-- ══ Sing Song Module ══════════════════════════════════════════════ -->
+      <details class="section-card" id="singSongSection">
+        <summary class="section-summary">
+          <span class="summary-head">
+            <span class="section-icon">🎵</span>
+            <span class="summary-copy">
+              <span class="section-title">Sing Song Studio</span>
+              <span class="section-meta">Upload a video or audio song — replace vocals with the sc3 voice, or replace video audio entirely.</span>
+            </span>
+          </span>
+        </summary>
+        <div class="section-content">
+
+          <!-- Model Status -->
+          <div class="tool-card" style="margin-bottom: 1rem;">
+            <div class="tool-card-head">
+              <span class="module-icon">SC3</span>
+              <p class="tool-card-title">sc3 Singing Model Status</p>
+            </div>
+            <p class="upload-copy" id="singSongModelStatus">Checking sc3 singing model server on port 8431…</p>
+          </div>
+
+          <!-- Upload Grid -->
+          <div class="media-upload-grid">
+
+            <!-- Audio / Song Upload -->
+            <div class="upload-block">
+              <label class="field-label" for="singSongInput">Upload Source Audio (MP3 / WAV)</label>
+              <p class="upload-copy">Upload the original song. Use <strong>Prepare Sing Song</strong> to make a vocal-reduced bed, or <strong>Auto Replace Vocal</strong> to convert directly to sc3 voice.</p>
+              <input id="singSongInput" class="image-input" type="file" accept="audio/*">
+              <audio id="singSongSourcePreview" class="audio-preview hidden" controls preload="metadata"></audio>
+            </div>
+
+            <!-- Video Upload -->
+            <div class="upload-block">
+              <label class="field-label" for="sc3VideoInput">Upload Source Video (MP4 / WEBM)</label>
+              <p class="upload-copy">Upload a video to replace its audio track with the sc3 voice. The original video length and quality are preserved.</p>
+              <input id="sc3VideoInput" class="image-input" type="file" accept="video/*">
+              <video id="sc3VideoSourcePreview" class="audio-preview hidden" controls preload="metadata" muted playsinline style="width:100%;max-height:200px;border-radius:8px;"></video>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="toolbar toolbar-compact" style="flex-wrap:wrap; gap:8px; margin-top:1rem;">
+            <button id="singSongProcessBtn" class="primary-btn" type="button" disabled>
+              🎼 Prepare Sing Song
+            </button>
+            <button id="singSongSc3ReplaceBtn" class="accent-btn" type="button" disabled style="background:linear-gradient(135deg,#7c3aed,#a855f7);">
+              🎤 Auto Replace Vocal With sc3
+            </button>
+            <button id="singSongModelBtn" class="primary-btn" type="button" disabled style="background:linear-gradient(135deg,#0891b2,#06b6d4);">
+              🤖 Replace With sc3 Singing Model
+            </button>
+            <button id="sc3VideoReplaceBtn" class="primary-btn" type="button" disabled style="background:linear-gradient(135deg,#dc2626,#ef4444);">
+              🎬 Replace Video Audio With sc3
+            </button>
+          </div>
+
+          <!-- Progress Bar -->
+          <div id="singSongProgress" class="progress-indicator hidden" role="progressbar"
+            aria-live="polite" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+            style="margin-top:0.75rem;">
+            <div class="progress-track">
+              <span id="singSongProgressBar" class="progress-fill" style="background:linear-gradient(90deg,#7c3aed,#a855f7);"></span>
+            </div>
+            <p id="singSongProgressLabel" class="upload-copy" style="margin-top:4px;">0% complete</p>
+          </div>
+
+          <!-- Status -->
+          <p class="upload-copy" id="singSongStatus" style="margin-top:0.5rem;">
+            Upload an audio or video file to get started.
+          </p>
+
+          <!-- Result Previews -->
+          <div style="display:flex; flex-direction:column; gap:1rem; margin-top:1rem;">
+
+            <!-- Audio Result Preview -->
+            <div class="tool-card" id="singSongResultCard">
+              <div class="tool-card-head">
+                <span class="module-icon">OUT</span>
+                <p class="tool-card-title">Audio Result Preview</p>
+              </div>
+              <audio id="singSongResultPreview" class="audio-preview hidden" controls preload="metadata"></audio>
+              <div class="toolbar toolbar-compact" style="margin-top:0.75rem; flex-wrap:wrap; gap:8px;">
+                <button id="singSongDownloadBtn" class="accent-btn" type="button" disabled>
+                  ⬇ Download Result
+                </button>
+                <button id="singSongDownloadReplacedBtn" class="ghost-btn" type="button" disabled>
+                  ⬇ Download Replaced Song
+                </button>
+              </div>
+            </div>
+
+            <!-- Video Result Preview -->
+            <div class="tool-card" id="sc3VideoResultCard">
+              <div class="tool-card-head">
+                <span class="module-icon">VID</span>
+                <p class="tool-card-title">Video Result Preview</p>
+              </div>
+              <video id="sc3VideoResultPreview" class="audio-preview hidden" controls preload="metadata" playsinline
+                style="width:100%;max-height:280px;border-radius:8px;"></video>
+              <div class="toolbar toolbar-compact" style="margin-top:0.75rem;">
+                <button id="sc3VideoDownloadBtn" class="accent-btn" type="button" disabled>
+                  ⬇ Download Replaced Video
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </details>
+
     </section>
 
     <section class="panel panel-stage hidden" id="stagePanel">

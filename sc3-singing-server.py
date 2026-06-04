@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -11,6 +12,11 @@ PORT = 8431
 ROOT = Path(__file__).resolve().parent
 MODEL_DIR = ROOT / "AI_Models" / "sc3-singing"
 CONFIG_PATH = MODEL_DIR / "singing-model.json"
+REFERENCE_VOICE = ROOT / "voice-reference-sc3.wav"
+_CONVERTER = None
+_TARGET_SE = None
+_CONVERTER_ERROR = ""
+_CONVERTER_LOCK = threading.Lock()
 
 
 def _json_response(handler, status, payload):
@@ -71,15 +77,162 @@ def _model_status():
             "message": "singing-model.json must contain a command array.",
         }
 
+    direct_ready = _direct_converter_importable()
     return {
         "ok": True,
         "server": "sc3-singing",
         "port": PORT,
         "modelReady": True,
-        "mode": "external-command",
+        "mode": "direct-openvoice" if direct_ready else "external-command",
+        "converterWarmed": _CONVERTER is not None and _TARGET_SE is not None,
         "modelDir": str(MODEL_DIR),
-        "message": "Separate sc3 singing model is ready.",
+        "message": "sc3 direct voice replacement is ready." if direct_ready else "Separate sc3 singing model is ready.",
     }
+
+
+def _direct_converter_importable():
+    try:
+        import openvoice_cli  # noqa: F401
+        return REFERENCE_VOICE.exists()
+    except Exception:
+        return False
+
+
+def _prepare_wav(input_path, output_path):
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_path),
+        "-ar", "44100",
+        "-ac", "2",
+        str(output_path),
+    ], cwd=str(ROOT), check=True)
+
+
+def _write_mp3(input_path, output_path):
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_path),
+        "-codec:a", "libmp3lame",
+        "-b:a", "192k",
+        str(output_path),
+    ], cwd=str(ROOT), check=True)
+
+
+def _safe_output_file_name(file_name, fallback_name="sc3-voice.mp3"):
+    safe_name = Path(str(file_name or fallback_name)).name.strip() or fallback_name
+    for character in '<>:"/\\|?*':
+        safe_name = safe_name.replace(character, "-")
+    if not Path(safe_name).suffix:
+        safe_name = f"{safe_name}.mp3"
+    return safe_name
+
+
+def _downloads_dir():
+    user_profile = Path.home()
+    downloads = user_profile / "Downloads"
+    if downloads.exists():
+        return downloads
+    return user_profile
+
+
+def _unique_download_path(file_name):
+    directory = _downloads_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    safe_name = _safe_output_file_name(file_name)
+    candidate = directory / safe_name
+    index = 1
+    while candidate.exists():
+        candidate = directory / f"{candidate.stem} ({index}){candidate.suffix}"
+        index += 1
+    return candidate
+
+
+def _ensure_converter(device="cpu"):
+    global _CONVERTER, _TARGET_SE, _CONVERTER_ERROR
+    if _CONVERTER is not None and _TARGET_SE is not None:
+        return _CONVERTER, _TARGET_SE
+
+    try:
+        import openvoice_cli
+        from openvoice_cli.api import ToneColorConverter
+        from openvoice_cli.downloader import download_checkpoint
+
+        package_dir = Path(openvoice_cli.__file__).resolve().parent
+        checkpoint_dir = package_dir / "checkpoints" / "converter"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        if not (checkpoint_dir / "checkpoint.pth").exists() or not (checkpoint_dir / "config.json").exists():
+            download_checkpoint(str(checkpoint_dir))
+
+        converter = ToneColorConverter(str(checkpoint_dir / "config.json"), device=device)
+        converter.load_ckpt(str(checkpoint_dir / "checkpoint.pth"))
+        target_se = converter.extract_se(str(REFERENCE_VOICE))
+        _CONVERTER = converter
+        _TARGET_SE = target_se
+        _CONVERTER_ERROR = ""
+        return _CONVERTER, _TARGET_SE
+    except Exception as exc:
+        _CONVERTER_ERROR = str(exc)
+        raise
+
+
+def _run_direct_model(payload):
+    with tempfile.TemporaryDirectory(prefix="sc3-direct-") as temp_dir:
+        temp_path = Path(temp_dir)
+        input_path = temp_path / "input-audio"
+        prepared_path = temp_path / "input.wav"
+        converted_path = temp_path / "sc3-voice.wav"
+        output_path = temp_path / "sc3-voice.mp3"
+
+        song_base64 = str(payload.get("songBase64") or "")
+        file_path   = str(payload.get("filePath") or "")
+
+        print("[sc3-singing] received direct conversion request.", flush=True)
+
+        if file_path:
+            # Caller already wrote the audio to disk — read it directly.
+            # This avoids base64 encoding/decoding for large files (no OOM, no ECONNRESET).
+            input_path = Path(file_path)
+            if not input_path.exists():
+                raise FileNotFoundError(f"filePath not found: {file_path}")
+            print(f"[sc3-singing] reading audio from disk: {input_path.name}", flush=True)
+        elif song_base64:
+            input_path.write_bytes(base64.b64decode(song_base64))
+        else:
+            raise ValueError("Either filePath or songBase64 is required.")
+
+
+        print("[sc3-singing] preparing uploaded audio.", flush=True)
+        _prepare_wav(input_path, prepared_path)
+        with _CONVERTER_LOCK:
+            print("[sc3-singing] converting uploaded audio to sc3.", flush=True)
+            converter, target_se = _ensure_converter("cpu")
+            source_se = converter.extract_se(str(prepared_path))
+            converter.convert(
+                audio_src_path=str(prepared_path),
+                src_se=source_se,
+                tgt_se=target_se,
+                output_path=str(converted_path),
+            )
+        print("[sc3-singing] writing mp3 output.", flush=True)
+        _write_mp3(converted_path, output_path)
+
+        if not output_path.exists() or output_path.stat().st_size <= 0:
+            raise RuntimeError("Direct sc3 conversion did not create an output MP3.")
+
+        saved_path = ""
+        if bool(payload.get("saveToDownloads")):
+            saved_target = _unique_download_path(payload.get("outputFileName") or "sc3-voice.mp3")
+            saved_target.write_bytes(output_path.read_bytes())
+            saved_path = str(saved_target)
+            print(f"[sc3-singing] saved mp3 to {saved_path}", flush=True)
+
+        return {
+            "ok": True,
+            "contentType": "audio/mpeg",
+            "audioBase64": base64.b64encode(output_path.read_bytes()).decode("ascii"),
+            "fileName": str(payload.get("outputFileName") or "sc3-voice.mp3"),
+            "savedPath": saved_path,
+        }
 
 
 def _run_external_model(payload):
@@ -93,17 +246,13 @@ def _run_external_model(payload):
         temp_path = Path(temp_dir)
         song_path = temp_path / "song.mp3"
         output_path = temp_path / "sc3-singing-output.mp3"
-        lyrics_path = temp_path / "lyrics.txt"
-
         song_base64 = str(payload.get("songBase64") or "")
         if not song_base64:
             raise ValueError("songBase64 is required.")
         song_path.write_bytes(base64.b64decode(song_base64))
-        lyrics_path.write_text(str(payload.get("lyrics") or ""), encoding="utf-8")
 
         replacements = {
             "{song}": str(song_path),
-            "{lyrics}": str(lyrics_path),
             "{output}": str(output_path),
             "{modelDir}": str(MODEL_DIR),
         }
@@ -170,7 +319,10 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             payload = _read_request_json(self)
-            _json_response(self, 200, _run_external_model(payload))
+            if _direct_converter_importable():
+                _json_response(self, 200, _run_direct_model(payload))
+            else:
+                _json_response(self, 200, _run_external_model(payload))
         except Exception as exc:
             _json_response(self, 500, {"ok": False, "error": str(exc)})
 
@@ -178,4 +330,12 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     print(f"sc3 singing server listening on http://127.0.0.1:{PORT}", flush=True)
+    if _direct_converter_importable():
+        def _warm_converter():
+            try:
+                _ensure_converter("cpu")
+                print("[sc3-singing] direct OpenVoice converter warmed.", flush=True)
+            except Exception as exc:
+                print(f"[sc3-singing] direct OpenVoice warmup failed: {exc}", flush=True)
+        threading.Thread(target=_warm_converter, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

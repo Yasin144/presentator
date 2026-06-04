@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // ─── Expose a secure, limited API to the renderer via window.electronAPI ─────
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -50,7 +50,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeListener('server-status', callback);
   },
 
+  // ── SC3 crash-free video audio replacement ─────────────────────────────────
+  // Gets the real on-disk path for a browser File object (Electron only).
+  // Needed so the main process can read the file without loading it in renderer.
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+
+  // Replace video audio with SC3 voice — all heavy work runs in main process:
+  // FFmpeg extracts audio → SC3 server converts → FFmpeg muxes back into video.
+  // Zero large files loaded into renderer memory. Crash-free.
+  sc3ReplaceVideoAudio: (opts) =>
+    ipcRenderer.invoke('sc3-replace-video-audio', opts),
+
   // Check if running inside Electron
   isElectron: true,
   platform: process.platform,
 });
+
