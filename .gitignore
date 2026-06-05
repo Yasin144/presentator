@@ -1,4 +1,5 @@
 .voiceclone-venv/
+.edge-tts-venv/
 .singing-venv/
 __pycache__/
 processed/

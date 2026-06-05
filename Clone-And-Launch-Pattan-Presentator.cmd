@@ -13,7 +13,7 @@ echo.
 if exist "%APP_DIR%\.git" (
   echo  Existing app found. Updating from GitHub...
   cd /d "%APP_DIR%"
-  git pull --ff-only origin main
+  git pull --rebase --autostash origin main
   if errorlevel 1 (
     echo  Git update failed. The existing app was not overwritten.
     pause
