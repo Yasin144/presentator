@@ -61,6 +61,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sc3ReplaceVideoAudio: (opts) =>
     ipcRenderer.invoke('sc3-replace-video-audio', opts),
 
+  // Fast mode — SC3 Singing timbre transfer for video (no transcription, much faster)
+  sc3SingingReplaceVideo: (opts) =>
+    ipcRenderer.invoke('sc3-singing-replace-video', opts),
+
+  // Transcribe video audio via main process (crash-free).
+  // Main process extracts 16kHz mono WAV with FFmpeg and sends to transcription server.
+  // Renderer never loads video bytes → no OOM crash on large videos.
+  transcribeVideo: (opts) =>
+    ipcRenderer.invoke('transcribe-video', opts),
+
+  // Replace audio file vocal with Chatterbox sc3 voice (Transcribe → Indian English → TTS)
+  sc3NarrateAudio: (opts) =>
+    ipcRenderer.invoke('sc3-narrate-audio', opts),
+
   // Check if running inside Electron
   isElectron: true,
   platform: process.platform,

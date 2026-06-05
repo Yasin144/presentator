@@ -32,24 +32,22 @@ PROJECT_ROOT  = Path(__file__).resolve().parent
 PORT          = 8426
 CACHE_LIMIT   = 256
 
-# Voice reference â€” EXACT voice from EVS C5 8th Lesson sc3.mp4
+# Voice reference — sc3.mp4 voice clone (same teacher as paragraph.mp4)
 VOICE_REF_WAV = str(PROJECT_ROOT / "voice-reference-sc3.wav")
-VOICE_REF_SRC = (
-    r"D:\LESSONS\EVS\EVS C5 8TH LESSON\EVS C5 8TH LESSON"
-    r"\EVS C5 8TH Lesson fact file\sc3.mp4"
-)
+VOICE_REF_SRC = str(Path.home() / "Downloads" / "paragraph.mp4")
 
 # â”€â”€ Load Chatterbox SYNCHRONOUSLY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # The HTTP server does NOT start until the model and voice are fully ready.
-# This guarantees the FIRST narration ever uses the sc3.mp4 cloned voice.
+# This guarantees the FIRST narration ever uses the paragraph.mp4 cloned voice.
 print("+------------------------------------------------------------------+", flush=True)
-print("|   Voice Presentator â€” Loading sc3.mp4 voice clone               |", flush=True)
-print("|   Please wait â€” this takes ~60 seconds on first load            |", flush=True)
+print("|   Voice Presentator — Loading sc3 voice clone (same teacher)    |", flush=True)
+print("|   Please wait — this takes ~60 seconds on first load            |", flush=True)
 print("+------------------------------------------------------------------+", flush=True)
 
 if not Path(VOICE_REF_WAV).exists():
     print(f"[ERROR] Voice reference WAV not found: {VOICE_REF_WAV}", flush=True)
-    print(f"[ERROR] Run the launcher to extract it from sc3.mp4.", flush=True)
+    print(f"[ERROR] Expected: {VOICE_REF_WAV}", flush=True)
+    print(f"[ERROR] Make sure paragraph.mp4 was processed by the launcher.", flush=True)
     sys.exit(1)
 
 try:
@@ -75,12 +73,12 @@ try:
     MODEL.t3.inference = _capped_t3_inference
     print(f"[Voice] max_new_tokens capped to 350 inside t3.inference for speed.", flush=True)
 
-    print(f"[Voice] Pre-computing sc3.mp4 voice embeddings...", flush=True)
+    print(f"[Voice] Pre-computing sc3 voice embeddings...", flush=True)
     MODEL.prepare_conditionals(VOICE_REF_WAV, exaggeration=0.2)
 
     SAMPLE_RATE = getattr(MODEL, "sr", 24000)
-    print(f"[Voice] âœ“ Ready! sr={SAMPLE_RATE}, device={device}", flush=True)
-    print(f"[Voice] sc3.mp4 voice is locked. Starting server on port {PORT}...", flush=True)
+    print(f"[Voice] ✔ Ready! sr={SAMPLE_RATE}, device={device}", flush=True)
+    print(f"[Voice] sc3 voice locked. Starting server on port {PORT}...", flush=True)
 
 except Exception as e:
     print(f"[FATAL] Chatterbox failed to load: {e}", flush=True)
@@ -137,6 +135,45 @@ def _clean(text: str) -> str:
 _cache      = OrderedDict()
 _cache_lock = threading.Lock()
 _synth_lock = threading.Lock()
+
+# ── Persistent Disk Cache ──────────────────────────────────────────────────────
+# Every synthesized sentence is saved to disk so the NEXT app start is instant.
+# Cache dir: D:\voice\tts-cache\   Max size: 1 GB (oldest trimmed automatically)
+import hashlib
+DISK_CACHE_DIR = PROJECT_ROOT / "tts-cache"
+DISK_CACHE_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
+DISK_CACHE_DIR.mkdir(exist_ok=True)
+
+def _disk_key(text: str) -> str:
+    """SHA-256 hash of cleaned text → used as filename."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+def _disk_cache_get(clean_text: str):
+    """Return cached WAV bytes from disk, or None if not cached."""
+    try:
+        p = DISK_CACHE_DIR / (_disk_key(clean_text) + ".wav")
+        if p.exists():
+            p.touch()  # update mtime so LRU trimming keeps recently used files
+            return p.read_bytes()
+    except Exception:
+        pass
+    return None
+
+def _disk_cache_set(clean_text: str, wav_bytes: bytes):
+    """Save WAV bytes to disk cache, then trim if over 1 GB."""
+    try:
+        p = DISK_CACHE_DIR / (_disk_key(clean_text) + ".wav")
+        p.write_bytes(wav_bytes)
+        # Trim oldest files if over limit
+        files = sorted(DISK_CACHE_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime)
+        total = sum(f.stat().st_size for f in files)
+        while total > DISK_CACHE_MAX_BYTES and files:
+            oldest = files.pop(0)
+            total -= oldest.stat().st_size
+            oldest.unlink(missing_ok=True)
+    except Exception:
+        pass
+
 
 # Real-time synthesis progress â€” polled by the app banner
 _progress = {
@@ -202,14 +239,26 @@ def synthesize(text: str) -> bytes:
             _set_progress("idle", 0, active=False)
             raise ValueError("Empty text after cleaning.")
 
-        # Cache hit — instant
+        # 1. RAM cache hit — instant
         wav = None
         with _cache_lock:
             if clean in _cache:
                 _cache.move_to_end(clean)
                 wav = _cache[clean]
         if wav is not None:
-            _set_progress("Done", 100, active=False, cached=True, text=text)
+            _set_progress("Done (RAM cache)", 100, active=False, cached=True, text=text)
+            return wav
+
+        # 2. Disk cache hit — near-instant (no AI needed)
+        wav = _disk_cache_get(clean)
+        if wav is not None:
+            with _cache_lock:
+                _cache[clean] = wav
+                _cache.move_to_end(clean)
+                while len(_cache) > CACHE_LIMIT:
+                    _cache.popitem(last=False)
+            _set_progress("Done (disk cache)", 100, active=False, cached=True, text=text)
+            print(f"[Cache] Disk hit: {clean[:50]!r}", flush=True)
             return wav
 
         _set_progress(STAGES[1][0], STAGES[1][1], active=True, text=text)
@@ -241,6 +290,10 @@ def synthesize(text: str) -> bytes:
             _cache.move_to_end(clean)
             while len(_cache) > CACHE_LIMIT:
                 _cache.popitem(last=False)
+
+        # 3. Save to disk cache for future app restarts
+        _disk_cache_set(clean, wav)
+        print(f"[Cache] Saved to disk: {clean[:50]!r}", flush=True)
 
         _set_progress(STAGES[5][0], active=False, pct=100, cached=False, text=text)
         return wav
@@ -299,9 +352,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/health") or self.path == "/":
             self._json({
                 "ok":            True,
-                "voice":         "sc3-cloned",
+                "voice":         "paragraph-cloned",
                 "engine":        "chatterbox-tts",
-                "modelLoaded":   True,          # always True â€” server only starts when ready
+                "modelLoaded":   True,
                 "warming":       False,
                 "locked":        True,
                 "chatterboxReady": True,
@@ -309,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
                 "chatterboxError":   "",
                 "referenceFile": VOICE_REF_WAV,
                 "referenceReady": Path(VOICE_REF_WAV).exists(),
-                "referenceSource": "EVS C5 8th Lesson - Fact File, Scene 3 (sc3.mp4)",
+                "referenceSource": "paragraph.mp4 (Downloads folder)",
                 "sampleRate":    SAMPLE_RATE,
                 "cacheEntries":  len(_cache),
                 "device":        device,
@@ -321,12 +374,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json({
                 "ok": True, "locked": True,
                 "voices": [{
-                    "shortName":    "sc3-cloned",
-                    "friendlyName": "EVS C5 8th Lesson Voice (sc3.mp4 Clone) [LOCKED]",
+                    "shortName":    "paragraph-cloned",
+                    "friendlyName": "paragraph.mp4 Voice Clone [LOCKED]",
                     "gender": "Female", "locale": "en-IN",
                     "current": True, "locked": True,
                 }],
-                "active": "sc3-cloned",
+                "active": "paragraph-cloned",
             })
             return
 

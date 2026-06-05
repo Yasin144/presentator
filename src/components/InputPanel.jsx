@@ -1103,30 +1103,69 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <span className="section-icon">SNG</span>
             <span className="summary-copy">
               <span className="section-title">Sing Song</span>
-              <span className="section-meta">Upload an audio file and replace the vocal tone directly with sc3.</span>
+              <span className="section-meta">Upload audio or video — converts American English accent to Indian English voice using SC3 clone.</span>
             </span>
           </span>
         </summary>
         <div className="section-content">
           <div className="upload-block">
             <label className="field-label" htmlFor="singSongInput">Song MP3</label>
-            <p className="upload-copy">Upload the audio, then click Auto Replace Vocal With sc3 to convert the uploaded vocal directly.</p>
+            <p className="upload-copy">Upload the song or audio file, then click <strong>Convert Voice to Indian English</strong> to replace the vocal with SC3 Indian voice directly.</p>
             <input id="singSongInput" className="image-input" type="file" accept="audio/mpeg,audio/mp3,audio/*" />
             <audio id="singSongSourcePreview" className="audio-preview hidden" controls preload="metadata"></audio>
-            <label className="field-label" htmlFor="sc3VideoInput">Video</label>
-            <p className="upload-copy">Upload a video, then replace its full audio with pure sc3 voice while keeping the video.</p>
-            <input id="sc3VideoInput" className="image-input" type="file" accept="video/mp4,video/webm,video/*" />
+            <label className="field-label" htmlFor="sc3VideoInput">Videos — Queue (American English → Indian English)</label>
+            <p className="upload-copy">Upload <strong>one or more videos</strong> — they will be queued and processed one by one. Each video gets its full audio replaced with the SC3 Indian English voice.</p>
+            <input id="sc3VideoInput" className="image-input" type="file" accept="video/mp4,video/webm,video/*" multiple />
             <video id="sc3VideoSourcePreview" className="audio-preview hidden" controls preload="metadata"></video>
             <div className="toolbar toolbar-compact">
-              <button id="singSongProcessBtn" className="primary-btn" type="button" disabled>Prepare Sing Song</button>
-              <button id="singSongSc3ReplaceBtn" className="primary-btn" type="button" disabled>Auto Replace Vocal With sc3</button>
-              <button id="sc3VideoReplaceBtn" className="primary-btn" type="button" disabled>Replace Video Audio With sc3</button>
-              <button id="singSongModelBtn" className="primary-btn hidden" type="button" disabled>Use sc3 Singing Model</button>
-              <button id="singSongDownloadBtn" className="ghost-btn" type="button" disabled>Download Result</button>
-              <button id="singSongDownloadReplacedBtn" className="ghost-btn" type="button" disabled>Download Replaced Song</button>
-              <button id="sc3VideoDownloadBtn" className="ghost-btn" type="button" disabled>Download Replaced Video</button>
+              <button id="singSongProcessBtn" className="primary-btn" type="button" disabled>🎵 Prepare Song Mix</button>
+              <button id="singSongSc3ReplaceBtn" className="primary-btn" type="button" disabled>🎤 Convert Voice → Indian English (SC3)</button>
+              <button id="sc3VideoReplaceBtn" className="primary-btn" type="button" disabled>🎬 Process Video Queue → Indian (SC3)</button>
+              <button id="singSongModelBtn" className="primary-btn hidden" type="button" disabled>🤖 Use SC3 Singing Model</button>
+              <button id="singSongDownloadBtn" className="ghost-btn" type="button" disabled>📥 Download Result</button>
+              <button id="singSongDownloadReplacedBtn" className="ghost-btn" type="button" disabled>📥 Download Converted Song</button>
+              <button id="sc3VideoDownloadBtn" className="ghost-btn" type="button" disabled>📥 Download Last Video</button>
             </div>
-            <p className="upload-copy" id="singSongModelStatus">sc3 singing model is separate from normal narration.</p>
+
+            {/* ── Voice Mode Selector ─────────────────────────────────── */}
+            <div id="sc3VoiceModePanel" style={{marginTop:'14px', background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.25)', borderRadius:'10px', padding:'12px 16px'}}>
+              <div style={{fontWeight:'700', color:'#a5b4fc', fontSize:'0.88rem', marginBottom:'10px', letterSpacing:'0.03em'}}>🎙️ Voice Processing Mode</div>
+              <div style={{display:'flex', gap:'10px', flexWrap:'wrap'}}>
+                <label id="sc3ModeChatterboxLabel" style={{display:'flex', alignItems:'center', gap:'8px', cursor:'pointer', background:'rgba(124,58,237,0.18)', border:'2px solid #7c3aed', borderRadius:'8px', padding:'8px 14px', flex:'1', minWidth:'160px', transition:'all 0.2s'}}>
+                  <input type="radio" name="sc3VoiceMode" id="sc3ModeChatterbox" value="chatterbox" defaultChecked style={{accentColor:'#7c3aed', width:'16px', height:'16px'}} />
+                  <div>
+                    <div style={{fontWeight:'700', color:'#c4b5fd', fontSize:'0.88rem'}}>🎯 High Quality</div>
+                    <div style={{color:'#9ca3af', fontSize:'0.75rem'}}>Chatterbox TTS • Better voice clone • Slower</div>
+                  </div>
+                </label>
+                <label id="sc3ModeSc3Label" style={{display:'flex', alignItems:'center', gap:'8px', cursor:'pointer', background:'rgba(30,30,50,0.4)', border:'2px solid rgba(99,102,241,0.3)', borderRadius:'8px', padding:'8px 14px', flex:'1', minWidth:'160px', transition:'all 0.2s'}}>
+                  <input type="radio" name="sc3VoiceMode" id="sc3ModeSc3" value="sc3singing" style={{accentColor:'#f59e0b', width:'16px', height:'16px'}} />
+                  <div>
+                    <div style={{fontWeight:'700', color:'#fcd34d', fontSize:'0.88rem'}}>⚡ Fast</div>
+                    <div style={{color:'#9ca3af', fontSize:'0.75rem'}}>SC3 Singing • Natural rhythm • Much faster</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* ── Queue Monitor Panel ─────────────────────────────────── */}
+            <div id="sc3QueuePanel" style={{display:'none', marginTop:'14px', background:'rgba(124,58,237,0.08)', border:'1px solid rgba(124,58,237,0.25)', borderRadius:'10px', padding:'14px'}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                <span style={{fontWeight:'700', color:'#a78bfa', fontSize:'0.95rem', letterSpacing:'0.02em'}}>📋 Video Queue</span>
+                <span id="sc3QueueCounter" style={{color:'#9ca3af', fontSize:'0.82rem', fontFamily:'monospace', background:'rgba(0,0,0,0.25)', padding:'2px 8px', borderRadius:'999px'}}>0 / 0 complete</span>
+              </div>
+              <div id="sc3QueueList" style={{maxHeight:'240px', overflowY:'auto', display:'flex', flexDirection:'column', gap:'5px', paddingRight:'2px'}}></div>
+              <div className="toolbar toolbar-compact" style={{marginTop:'12px', gap:'8px'}}>
+                <button id="sc3PauseBtn" className="primary-btn" type="button" disabled
+                  style={{background:'linear-gradient(135deg,#f59e0b,#d97706)', border:'none', minWidth:'110px'}}>⏸ Pause</button>
+                <button id="sc3StopBtn" className="ghost-btn" type="button" disabled
+                  style={{borderColor:'#f87171', color:'#f87171', minWidth:'110px'}}>⛔ Stop Queue</button>
+                <span id="sc3QueueEta" style={{color:'#6b7280', fontSize:'0.8rem', marginLeft:'auto', alignSelf:'center'}}></span>
+              </div>
+            </div>
+
+
+            <p className="upload-copy" id="singSongModelStatus">SC3 Indian voice clone is ready. Upload one or more videos above and click Process Video Queue.</p>
             <div id="singSongProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div className="progress-track">
