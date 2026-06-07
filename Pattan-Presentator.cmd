@@ -40,7 +40,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$root='%APP_DIR%'; Get-N
 powershell -NoProfile -Command "try { $r = Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 3; exit 0 } catch { exit 1 }" >nul 2>&1
 if not errorlevel 1 (
   echo Voice server already running and warm - reusing it.
-  goto :launch_electron
+  goto 
+REM ── Hindi Voice Server (Port 8432) ───────────────────────────────────────
+set "VOICECLONE_PY=%APP_DIR%\.voiceclone-venv\Scripts\python.exe"
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8432/health' -TimeoutSec 2 ^| Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+if not errorlevel 1 (
+  echo Hindi voice server already on 8432 - reusing.
+) else (
+  if exist "%VOICECLONE_PY%" (
+    echo Starting Hindi voice server...
+    start "Hindi Voice Server (8432)" /min "%VOICECLONE_PY%" -u "%APP_DIR%\hindi-voice-server.py"
+  ) else (
+    echo [WARN] voiceclone-venv not found - Hindi server skipped.
+  )
+)
+
+REM ── Telugu Voice Server (Port 8433) ──────────────────────────────────────
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8433/health' -TimeoutSec 2 ^| Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+if not errorlevel 1 (
+  echo Telugu voice server already on 8433 - reusing.
+) else (
+  if exist "%VOICECLONE_PY%" (
+    echo Starting Telugu voice server...
+    start "Telugu Voice Server (8433)" /min "%VOICECLONE_PY%" -u "%APP_DIR%\telugu-voice-server.py"
+  ) else (
+    echo [WARN] voiceclone-venv not found - Telugu server skipped.
+  )
+)
+
+:launch_electron
 )
 
 REM ── Start voice server as DETACHED background process ────────────────────
