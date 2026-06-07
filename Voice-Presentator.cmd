@@ -43,6 +43,22 @@ if errorlevel 1 (
   )
 )
 
+
+REM ---- Hindi Voice Server (port 8432) ----
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8432/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+if errorlevel 1 (
+  if exist "%PYTHON_VENV%" (
+    start "Hindi Voice Server (8432)" /min "%PYTHON_VENV%" -u "%APP_DIR%\hindi-voice-server.py"
+  )
+)
+
+REM ---- Telugu Voice Server (port 8433) ----
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8433/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+if errorlevel 1 (
+  if exist "%PYTHON_VENV%" (
+    start "Telugu Voice Server (8433)" /min "%PYTHON_VENV%" -u "%APP_DIR%\telugu-voice-server.py"
+  )
+)
 REM ---- Self-healing Electron restart loop ----
 REM Electron is launched WITH /wait so we know when it exits.
 REM Exit code 0 = user closed intentionally -> stop loop.
