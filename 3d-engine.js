@@ -70,7 +70,11 @@
     if (!file) return;
 
     const url = URL.createObjectURL(file);
-    const loader = new THREE.GLTFLoader();
+    // In Three.js r128 loaded via script tag, GLTFLoader is a global, not THREE.GLTFLoader
+    const GLTFLoaderClass = (typeof GLTFLoader !== 'undefined') ? GLTFLoader
+      : (THREE.GLTFLoader ? THREE.GLTFLoader : null);
+    if (!GLTFLoaderClass) { console.error('GLTFLoader not found'); return; }
+    const loader = new GLTFLoaderClass();
 
     loader.load(url, (gltf) => {
       if (activeHologram) scene.remove(activeHologram);
@@ -117,59 +121,62 @@
     }, undefined, (e) => console.error("3D Hologram Load Error:", e));
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
-    // Inject the physical UI file block dynamically into the DOM
+  function inject3DUI() {
+    if (window.__3dHologramUIInjected) return;
+    // Retry if media-upload-grid not in DOM yet (React may still be rendering)
     const mediaGrid = document.querySelector(".media-upload-grid");
-    if (mediaGrid) {
-      const block = document.createElement("div");
-      block.className = "upload-block";
-      block.innerHTML = `
-        <label class="field-label" for="hologramInput">3D Hologram Overlay (.glb / .gltf)</label>
-        <p class="upload-copy">Upload an autonomous 3D file to render a floating 3D hologram directly over your presentation timeline.</p>
-        <input id="hologramInput" class="image-input" type="file" accept=".gltf,.glb" />
-        <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
-          <label class="field-label" style="display:flex; align-items:center; gap: 8px;">
-            <input type="checkbox" id="hologramLipSyncCheck" checked style="width: 16px; height: 16px;">
-            <span>Enable Auto-Lip Sync (Reacts to Audio)</span>
-          </label>
-          <label class="field-label" style="display:flex; flex-direction: column; gap: 4px;">
-            <span>Scale Adjuster (Fix Huge Models):</span>
-            <input type="range" id="hologramScaleSlider" min="0.1" max="5.0" step="0.1" value="1" style="width: 100%;">
-          </label>
-          <label class="field-label" style="display:flex; align-items:center; gap: 8px;">
-            <input type="checkbox" id="hologramMoveRightCheck" checked style="width: 16px; height: 16px;">
-            <span>Position Bottom Right (Avoid Text Block)</span>
-          </label>
-        </div>
-      `;
-      mediaGrid.appendChild(block);
+    if (!mediaGrid) { setTimeout(inject3DUI, 500); return; }
+    window.__3dHologramUIInjected = true;
 
-      document.getElementById("hologramInput").addEventListener("change", handleHologramUpload);
-      
-      const scaleSlider = document.getElementById("hologramScaleSlider");
-      if (scaleSlider) {
-        scaleSlider.addEventListener("input", (e) => {
-          userScaleMultiplier = parseFloat(e.target.value);
-          applyHologramSettings();
-        });
-      }
+    const block = document.createElement("div");
+    block.className = "upload-block";
+    block.innerHTML = `
+      <label class="field-label" for="hologramInput">3D Hologram Overlay (.glb / .gltf)</label>
+      <p class="upload-copy">Upload a 3D file (.glb/.gltf) to render a floating hologram over your presentation.</p>
+      <input id="hologramInput" class="image-input" type="file" accept=".gltf,.glb" />
+      <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <label class="field-label" style="display:flex; align-items:center; gap: 8px;">
+          <input type="checkbox" id="hologramLipSyncCheck" checked style="width: 16px; height: 16px;">
+          <span>Enable Auto-Lip Sync (Reacts to Audio)</span>
+        </label>
+        <label class="field-label" style="display:flex; flex-direction: column; gap: 4px;">
+          <span>Scale Adjuster (Fix Huge Models):</span>
+          <input type="range" id="hologramScaleSlider" min="0.1" max="5.0" step="0.1" value="1" style="width: 100%;">
+        </label>
+        <label class="field-label" style="display:flex; align-items:center; gap: 8px;">
+          <input type="checkbox" id="hologramMoveRightCheck" checked style="width: 16px; height: 16px;">
+          <span>Position Bottom Right (Avoid Text Block)</span>
+        </label>
+      </div>
+    `;
+    mediaGrid.appendChild(block);
 
-      const moveRightCheck = document.getElementById("hologramMoveRightCheck");
-      if (moveRightCheck) {
-        moveRightCheck.addEventListener("change", (e) => {
-          moveRight = e.target.checked;
-          applyHologramSettings();
-        });
-      }
+    document.getElementById("hologramInput").addEventListener("change", handleHologramUpload);
 
-      const lipSyncCheck = document.getElementById("hologramLipSyncCheck");
-      if (lipSyncCheck) {
-        lipSyncCheck.addEventListener("change", (e) => {
-          useLipSync = e.target.checked;
-        });
-      }
-    }
-  });
+    const scaleSlider = document.getElementById("hologramScaleSlider");
+    if (scaleSlider) scaleSlider.addEventListener("input", (e) => {
+      userScaleMultiplier = parseFloat(e.target.value);
+      applyHologramSettings();
+    });
+
+    const moveRightCheck = document.getElementById("hologramMoveRightCheck");
+    if (moveRightCheck) moveRightCheck.addEventListener("change", (e) => {
+      moveRight = e.target.checked;
+      applyHologramSettings();
+    });
+
+    const lipSyncCheck = document.getElementById("hologramLipSyncCheck");
+    if (lipSyncCheck) lipSyncCheck.addEventListener("change", (e) => {
+      useLipSync = e.target.checked;
+    });
+  }
+
+  // Fire immediately if DOM ready, else wait
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', inject3DUI, { once: true });
+  } else {
+    inject3DUI();
+  }
 
   // Export purely isolated public draw hook
   window._renderHologramFrame = function (ctx, mouthOpen) {

@@ -10,7 +10,7 @@ cd /d "%APP_DIR%"
 
 REM ── Kill only Electron (never kill the Python voice server) ──────────────
 powershell -NoProfile -Command "Get-Process -Name 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
-timeout /t 1 /nobreak >nul
+ping 127.0.0.1 -n 2 >nul
 
 REM ── Node / Electron dependencies ─────────────────────────────────────────
 if not exist "%APP_DIR%\node_modules\electron\dist\electron.exe" (
@@ -49,7 +49,7 @@ echo Starting Edge TTS voice server in background...
 start "Edge TTS Server" /min "%PYTHON%" "%SERVER%"
 
 REM ── Give server a moment to begin loading before Electron opens ───────────
-timeout /t 3 /nobreak >nul
+ping 127.0.0.1 -n 4 >nul
 
 :launch_electron
 REM ── Launch Electron detached — CMD exits immediately ─────────────────────

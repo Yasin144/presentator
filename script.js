@@ -6,13 +6,16 @@ var captionConfig = {
   x: 60, y: 910, w: 1840, h: 100,
   dragging: false, dragOffX: 0, dragOffY: 0, hovered: false,
   fontSize: 62, fontFamily: '"Nunito", "Inter", sans-serif',
-  bgColor: "rgba(0,0,0,0)", textColor: "#2d1faa",
+  bgColor: "rgba(0,0,0,0)", textColor: "rgba(255,255,255,0.42)", highlightColor: "#fde047",
   outlineColor: "#ffffff", outlineWidth: 7
 };
 var captionOverlay = {
   enabled: false,
   segments: [],       // [{startMs, endMs, text}]
   currentText: "",
+  currentSegmentIndex: -1,
+  currentTimeMs: 0,
+  activeWordIndex: -1,
   videoFile: null,
   videoElement: null,
   videoUrl: "",
@@ -351,6 +354,8 @@ const LEGACY_DEFAULT_INTRO_VIDEO_FILE = "default-intro.mp4";
 const ANJALI_SAMPLE_AUDIO_FILE = "voice-preview-anjali.mp3";
 const SC3_NARRATION_VOICE = "anjali";
 const EDGE_NARRATION_VOICE = "edge";
+const HINDI_NARRATION_VOICE = "hindi";
+const TELUGU_NARRATION_VOICE = "telugu";
 const EXPORT_NARRATION_VOICE = SC3_NARRATION_VOICE;
 const DEFAULT_NARRATION_VOICE = SC3_NARRATION_VOICE;
 const PRESENTATION_TEMPLATE_CLASSIC = "classic";
@@ -374,22 +379,48 @@ const ANJALI_TTS_PROFILE = Object.freeze({
   stylePrompt: NARRATION_STYLE_CONFIG.stylePrompt
 });
 const EDGE_TTS_DEFAULT_FEMALE_VOICE = "en-IN-NeerjaExpressiveNeural";
-const ALLOWED_NARRATION_VOICES = Object.freeze([SC3_NARRATION_VOICE, EDGE_NARRATION_VOICE]);
+const ALLOWED_NARRATION_VOICES = Object.freeze([SC3_NARRATION_VOICE, EDGE_NARRATION_VOICE, "pattan", HINDI_NARRATION_VOICE, TELUGU_NARRATION_VOICE]);
 const NARRATION_VOICE_OPTIONS = Object.freeze([
   {
     id: SC3_NARRATION_VOICE,
-    label: "sc3 cloned voice",
-    shortLabel: "sc3",
+    label: "English — SC3 voice (Chatterbox)",
+    shortLabel: "English SC3",
     engine: "Chatterbox TTS",
-    fileNamePrefix: "sc3"
+    fileNamePrefix: "sc3",
+    lang: "en"
+  },
+  {
+    id: "pattan",
+    label: "English — Pattan voice (Chatterbox)",
+    shortLabel: "English Pattan",
+    engine: "Chatterbox TTS",
+    fileNamePrefix: "pattan",
+    lang: "en"
+  },
+  {
+    id: HINDI_NARRATION_VOICE,
+    label: "Hindi — Reference voice (Chatterbox)",
+    shortLabel: "हिंदी",
+    engine: "Chatterbox TTS",
+    fileNamePrefix: "hindi",
+    lang: "hi"
+  },
+  {
+    id: TELUGU_NARRATION_VOICE,
+    label: "Telugu — Reference voice (Chatterbox)",
+    shortLabel: "తెలుగు",
+    engine: "Chatterbox TTS",
+    fileNamePrefix: "telugu",
+    lang: "te"
   },
   {
     id: EDGE_NARRATION_VOICE,
-    label: "Edge TTS voice",
+    label: "Edge TTS — Microsoft Neural (Cloud)",
     shortLabel: "Edge TTS",
     engine: "Microsoft Edge TTS",
     fileNamePrefix: "edge-tts",
-    edgeVoiceId: EDGE_TTS_DEFAULT_FEMALE_VOICE
+    edgeVoiceId: EDGE_TTS_DEFAULT_FEMALE_VOICE,
+    lang: "en"
   }
 ]);
 const EDGE_TTS_VOICE_STORAGE_KEY = "pp_preferred_voice";
@@ -727,12 +758,14 @@ const state = {
   narrationServerUrl: "http://127.0.0.1:8424",
   narrationServerReady: false,
   anjaliCloneServerUrl: "http://127.0.0.1:8426",
+  hindiServerUrl: "http://127.0.0.1:8432",
+  teluguServerUrl: "http://127.0.0.1:8433",
   anjaliCloneServerReady: true,  // Edge TTS is a cloud API Ã¢â‚¬â€ always ready instantly, no warmup needed
   transcribeServerUrl: "http://127.0.0.1:8428",
   transcribeServerReady: false,
   videoExportServerUrl: "http://127.0.0.1:8430",
   videoExportServerReady: false,
-  sc3SingingServerUrl: "http://127.0.0.1:8431",
+  sc3SingingServerUrl: "http://127.0.0.1:8426",
   sc3SingingServerReady: false,
   sc3SingingModelReady: false,
   sc3ReadyVoiceAlertPlayed: false,
@@ -3359,8 +3392,16 @@ function splitIntoWords(text) {
   return text.trim().split(/\s+/).filter(Boolean);
 }
 
+function getGraphemes(text) {
+  if (typeof Intl !== "undefined" && Intl.Segmenter) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    return Array.from(segmenter.segment(text || "")).map(s => s.segment);
+  }
+  return [...(text || "")];
+}
+
 function splitIntoTokens(text) {
-  return Array.from(text || "");
+  return getGraphemes(text);
 }
 
 function convertTwoDigitNumberToWords(value) {
@@ -8976,7 +9017,7 @@ async function playPdfPresentation() {
     return;
   }
 
-  if (normalizeNarrationVoiceId(state.preferredNarrationVoice) === SC3_NARRATION_VOICE) {
+  if (normalizeNarrationVoiceId(state.preferredNarrationVoice) !== EDGE_NARRATION_VOICE) {
     const narrationServerReady = await ensureAnjaliCloneServer();
     if (!narrationServerReady) {
       startTimedPdfPresentation(`The local sc3 voice server is offline, so the app is presenting ${getPdfPresentationFallbackLabel()} with the timeline controls.`);
@@ -9406,10 +9447,10 @@ function updateServerHealthUi() {
     const ready = state.sc3SingingServerReady && state.sc3SingingModelReady;
     const serverOnly = state.sc3SingingServerReady && !state.sc3SingingModelReady;
     sc3SingingHealthStatus.textContent = ready
-      ? "SC3 Singing server (port 8431): READY Ã¢â‚¬â€ voice model loaded"
+      ? "SC3 Singing server (port 8426): READY Ã¢â‚¬â€ voice model loaded"
       : serverOnly
-        ? "SC3 Singing server (port 8431): running Ã¢â‚¬â€ model loading..."
-        : "SC3 Singing server (port 8431): not ready";
+        ? "SC3 Singing server (port 8426): running Ã¢â‚¬â€ model loading..."
+        : "SC3 Singing server (port 8426): not ready";
     sc3SingingHealthStatus.style.color = ready ? "#4ade80" : serverOnly ? "#facc15" : "#f87171";
   }
 }
@@ -11297,6 +11338,56 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
     return blob;
   }
 
+  
+  // ── Save for caption studio (accumulate ALL slide narrations for full sync) ──
+  state.lastNarrationText  = narrationText;
+  state.lastNarrationVoice = safeVoice;
+  if (!Array.isArray(state.allNarrationTexts)) state.allNarrationTexts = [];
+  state.allNarrationTexts.push(narrationText);
+  const _fullNarText = state.allNarrationTexts.join(" ");
+  try { localStorage.setItem("pp_last_narration_text",  _fullNarText); } catch(e) {}
+  try { localStorage.setItem("pp_last_narration_voice", safeVoice);    } catch(e) {}
+
+// ── Route to Hindi / Telugu server if selected ──────────────────────────
+  if (safeVoice === HINDI_NARRATION_VOICE) {
+    if (typeof options.onProgress === "function") {
+      options.onProgress({ label: "Sending to Hindi voice server (port 8432)...", progress: 0.22 });
+    }
+    const hindiRes = await fetchWithTimeout(`${state.hindiServerUrl}/api/narrate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: narrationText }),
+      cache: "no-store"
+    }, 0);
+    if (!hindiRes.ok) {
+      const err = await hindiRes.json().catch(() => null);
+      throw new Error(err?.error || `Hindi voice server error (${hindiRes.status}). Is hindi-voice-server.py running on port 8432?`);
+    }
+    const blob = await hindiRes.blob();
+    if (!blob.size) throw new Error("Hindi voice server returned empty audio.");
+    return blob;
+  }
+
+  if (safeVoice === TELUGU_NARRATION_VOICE) {
+    if (typeof options.onProgress === "function") {
+      options.onProgress({ label: "Sending to Telugu voice server (port 8433)...", progress: 0.22 });
+    }
+    const teluguRes = await fetchWithTimeout(`${state.teluguServerUrl}/api/narrate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: narrationText }),
+      cache: "no-store"
+    }, 0);
+    if (!teluguRes.ok) {
+      const err = await teluguRes.json().catch(() => null);
+      throw new Error(err?.error || `Telugu voice server error (${teluguRes.status}). Is telugu-voice-server.py running on port 8433?`);
+    }
+    const blob = await teluguRes.blob();
+    if (!blob.size) throw new Error("Telugu voice server returned empty audio.");
+    return blob;
+  }
+
+  // ── Default: English Chatterbox SC3 / Pattan ─────────────────────────────
   const serverReady = await ensureAnjaliCloneServer();
   if (!serverReady) {
     throw new Error("Chatterbox sc3 voice server is not ready on port 8426.");
@@ -11320,7 +11411,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
       ...narrationPayload,
       generationOptions: {
         ...(narrationPayload.generationOptions || {}),
-        voice: SC3_NARRATION_VOICE
+        voice: safeVoice
       }
     })
   };
@@ -11335,7 +11426,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
         await fetchAnjaliEndpoint(`${state.anjaliCloneServerUrl}/set-voice`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ voice: SC3_NARRATION_VOICE })
+          body: JSON.stringify({ voice: safeVoice })
         }, "Restoring selected voice", { attempts: 2, timeoutMs: 2500 }).catch(() => null);
       }
       response = await fetchAnjaliEndpoint(requestUrl, requestOptions, "Generating Chatterbox narration audio", {
@@ -11507,11 +11598,16 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     const chunkDurationsMs = [];
     const resolvedChunks = [];
 
-    // Generate ALL chunks in parallel Ã¢â‚¬â€ eliminates the gap between key and value
-    // (previously sequential: key finishes Ã¢â€ â€™ value starts Ã¢â€ â€™ 10s wait Ã¢â€ â€™ plays)
+    // SC3/pattan TTS has _synth_lock (single-threaded server) — parallel requests
+    // queue up and later chunks time out on the CLIENT before the server even
+    // starts them. Use SEQUENTIAL generation for SC3 so each chunk completes
+    // before the next one is sent. Edge TTS handles concurrency fine — keep
+    // parallel for it (glossary key→value gap elimination).
+    const useSequential = (voice !== EDGE_NARRATION_VOICE);
+    const modeLabel = useSequential ? 'one by one' : 'in parallel';
     if (typeof options.onProgress === "function") {
       options.onProgress({
-        label: `Generating ${totalChunks} narration parts in parallel...`,
+        label: `Generating ${totalChunks} narration parts ${modeLabel}...`,
         progress: 0.18
       });
     }
@@ -11531,26 +11627,36 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
       }
     }, 2500);
 
+    const updateChunkProgress = (chunkResult, index) => {
+      completedChunks += 1;
+      const completedProgress = 0.18 + ((completedChunks / totalChunks) * 0.56);
+      lastShownProgress = Math.max(lastShownProgress, completedProgress);
+      const label = `Finished narration part ${completedChunks} of ${totalChunks}.`;
+      updateTaskProgressUi(completedProgress, true, { label });
+      if (typeof options.onProgress === "function") {
+        options.onProgress({ label, progress: completedProgress });
+      }
+      return { index, chunkResult };
+    };
+
     let parallelResults = [];
     try {
-      parallelResults = await Promise.all(
-        chunkEntries.map((chunk, index) =>
-          generateNarrationChunkWithFallback(chunk.text, voice, options).then((chunkResult) => {
-            completedChunks += 1;
-            const completedProgress = 0.18 + ((completedChunks / totalChunks) * 0.56);
-            lastShownProgress = Math.max(lastShownProgress, completedProgress);
-            const label = `Finished narration part ${completedChunks} of ${totalChunks}.`;
-            updateTaskProgressUi(completedProgress, true, { label });
-            if (typeof options.onProgress === "function") {
-              options.onProgress({
-                label,
-                progress: completedProgress
-              });
-            }
-            return { index, chunkResult };
-          })
-        )
-      );
+      if (useSequential) {
+        // Sequential: one chunk at a time so the SC3 server never has
+        // more than one request in-flight and client timeouts don't fire early.
+        for (let idx = 0; idx < chunkEntries.length; idx++) {
+          const chunkResult = await generateNarrationChunkWithFallback(chunkEntries[idx].text, voice, options);
+          parallelResults.push(updateChunkProgress(chunkResult, idx));
+        }
+      } else {
+        // Parallel: Edge TTS can handle concurrent requests.
+        parallelResults = await Promise.all(
+          chunkEntries.map((chunk, index) =>
+            generateNarrationChunkWithFallback(chunk.text, voice, options)
+              .then((chunkResult) => updateChunkProgress(chunkResult, index))
+          )
+        );
+      }
       parallelResults.sort((a, b) => a.index - b.index);
       parallelResults = parallelResults.map((entry) => entry.chunkResult);
     } finally {
@@ -13853,24 +13959,26 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
   const hasTextIndex = segment.textStartIndex !== undefined && Number.isFinite(segment.textStartIndex);
   const isAnimating = state.speaking && state.exactCharCountFloat !== undefined;
   // Butter fade: each character glides in over 2 char-widths of the speech cursor
-  // Ã¢â‚¬â€ silky smooth reveal that flows with the voice, no abrupt pop-in.
+  // — silky smooth reveal that flows with the voice, no abrupt pop-in.
   const FADE_RANGE = 2.0;
 
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
+  const graphemes = getGraphemes(text);
+  let charOffset = 0;
+  for (let index = 0; index < graphemes.length; index += 1) {
+    const character = graphemes[index];
     const characterWidth = ctx.measureText(character).width;
     const globalCharIndex = (state.drawnCharCount || 0);
 
     ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
 
     if (isAnimating) {
-      const charRef = hasTextIndex ? (segment.textStartIndex + index) : globalCharIndex;
+      const charRef = hasTextIndex ? (segment.textStartIndex + charOffset) : globalCharIndex;
       const rawAlpha = clamp((state.exactCharCountFloat - charRef) / FADE_RANGE, 0, 1);
-      // Smoothstep S-curve: slow start Ã¢â€ â€™ fast mid Ã¢â€ â€™ slow finish Ã¢â‚¬â€ butter smooth, no pop
+      // Smoothstep S-curve: slow start → fast mid → slow finish — butter smooth, no pop
       const easedAlpha = rawAlpha * rawAlpha * (3 - 2 * rawAlpha);
       ctx.globalAlpha = easedAlpha;
 
-      const glowRef = hasTextIndex ? (segment.textStartIndex + index) : globalCharIndex;
+      const glowRef = hasTextIndex ? (segment.textStartIndex + charOffset) : globalCharIndex;
       const distFromCursor = Math.abs(glowRef - state.exactCharCountFloat);
       // Wide glow trail: chars within 2 char-widths of the cursor shimmer with a
       // flowing blue-white typewriter-light wash as the voice moves through them.
@@ -13894,14 +14002,15 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
     ctx.fillText(character, cursorX, y);
 
     ctx.globalAlpha = 1.0;
-    state.drawnCharCount = (state.drawnCharCount || 0) + 1;
-    // letter spacing: em units Ã¢â€ â€™ pixels relative to current font size
+    state.drawnCharCount = (state.drawnCharCount || 0) + character.length;
+    // letter spacing: em units → pixels relative to current font size
     const _lsPx = (state.displayStyle?.canvasLetterSpacing ?? 0) * fontSize;
     // KV gap: after the separator character (':' or '='), inject a visual gap
     const _isSep = state.displayStyle?.kvMode && window._kvState &&
       (character === ":" || character === "=");
     const _kvGap = _isSep ? Math.round(fontSize * 0.35) : 0;
     cursorX += characterWidth + _lsPx + _kvGap;
+    charOffset += character.length;
   }
 
   ctx.shadowColor = "transparent";
@@ -16641,33 +16750,54 @@ function drawBurnedCaptions() {
   // Ã¢â€â‚¬Ã¢â€â‚¬ Render each line centered Ã¢â€â‚¬Ã¢â€â‚¬
   ctx.textAlign = "center";
   const centreX = captionConfig.x + (maxLineW / 2);
+  const activeWordIndex = Number.isFinite(captionOverlay.activeWordIndex)
+    ? captionOverlay.activeWordIndex
+    : -1;
+  let wordCursor = 0;
+
+  const drawCaptionWord = (word, x, y, isActive) => {
+    const inactiveFill = captionConfig.textColor || "rgba(255,255,255,0.42)";
+    const activeFill = captionConfig.highlightColor || "#fde047";
+
+    ctx.fillStyle = isActive ? activeFill : inactiveFill;
+    if (isActive) {
+      ctx.shadowColor = "rgba(0,0,0,0.72)";
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 3;
+    } else {
+      ctx.shadowColor = isTransparentBg ? "rgba(0,0,0,0.45)" : "transparent";
+      ctx.shadowBlur = isTransparentBg ? 8 : 0;
+      ctx.shadowOffsetY = isTransparentBg ? 2 : 0;
+    }
+
+    if (captionConfig.outlineWidth > 0) {
+      ctx.strokeStyle = isActive ? "#2b2100" : captionConfig.outlineColor;
+      ctx.lineWidth = isActive
+        ? Math.max(2, captionConfig.outlineWidth * 0.65)
+        : captionConfig.outlineWidth;
+      ctx.lineJoin = "round";
+      ctx.strokeText(word, x, y);
+    }
+    ctx.fillText(word, x, y);
+  };
 
   lines.forEach((line, i) => {
     const y = startY + i * lineHeight;
+    const words = line.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return;
 
-    // Drop-shadow for legibility over any background
-    if (isTransparentBg) {
-      ctx.shadowColor = "rgba(0,0,0,0.55)";
-      ctx.shadowBlur = 10;
-      ctx.shadowOffsetY = 3;
-    }
+    const spaceW = ctx.measureText(" ").width;
+    const wordWidths = words.map(word => ctx.measureText(word).width);
+    const lineW = wordWidths.reduce((sum, width) => sum + width, 0) + (spaceW * Math.max(0, words.length - 1));
+    let x = centreX - (lineW / 2);
 
-    // White stroke outline (info-kids style)
-    if (captionConfig.outlineWidth > 0) {
-      ctx.strokeStyle = captionConfig.outlineColor;
-      ctx.lineWidth = captionConfig.outlineWidth;
-      ctx.lineJoin = "round";
-      ctx.shadowColor = "transparent";
-      ctx.shadowBlur = 0;
-      ctx.strokeText(line, centreX, y);
-    }
-
-    // Colored fill text
-    ctx.shadowColor = isTransparentBg ? "rgba(0,0,0,0.45)" : "transparent";
-    ctx.shadowBlur = isTransparentBg ? 8 : 0;
-    ctx.shadowOffsetY = isTransparentBg ? 2 : 0;
-    ctx.fillStyle = captionConfig.textColor;
-    ctx.fillText(line, centreX, y);
+    words.forEach((word, localIndex) => {
+      const width = wordWidths[localIndex];
+      const isActive = wordCursor === activeWordIndex;
+      drawCaptionWord(word, x + (width / 2), y, isActive);
+      x += width + spaceW;
+      wordCursor += 1;
+    });
   });
 
   ctx.shadowColor = "transparent";
@@ -16700,35 +16830,83 @@ function updateCaptionFromVideo() {
   if (!captionOverlay.enabled || !captionOverlay.segments.length) {
     if (captionOverlay.currentText !== "") {
       captionOverlay.currentText = "";
+      captionOverlay.currentSegmentIndex = -1;
+      captionOverlay.currentTimeMs = 0;
+      captionOverlay.activeWordIndex = -1;
       return true;
     }
     return false;
   }
 
-  let currentTimeMs = 0;
-  // Check stage video element first
-  if (state.stageVideo.element && !state.stageVideo.element.paused && state.stageVideo.element.currentTime > 0) {
-    currentTimeMs = state.stageVideo.element.currentTime * 1000;
-  } else if (captionOverlay.videoElement && !captionOverlay.videoElement.paused) {
-    currentTimeMs = captionOverlay.videoElement.currentTime * 1000;
-  } else if (state.activeAudio && !state.activeAudio.paused) {
+  let currentTimeMs = state.exportingVideo
+    ? getCaptionExportClockMs()
+    : 0;
+
+  // Narration is the master clock. Stage-video time can loop or start late during export.
+  if (!state.exportingVideo && state.activeAudio && !state.activeAudio.paused) {
     currentTimeMs = state.activeAudio.currentTime * 1000;
+  } else if (!state.exportingVideo && captionOverlay.videoElement && !captionOverlay.videoElement.paused) {
+    currentTimeMs = captionOverlay.videoElement.currentTime * 1000;
+  } else if (!state.exportingVideo && state.stageVideo.element && !state.stageVideo.element.paused && state.stageVideo.element.currentTime > 0) {
+    currentTimeMs = state.stageVideo.element.currentTime * 1000;
   }
 
-  // Find matching segment
-  let found = "";
-  for (const seg of captionOverlay.segments) {
-    if (currentTimeMs >= seg.startMs && currentTimeMs <= seg.endMs) {
-      found = seg.text;
+  const previousText = captionOverlay.currentText;
+  const previousWordIndex = captionOverlay.activeWordIndex;
+  const found = getCaptionTextForTimeMs(currentTimeMs);
+
+  if (found !== previousText || captionOverlay.activeWordIndex !== previousWordIndex) {
+    captionOverlay.currentText = found;
+    return true; // caption or highlighted word changed - redraw
+  }
+  return false; // no change - skip redraw
+}
+
+function getCaptionExportClockMs() {
+  if (state.exportCapture && Number.isFinite(state.exportCapture.elapsedMs)) {
+    return Math.max(0, state.exportCapture.elapsedMs);
+  }
+  if (state.activeAudio && Number.isFinite(state.activeAudio.currentTime)) {
+    return Math.max(0, state.activeAudio.currentTime * 1000);
+  }
+  return 0;
+}
+
+function getCaptionTextForTimeMs(timeMs) {
+  const segments = captionOverlay.segments || [];
+  const safeTimeMs = Math.max(0, Number(timeMs) || 0);
+  let foundText = "";
+  let foundIndex = -1;
+  let activeWordIndex = -1;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const seg = segments[index];
+    const startMs = Math.max(0, Number(seg.startMs) || 0);
+    const rawEndMs = Number(seg.endMs);
+    const nextStartMs = index < segments.length - 1
+      ? Math.max(0, Number(segments[index + 1].startMs) || 0)
+      : Infinity;
+    const endMs = Number.isFinite(rawEndMs)
+      ? Math.max(startMs + 1, rawEndMs)
+      : nextStartMs;
+
+    if (safeTimeMs >= startMs && safeTimeMs < Math.min(endMs, nextStartMs)) {
+      foundText = String(seg.text || "");
+      foundIndex = index;
+      const words = foundText.trim().split(/\s+/).filter(Boolean);
+      const durationMs = Math.max(1, Math.min(endMs, nextStartMs) - startMs);
+      const segmentProgress = clamp((safeTimeMs - startMs) / durationMs, 0, 0.999);
+      activeWordIndex = words.length
+        ? Math.min(words.length - 1, Math.floor(segmentProgress * words.length))
+        : -1;
       break;
     }
   }
 
-  if (found !== captionOverlay.currentText) {
-    captionOverlay.currentText = found;
-    return true; // text changed Ã¢â‚¬â€ needs redraw
-  }
-  return false; // no change Ã¢â‚¬â€ skip redraw
+  captionOverlay.currentSegmentIndex = foundIndex;
+  captionOverlay.currentTimeMs = safeTimeMs;
+  captionOverlay.activeWordIndex = activeWordIndex;
+  return foundText;
 }
 
 // Lightweight rAF-based caption sync Ã¢â‚¬â€ only redraws when caption text actually changes
@@ -18225,17 +18403,9 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
     }
     state.mouthOpen = syncFrame.mouthActive ? getFallbackMouth(syncFrame.speechElapsedMs) : 0.12;
-    // Update burned-in caption text for this frame
-    if (captionOverlay.enabled && captionOverlay.segments.length) {
-      let captionText = "";
-      for (const seg of captionOverlay.segments) {
-        if (elapsedMs >= seg.startMs && elapsedMs <= seg.endMs) {
-          captionText = seg.text;
-          break;
-        }
-      }
-      captionOverlay.currentText = captionText;
-    }
+    // NOTE: captionOverlay is intentionally NOT updated here during export.
+    // Stale captions from a prior caption-studio session must not leak into
+    // the main video export. Use Caption Studio → Export to burn captions.
     drawScene(state.mouthOpen);
     requestExportVideoFrame();
     await waitForNextPaint();
@@ -20539,14 +20709,7 @@ function startNarrationLoop(audioElement) {
     if (shouldDraw) {
       // Update burned-in caption text for this frame
       if (captionOverlay.enabled && captionOverlay.segments.length) {
-        let captionText = "";
-        for (const seg of captionOverlay.segments) {
-          if (elapsedMs >= seg.startMs && elapsedMs <= seg.endMs) {
-            captionText = seg.text;
-            break;
-          }
-        }
-        captionOverlay.currentText = captionText;
+        captionOverlay.currentText = getCaptionTextForTimeMs(elapsedMs);
       }
       drawScene(state.mouthOpen);
       requestExportVideoFrame();
@@ -22009,6 +22172,14 @@ async function exportVideo(options = {}) {
   syncExportVoiceSelection();
   state.introPlayback.enabled = introClipRequested;
   state.exportingVideo = true;
+  // Freeze caption overlay during export so stale captions from a previous
+  // caption-studio session don't get burned into the main lesson video.
+  // The Caption Studio's burn-captions IPC path is the proper way to add
+  // synced captions to an exported video.
+  const _prevCapOverlayEnabled = captionOverlay.enabled;
+  const _prevCapOverlayText    = captionOverlay.currentText;
+  captionOverlay.enabled     = false;
+  captionOverlay.currentText = "";
   const cacheOnly = options.cacheOnly === true;
   const backgroundPrepare = options.backgroundPrepare === true;
   const preparedExportKey = typeof options.preparedExportKey === "string" ? options.preparedExportKey : "";
@@ -22657,6 +22828,9 @@ async function exportVideo(options = {}) {
     stopStageBtn.disabled = false;
     downloadBtn.disabled = false;
     playBtn.disabled = false;
+    // Restore caption overlay state so live preview still shows captions after export.
+    captionOverlay.enabled     = _prevCapOverlayEnabled;
+    captionOverlay.currentText = _prevCapOverlayText;
   }
 }
 
@@ -23193,6 +23367,7 @@ function handleTranscribeAudioSelection(event) {
   updateSpeechToolsUi();
 }
 
+
 function setSingSongStatus(message, options = {}) {
   if (singSongStatus) {
     singSongStatus.textContent = message;
@@ -23297,15 +23472,104 @@ function notifySongCreationComplete(message = "Your song is ready in the Sing So
   }
 }
 
-function setSingSongProgress(percent, label = "") {
-  if (!singSongProgress || !singSongProgressBar || !singSongProgressLabel) {
-    return;
-  }
+// \u2500\u2500 Rich Queue Progress Panel \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+const _ssProgressPct     = document.getElementById('singSongProgressPct');
+const _ssProgressShimmer = document.getElementById('singSongProgressShimmer');
+const _ssProgressSpinner = document.getElementById('singSongProgressSpinner');
+const _ssQueueCounter    = document.getElementById('singSongQueueCounter');
+const _ssProgressEta     = document.getElementById('singSongProgressEta');
+const _ssElapsed         = document.getElementById('singSongElapsed');
+const _ssEtaDetail       = document.getElementById('singSongEtaDetail');
+const _ssDoneCount       = document.getElementById('singSongDoneCount');
+const _ssFailCount       = document.getElementById('singSongFailCount');
+
+let _queueStartTime    = 0;
+let _queueElapsedTimer = null;
+
+function _fmtSecs(ms) {
+  const s = Math.round(ms / 1000);
+  const m = Math.floor(s / 60), ss = s % 60;
+  return m + ':' + String(ss).padStart(2, '0');
+}
+
+function setSingSongProgress(percent, label = '') {
+  if (!singSongProgress || !singSongProgressBar || !singSongProgressLabel) return;
   const safePercent = clamp(Math.round(Number(percent) || 0), 0, 100);
-  singSongProgress.classList.toggle("hidden", safePercent <= 0 || safePercent >= 100);
-  singSongProgress.setAttribute("aria-valuenow", String(safePercent));
-  singSongProgressBar.style.width = `${safePercent}%`;
-  singSongProgressLabel.textContent = `${safePercent}%${label ? ` - ${label}` : ""}`;
+  const isActive = safePercent > 0 && safePercent < 100;
+
+  // Show the panel whenever queue has items OR is active
+  const hasItems = sc3Queue && sc3Queue.items && sc3Queue.items.length > 0;
+  singSongProgress.classList.toggle('hidden', safePercent <= 0 && !hasItems);
+  singSongProgress.setAttribute('aria-valuenow', String(safePercent));
+
+  // Big percentage number
+  if (_ssProgressPct)  _ssProgressPct.textContent  = safePercent;
+
+  // Progress bar width (using style.width directly since it's a span not a .progress-fill)
+  singSongProgressBar.style.width = safePercent + '%';
+
+  // Shimmer and spinner
+  if (_ssProgressShimmer) _ssProgressShimmer.style.display = isActive ? 'block' : 'none';
+  if (_ssProgressSpinner) _ssProgressSpinner.style.display = isActive ? 'inline' : 'none';
+
+  // Label
+  singSongProgressLabel.textContent = label || (safePercent + '% complete');
+
+  // Done / Fail / Total counts
+  if (sc3Queue && sc3Queue.items) {
+    const _done  = sc3Queue.items.filter(i => i.status === 'done').length;
+    const _fail  = sc3Queue.items.filter(i => i.status === 'error').length;
+    const _total = sc3Queue.items.length;
+    if (_ssDoneCount)    _ssDoneCount.textContent    = _done;
+    if (_ssFailCount)    _ssFailCount.textContent    = _fail;
+    if (_ssQueueCounter) _ssQueueCounter.textContent = _done + ' / ' + _total + ' video' + (_total !== 1 ? 's' : '');
+
+    // ETA from average of finished videos
+    const _finished = sc3Queue.items.filter(i => i.endedAt && i.startedAt);
+    const _avgMs = _finished.length
+      ? _finished.reduce((s, i) => s + (i.endedAt - i.startedAt), 0) / _finished.length : 0;
+    const _remaining = sc3Queue.items.filter(i => i.status === 'pending' || i.status === 'processing').length;
+    const _etaMs = _avgMs && _remaining ? _avgMs * _remaining : 0;
+    if (_ssProgressEta)  _ssProgressEta.textContent  = _etaMs ? '~' + _fmtSecs(_etaMs) + ' left' : '';
+    if (_ssEtaDetail)    _ssEtaDetail.textContent     = _etaMs ? '~' + _fmtSecs(_etaMs)
+      : (_done === _total && _total > 0 ? 'Done!' : 'calculating\u2026');
+  }
+
+  // Elapsed timer
+  if (isActive && !_queueElapsedTimer) {
+    if (!_queueStartTime) _queueStartTime = Date.now();
+    _queueElapsedTimer = setInterval(() => {
+      if (_ssElapsed) _ssElapsed.textContent = _fmtSecs(Date.now() - _queueStartTime);
+    }, 1000);
+  }
+  if (!isActive && _queueElapsedTimer) {
+    clearInterval(_queueElapsedTimer);
+    _queueElapsedTimer = null;
+    if (safePercent >= 100 && _ssEtaDetail) _ssEtaDetail.textContent = 'Done!';
+  }
+}
+
+function resetQueueProgress() {
+  _queueStartTime = 0;
+  if (_queueElapsedTimer) { clearInterval(_queueElapsedTimer); _queueElapsedTimer = null; }
+  if (_ssElapsed)      _ssElapsed.textContent      = '0:00';
+  if (_ssEtaDetail)    _ssEtaDetail.textContent    = 'calculating\u2026';
+  if (_ssDoneCount)    _ssDoneCount.textContent    = '0';
+  if (_ssFailCount)    _ssFailCount.textContent    = '0';
+  if (_ssQueueCounter) _ssQueueCounter.textContent = '0 / 0 videos';
+  if (_ssProgressPct)  _ssProgressPct.textContent  = '0';
+  if (_ssProgressShimmer) _ssProgressShimmer.style.display = 'none';
+  if (_ssProgressSpinner) _ssProgressSpinner.style.display = 'none';
+  if (singSongProgressBar) singSongProgressBar.style.width = '0%';
+  if (singSongProgressLabel) singSongProgressLabel.textContent = 'Ready';
+}
+
+// Per-video slice progress: videoIdx = 0-based index of current video
+function updateQueueOverallProgress(videoIdx, totalVideos, withinPct, label) {
+  if (!totalVideos) return;
+  const slice   = 100 / totalVideos;
+  const overall = Math.round(videoIdx * slice + (withinPct / 100) * slice);
+  setSingSongProgress(overall, label);
 }
 
 function clearSingSongResult() {
@@ -23368,7 +23632,7 @@ async function ensureSc3SingingModelServer() {
   } catch (error) {
     state.sc3SingingServerReady = false;
     state.sc3SingingModelReady = false;
-    setSingSongModelStatus("sc3 singing model server is not running on port 8431.", { error: true });
+    setSingSongModelStatus("sc3 singing model server is not running on port 8426.", { error: true });
   }
 
   return state.sc3SingingServerReady && state.sc3SingingModelReady;
@@ -23489,6 +23753,7 @@ async function processVideoQueue() {
   if (_sc3StopBtn)  _sc3StopBtn.disabled = false;
   if (sc3VideoReplaceBtn) sc3VideoReplaceBtn.disabled = true;
   state.singSong.processing = true;
+  resetQueueProgress(); // reset elapsed timer + counters
 
   for (const item of sc3Queue.items.filter(i => i.status === 'pending')) {
     if (sc3Queue.stopped) { item.status = 'skipped'; renderQueueList(); continue; }
@@ -23508,7 +23773,8 @@ async function processVideoQueue() {
     }
 
     const pos = sc3Queue.currentIndex + 1, tot = sc3Queue.items.length;
-    setSingSongProgress(10, 'Queue ' + pos + '/' + tot + ': ' + item.name);
+    const _vidIdx = sc3Queue.currentIndex; // 0-based for slice calc
+    updateQueueOverallProgress(_vidIdx, tot, 5, 'Video ' + pos + '/' + tot + ': ' + item.name);
     setSingSongStatus('Processing "' + item.name + '" (' + pos + ' of ' + tot + ')...');
 
     try {
@@ -23516,26 +23782,19 @@ async function processVideoQueue() {
       if (!filePath) throw new Error('Could not get file path. Try restarting the app.');
       const baseName = item.name.replace(/\.[^.]+$/i, '') || 'video';
 
-      // Read selected voice mode
-      const modeEl = document.querySelector('input[name="sc3VoiceMode"]:checked');
-      const voiceMode = modeEl ? modeEl.value : 'chatterbox';
-      const modeLabel = voiceMode === 'sc3singing' ? 'Ã¢Å¡Â¡ SC3 Fast' : 'Ã°Å¸Å½Â¯ Chatterbox HQ';
-      setSingSongStatus('Processing "' + item.name + '" (' + pos + ' of ' + tot + ') Ã¢â‚¬â€ ' + modeLabel + '...');
+      // Always use Chatterbox HQ (sc3/pattan) voice - singing mode is banned per strict rule
+      const modeLabel = 'Chatterbox HQ';
+      setSingSongStatus('Processing "' + item.name + '" (' + pos + ' of ' + tot + ') -- ' + modeLabel + '...');
 
       let pct = 12;
       const tick = window.setInterval(() => {
-        pct = Math.min(pct + 2, 88);
-        setSingSongProgress(pct, 'Processing "' + item.name + '" [' + modeLabel + ']...');
+        pct = Math.min(pct + 3, 88);
+        updateQueueOverallProgress(_vidIdx, tot, pct, 'Video ' + pos + '/' + tot + ' \u2014 ' + item.name + ' [' + modeLabel + ']...');
       }, 3000);
 
+      // STRICT RULE: Only sc3/pattan Chatterbox voice -- never singing timbre transfer
       let result;
-      if (voiceMode === 'sc3singing') {
-        // Fast mode Ã¢â‚¬â€ SC3 Singing timbre transfer
-        result = await window.electronAPI.sc3SingingReplaceVideo({ filePath, outputBaseName: baseName });
-      } else {
-        // High Quality mode Ã¢â‚¬â€ Chatterbox TTS voice clone
-        result = await window.electronAPI.sc3ReplaceVideoAudio({ filePath, outputBaseName: baseName });
-      }
+      result = await window.electronAPI.sc3ReplaceVideoAudio({ filePath, outputBaseName: baseName, voice: state.preferredNarrationVoice });
       window.clearInterval(tick);
 
       if (!result || !result.ok) throw new Error(result ? result.error : 'Main process returned no response.');
@@ -23551,7 +23810,8 @@ async function processVideoQueue() {
       if (sc3VideoDownloadBtn) sc3VideoDownloadBtn.disabled = false;
 
       renderQueueList();
-      setSingSongProgress(100, '\u2705 Done: ' + item.name);
+      const _doneVids = sc3Queue.items.filter(i => i.status === 'done').length;
+      updateQueueOverallProgress(_doneVids, tot, 100, '\u2705 ' + _doneVids + '/' + tot + ' complete \u2014 ' + item.name);
 
       const pipeLabel = result.indianEnglish ? '\ud83c\uddee\ud83c\uddf3 Indian English TTS' : 'SC3 timbre';
       const doneNow = sc3Queue.items.filter(i => i.status === 'done').length;
@@ -23562,7 +23822,9 @@ async function processVideoQueue() {
         _sv.rate = 1; _sv.pitch = 1; _sv.volume = 1;
         window.speechSynthesis.speak(_sv);
       } catch(_e) {}
-      alert('\u2705 Video converted!\n\n' + item.name + '\nPipeline: ' + pipeLabel + '\nSaved to: Downloads folder\n\n(' + doneNow + ' of ' + tot + ' videos done)');
+      // Auto-proceed — no OK click needed. Status shown in banner.
+      console.log('\u2705 Video converted: ' + item.name + ' (' + doneNow + '/' + tot + ')');
+      setSingSongStatus('\u2705 ' + doneNow + '/' + tot + ' done \u2014 ' + item.name + ' \u2192 ' + pipeLabel + ' \u2014 Saved to Downloads');
 
     } catch (err) {
       item.status  = 'error';
@@ -23570,13 +23832,15 @@ async function processVideoQueue() {
       item.errorMsg = err.message || 'Unknown error';
       renderQueueList();
       setSingSongStatus('\u274c Failed: "' + item.name + '" Ã¢â‚¬â€ ' + item.errorMsg, { error: true });
-      alert('\u274c Video failed!\n\n' + item.name + '\nError: ' + item.errorMsg + '\n\nThe queue will continue with the next video.');
+      // Auto-proceed — no OK click needed. Error shown in banner.
+      console.error('\u274c Video failed: ' + item.name + ' \u2014 ' + item.errorMsg);
+      setSingSongStatus('\u274c Failed: ' + item.name + ' \u2014 ' + item.errorMsg + ' (queue continues...)', { error: true });
     }
 
     if (!sc3Queue.stopped) await new Promise(r => setTimeout(r, 600));
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Queue finished Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Queue fully finished ──────────────────────────────────────────
   sc3Queue.processing = false;
   sc3Queue.currentIndex = -1;
   state.singSong.processing = false;
@@ -23588,23 +23852,53 @@ async function processVideoQueue() {
   const failC  = sc3Queue.items.filter(i => i.status === 'error').length;
   const skipC  = sc3Queue.items.filter(i => i.status === 'skipped').length;
   const totalC = sc3Queue.items.length;
+  const MAX_RETRIES = 3;
 
   renderQueueList();
   setSingSongProgress(0);
 
+  // ── Auto-retry failed videos (reset to pending, re-run the queue) ─────────────
+  if (!sc3Queue.stopped && failC > 0) {
+    const _toRetry = sc3Queue.items.filter(i => i.status === 'error' && (i.retryCount || 0) < MAX_RETRIES);
+    if (_toRetry.length > 0) {
+      setSingSongStatus('\u26a0\ufe0f ' + _toRetry.length + ' video(s) failed. Auto-retrying in 3s\u2026');
+      await new Promise(r => setTimeout(r, 3000));
+      // Reset failed items to pending and increment retry counter
+      _toRetry.forEach(_fi => {
+        _fi.retryCount = (_fi.retryCount || 0) + 1;
+        _fi.status = 'pending';
+        _fi.errorMsg = '';
+        _fi.startedAt = null;
+        _fi.endedAt = null;
+        console.log('[Queue] Will retry (attempt ' + _fi.retryCount + '/' + MAX_RETRIES + '):', _fi.name);
+      });
+      renderQueueList();
+      setSingSongStatus('\ud83d\udd04 Re-running queue for ' + _toRetry.length + ' failed video(s)\u2026 (retry ' + (_toRetry[0].retryCount) + '/' + MAX_RETRIES + ')');
+      // Re-run the queue — it will only process pending items
+      await processVideoQueue();
+      return; // processVideoQueue will handle final summary
+    }
+  }
+
+  // ── Final summary (no more retries possible) ────────────────────────
   if (!sc3Queue.stopped) {
-    setSingSongStatus('\ud83c\udf89 Queue complete! ' + doneC + '/' + totalC + ' videos converted.' + (failC ? ' ' + failC + ' failed.' : '') + ' Check Downloads folder.');
-    setStatus('SC3 Queue done: ' + doneC + '/' + totalC + ' videos converted to Indian English.');
-    if (doneC > 0) {
-      notifySongCreationComplete('All ' + doneC + ' SC3 Indian English videos saved to Downloads.');
-      // Speak queue complete before showing alert
+    const _finalFailC = sc3Queue.items.filter(i => i.status === 'error').length;
+    const _finalDoneC = sc3Queue.items.filter(i => i.status === 'done').length;
+    const _finalMsg = '\ud83c\udf89 All done! \u2705 ' + _finalDoneC + '/' + totalC + ' converted'
+      + (_finalFailC ? ' \u274c ' + _finalFailC + ' still failed after ' + MAX_RETRIES + ' retries' : ' \u2014 0 failures!')
+      + (skipC ? ' \u23ed\ufe0f ' + skipC + ' skipped' : '') + ' \u2014 Check Downloads folder.';
+    setSingSongStatus(_finalMsg);
+    setStatus('SC3 Queue done: ' + _finalDoneC + '/' + totalC + (_finalFailC ? ', ' + _finalFailC + ' failed after retries' : ', all success!'));
+    if (_finalDoneC > 0) {
+      notifySongCreationComplete('All ' + _finalDoneC + ' SC3 Indian English videos saved to Downloads.');
       try {
         window.speechSynthesis.cancel();
-        const _qv = new SpeechSynthesisUtterance('Queue complete. ' + doneC + ' video' + (doneC > 1 ? 's' : '') + ' converted.' + (failC ? ' ' + failC + ' failed.' : '') + ' All converted videos are in your Downloads folder.');
+        const _qv = new SpeechSynthesisUtterance('Queue complete. ' + _finalDoneC + ' video' + (_finalDoneC > 1 ? 's' : '') + ' converted.' + (_finalFailC ? ' ' + _finalFailC + ' failed even after retries.' : ' All succeeded!') + ' Check your Downloads folder.');
         _qv.rate = 1; _qv.pitch = 1; _qv.volume = 1;
         window.speechSynthesis.speak(_qv);
       } catch(_e) {}
-      alert('\ud83c\udf89 Queue complete!\n\n\u2705 ' + doneC + ' videos converted' + (failC ? '\n\u274c ' + failC + ' failed' : '') + (skipC ? '\n\u23ed\ufe0f ' + skipC + ' skipped' : '') + '\n\nAll converted videos are in your Downloads folder.');
+      // No blocking alert — result shown in the status banner above
+      console.log('\ud83c\udf89 Queue complete:', _finalDoneC, 'done,', _finalFailC, 'failed,', skipC, 'skipped');
     }
   } else {
     setSingSongStatus('Queue stopped. ' + doneC + ' of ' + totalC + ' videos were completed.');
@@ -23674,6 +23968,17 @@ function handleSc3VideoSelection(event) {
   if (sc3VideoReplaceBtn) sc3VideoReplaceBtn.disabled = false;
   if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = false;
 
+  // Show progress panel immediately so user sees it on upload
+  if (singSongProgress) {
+    singSongProgress.classList.remove('hidden');
+    if (_ssProgressPct) _ssProgressPct.textContent = '0';
+    if (singSongProgressBar) singSongProgressBar.style.width = '0%';
+    if (singSongProgressLabel) singSongProgressLabel.textContent = files.length + ' video' + (files.length > 1 ? 's' : '') + ' ready to process';
+    if (_ssQueueCounter) _ssQueueCounter.textContent = '0 / ' + files.length + ' video' + (files.length > 1 ? 's' : '');
+    if (_ssDoneCount) _ssDoneCount.textContent = '0';
+    if (_ssFailCount) _ssFailCount.textContent = '0';
+    if (_ssEtaDetail) _ssEtaDetail.textContent = 'Waiting to start\u2026';
+  }
   setSingSongProgress(0);
   renderQueueList();
 
@@ -23772,7 +24077,7 @@ async function replaceSingSongWithSc3SingingModel() {
 
     setSingSongProgress(12, 'Transcribing audio and synthesising with sc3 Chatterbox voice...');
 
-    const result = await window.electronAPI.sc3NarrateAudio({ filePath, outputBaseName: baseName });
+    const result = await window.electronAPI.sc3NarrateAudio({ filePath, outputBaseName: baseName, voice: state.preferredNarrationVoice });
     window.clearInterval(progressTimer);
     progressTimer = 0;
 
@@ -23864,7 +24169,7 @@ async function _replaceVideoAudioViaIpc(file) {
     setSingSongStatus('Converting American English slang to Indian English, then re-synthesising with SC3 Indian voice. This takes a few minutes for long videos...');
 
     // All heavy work (FFmpeg extract, SC3 convert, FFmpeg mux) runs in main process
-    const result = await window.electronAPI.sc3ReplaceVideoAudio({ filePath, outputBaseName: baseName });
+    const result = await window.electronAPI.sc3ReplaceVideoAudio({ filePath, outputBaseName: baseName, voice: state.preferredNarrationVoice });
 
     window.clearInterval(progressTimer);
     progressTimer = 0;
@@ -25092,6 +25397,21 @@ previewTextBtn.addEventListener("click", () => runLockedAction("preview", [previ
 if (previewAnjaliBtn) {
   previewAnjaliBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => startTextPreview(normalizeNarrationVoiceId(state.preferredNarrationVoice))));
 }
+if (slideVoiceSelect) {
+  slideVoiceSelect.addEventListener("change", () => {
+    const voiceId = slideVoiceSelect.value;
+    state.preferredNarrationVoice = voiceId;
+    persistPreferredNarrationVoice(voiceId);
+    const stageSelect = document.getElementById("stageVoiceSelect");
+    if (stageSelect) {
+      stageSelect.value = voiceId;
+      const stageBadge = document.getElementById("stageVoiceBadge");
+      if (stageBadge) stageBadge.textContent = getNarrationVoiceLabel(voiceId);
+      const defName = document.getElementById("voiceDefaultName");
+      if (defName) defName.textContent = getNarrationVoiceOption(voiceId)?.label || getNarrationVoiceLabel(voiceId);
+    }
+  });
+}
 stageToolbarGroups.forEach((group) => {
   group.addEventListener("toggle", () => {
     if (!group.open) {
@@ -25698,12 +26018,8 @@ if (introPosterUploadBtn && introPosterInput) {
       });
       const image = await loadImageFromDataUrl(dataUrl);
 
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Step 1: Show size-picker modal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // Ã¢â€ â‚¬Ã¢â€ â‚¬ Step 1: Show size-picker modal Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬
       const POSTER_SIZES = [
-        { label: "Full HD  Ã¢â‚¬â€  1920 Ãƒâ€” 1080",   w: 1920, h: 1080 },
-        { label: "YouTube  Ã¢â‚¬â€  1280 Ãƒâ€” 720",    w: 1280, h: 720  },
-        { label: "Square   Ã¢â‚¬â€  1080 Ãƒâ€” 1080",   w: 1080, h: 1080 },
-        { label: "Story    Ã¢â‚¬â€  1080 Ãƒâ€” 1920",   w: 1080, h: 1920 },
         { label: "A4 Portrait Ã¢â‚¬â€ 794 Ãƒâ€” 1123",  w: 794,  h: 1123 },
         { label: "A4 Landscape Ã¢â‚¬â€ 1123 Ãƒâ€” 794", w: 1123, h: 794  },
         { label: `Original  Ã¢â‚¬â€  ${image.naturalWidth || image.width} Ãƒâ€” ${image.naturalHeight || image.height}`,
@@ -26296,9 +26612,16 @@ document.addEventListener("click", async (e) => {
           }
         }
 
-        captionOverlay.segments = segments;
+        captionOverlay.segments = segments
+          .map(seg => ({
+            startMs: Math.max(0, Math.round(Number(seg.startMs) || 0)),
+            endMs: Math.max(0, Math.round(Number(seg.endMs) || 0)),
+            text: String(seg.text || "").replace(/\s+/g, " ").trim()
+          }))
+          .filter(seg => seg.text && seg.endMs > seg.startMs)
+          .sort((a, b) => a.startMs - b.startMs);
         captionOverlay.enabled = true;
-        captionOverlay.currentText = segments.length > 0 ? segments[0].text : transcript.substring(0, 60);
+        captionOverlay.currentText = getCaptionTextForTimeMs(0) || (captionOverlay.segments[0]?.text || transcript.substring(0, 60));
 
         setStatus(`Ã¢Å“â€¦ AI transcription complete! ${segments.length} caption segments created. Drag the caption bar to position it, then export.`);
         markSceneDirty();
@@ -26326,6 +26649,8 @@ document.addEventListener("click", async (e) => {
         const exportText = transcript || getEffectiveLessonText() || "Captioned video";
         state.text = exportText;
         state.displayedText = "";
+        await ensureVideoExportServer();
+        const wavBlob = await extractMediaAudioToWavBlob(state.stageVideo.blob, state.stageVideo.fileName || "stage-video.mp4");
         await setNarrationFromBlob(
           wavBlob,
           state.stageVideo.fileName || "stage-video-audio.wav",
@@ -26369,10 +26694,16 @@ document.addEventListener("click", async (e) => {
       const durationMs = await measureNarrationBlobDurationMs(narrationBlob);
       const playbackRate = getLessonPlaybackRate();
 
-      // Generate word-level segments for burned-in captions
-      const words = text.replace(/\s+/g, " ").trim().split(" ").filter(w => w.length > 0);
+      // Generate word-level segments for burned-in captions.
+      // IMPORTANT: use the NARRATION TEXT (what TTS actually speaks), not the raw
+      // lesson text – buildNarrationText() expands shortcuts, injects teacher pauses,
+      // and verbalizes math. Using its output for character-count timing ensures each
+      // segment's duration matches the audio stream precisely.
+      const narText   = buildNarrationText(text);
+      const srcText   = narText || text;
+      const words = srcText.replace(/\s+/g, " ").trim().split(" ").filter(w => w.length > 0);
       const totalTimeMs = Math.max(1, Math.round(durationMs / Math.max(0.1, playbackRate)));
-      const totalChars = text.replace(/\s+/g, " ").trim().length;
+      const totalChars = srcText.replace(/\s+/g, " ").trim().length;
       const segments = [];
       let charIdx = 0;
       for (let i = 0; i < words.length; i += 5) {
@@ -27298,54 +27629,148 @@ if (floatingPalette && lessonInput) {
     });
 }
 
-// -- PURE ENGLISH TEXT TRANSLATOR (GRAMMAR & PROFESSIONAL POLISH) --
+// -- LANGUAGE & TEACHER TRANSLATOR (ENGLISH / HINDI / TELUGU) --
+async function translateText(text, targetLang) {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Translation request failed: ${response.statusText}`);
+    }
+    const data = await response.json();
+    if (data && data[0]) {
+        return data[0].map(s => s[0]).join('');
+    }
+    throw new Error("Invalid response format from translation service.");
+}
+
+function polishEnglishText(text) {
+    return text
+        // Common shorthands
+        .replace(/\b(u|ur|y)\b/gi, (match) => {
+            if(match.toLowerCase() === 'u') return 'you';
+            if(match.toLowerCase() === 'ur') return 'your';
+            if(match.toLowerCase() === 'y') return 'why';
+            return match;
+        })
+        .replace(/\b(plz|pls)\b/gi, "please")
+        .replace(/\b(thx|tnx)\b/gi, "thank you")
+        .replace(/\b(v)\b/gi, "we")
+        .replace(/\b(bcoz|cuz|cos|because)\b/gi, "because")
+        .replace(/\b(gud)\b/gi, "good")
+        .replace(/\b(dat)\b/gi, "that")
+        .replace(/\b(wid)\b/gi, "with")
+        .replace(/\b(msg)\b/gi, "message")
+        // Grammar fixes and filler expansion
+        .replace(/\b(gonna)\b/gi, "going to")
+        .replace(/\b(wanna)\b/gi, "want to")
+        .replace(/\b(lemme)\b/gi, "let me")
+        // Indian teacher style polish
+        .replace(/\b(students|guys|kids)\b/gi, "students") // formalize
+        .replace(/(!{2,})/g, "!") // normalize excitement
+        .replace(/\s+/g, ' ') // space collapsing
+        .replace(/(^\s*\w|[.!?]\s*\w)/g, c => c.toUpperCase()); // Capitalize first letter of sentences
+}
+
+function handleTranslationResult(translatedText, sourceInput) {
+    if (sourceInput && sourceInput.value.trim().length > 0) {
+        sourceInput.value = translatedText;
+        lessonInput.value = translatedText;
+        try { refreshSelectedPhraseFromInput(); } catch(e){}
+    } else {
+        lessonInput.value = translatedText;
+    }
+    if (typeof scheduleLessonInputChange === "function") {
+        scheduleLessonInputChange(0);
+    }
+}
+
+// 1. Translate to Pure English Button
 const pureEnglishBtn = document.getElementById("pureEnglishTranslateBtn");
 if (pureEnglishBtn) {
-    pureEnglishBtn.addEventListener('click', () => {
+    pureEnglishBtn.addEventListener('click', async () => {
         const sourceInput = document.getElementById("englishSourceInput") || document.getElementById("mathsSourceInput");
         let text = sourceInput?.value.trim() || lessonInput.value.trim();
         if (!text) return;
         
-        // Comprehensive heuristic translation to "Pure Indian English Female Teacher Style"
-        let translated = text
-            // Common shorthands
-            .replace(/\b(u|ur|y)\b/gi, (match) => {
-                if(match.toLowerCase() === 'u') return 'you';
-                if(match.toLowerCase() === 'ur') return 'your';
-                if(match.toLowerCase() === 'y') return 'why';
-                return match;
-            })
-            .replace(/\b(plz|pls)\b/gi, "please")
-            .replace(/\b(thx|tnx)\b/gi, "thank you")
-            .replace(/\b(v)\b/gi, "we")
-            .replace(/\b(bcoz|cuz|cos|because)\b/gi, "because")
-            .replace(/\b(gud)\b/gi, "good")
-            .replace(/\b(dat)\b/gi, "that")
-            .replace(/\b(wid)\b/gi, "with")
-            .replace(/\b(msg)\b/gi, "message")
-            // Grammar fixes and filler expansion
-            .replace(/\b(gonna)\b/gi, "going to")
-            .replace(/\b(wanna)\b/gi, "want to")
-            .replace(/\b(lemme)\b/gi, "let me")
-            // Indian teacher style polish
-            .replace(/\b(students|guys|kids)\b/gi, "students") // formalize
-            .replace(/(!{2,})/g, "!") // normalize excitement
-            .replace(/\s+/g, ' '); // space collapsing
-            
-        // Capitalize first letter of sentences
-        translated = translated.replace(/(^\s*\w|[.!?]\s*\w)/g, c => c.toUpperCase());
+        const statusEl = document.getElementById("englishTranslatorStatus");
+        if (statusEl) statusEl.textContent = "Translating text into English...";
         
-        if (sourceInput && sourceInput.value.trim().length > 0) {
-            sourceInput.value = translated;
-            lessonInput.value = translated;
-            try { refreshSelectedPhraseFromInput(); } catch(e){}
-        } else {
-            lessonInput.value = translated;
+        try {
+            // First translate to English if the text is in another language
+            let translated = await translateText(text, 'en');
+            // Polish grammar/style
+            let polished = polishEnglishText(translated);
+            handleTranslationResult(polished, sourceInput);
+            if (statusEl) statusEl.textContent = "English translation and polish complete!";
+        } catch (error) {
+            console.error(error);
+            if (statusEl) statusEl.textContent = "Translation failed: " + error.message;
         }
-        
-        // Push update to rendering loop synchronously
-        if (typeof scheduleLessonInputChange === "function") {
-            scheduleLessonInputChange(0);
+    });
+}
+
+// 1.5 Translate to English Button
+const translateToEnglishBtn = document.getElementById("translateToEnglishBtn");
+if (translateToEnglishBtn) {
+    translateToEnglishBtn.addEventListener('click', async () => {
+        const sourceInput = document.getElementById("englishSourceInput") || document.getElementById("mathsSourceInput");
+        let text = sourceInput?.value.trim() || lessonInput.value.trim();
+        if (!text) return;
+
+        const statusEl = document.getElementById("englishTranslatorStatus");
+        if (statusEl) statusEl.textContent = "Translating text into English...";
+
+        try {
+            let translated = await translateText(text, 'en');
+            handleTranslationResult(translated, sourceInput);
+            if (statusEl) statusEl.textContent = "English translation complete!";
+        } catch (error) {
+            console.error(error);
+            if (statusEl) statusEl.textContent = "Translation failed: " + error.message;
+        }
+    });
+}
+
+// 2. Translate to Hindi Button
+const translateToHindiBtn = document.getElementById("translateToHindiBtn");
+if (translateToHindiBtn) {
+    translateToHindiBtn.addEventListener('click', async () => {
+        const sourceInput = document.getElementById("englishSourceInput") || document.getElementById("mathsSourceInput");
+        let text = sourceInput?.value.trim() || lessonInput.value.trim();
+        if (!text) return;
+
+        const statusEl = document.getElementById("englishTranslatorStatus");
+        if (statusEl) statusEl.textContent = "Translating text into Hindi...";
+
+        try {
+            let translated = await translateText(text, 'hi');
+            handleTranslationResult(translated, sourceInput);
+            if (statusEl) statusEl.textContent = "Hindi translation complete!";
+        } catch (error) {
+            console.error(error);
+            if (statusEl) statusEl.textContent = "Translation failed: " + error.message;
+        }
+    });
+}
+
+// 3. Translate to Telugu Button
+const translateToTeluguBtn = document.getElementById("translateToTeluguBtn");
+if (translateToTeluguBtn) {
+    translateToTeluguBtn.addEventListener('click', async () => {
+        const sourceInput = document.getElementById("englishSourceInput") || document.getElementById("mathsSourceInput");
+        let text = sourceInput?.value.trim() || lessonInput.value.trim();
+        if (!text) return;
+
+        const statusEl = document.getElementById("englishTranslatorStatus");
+        if (statusEl) statusEl.textContent = "Translating text into Telugu...";
+
+        try {
+            let translated = await translateText(text, 'te');
+            handleTranslationResult(translated, sourceInput);
+            if (statusEl) statusEl.textContent = "Telugu translation complete!";
+        } catch (error) {
+            console.error(error);
+            if (statusEl) statusEl.textContent = "Translation failed: " + error.message;
         }
     });
 }

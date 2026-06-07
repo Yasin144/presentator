@@ -25,6 +25,15 @@ if errorlevel 1 (
   )
 )
 
+REM ---- Edge TTS server (port 8427) ----
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8427/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+if errorlevel 1 (
+  if exist "%PYTHON_VENV%" (
+    start "EdgeTTS" /min "%PYTHON_VENV%" -u "%APP_DIR%\timed-voiceover-server.py"
+  )
+)
+
+REM ---- Start SC3 Singing Server (port 8431) for Hindi/Telugu voice conversion ----
 powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8431/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
 if errorlevel 1 (
   if exist "%SINGING_PYTHON%" (
@@ -45,12 +54,12 @@ set /a RESTART_COUNT+=1
 
 if %RESTART_COUNT% GTR 1 (
   echo [Voice Presentator] Restart attempt %RESTART_COUNT% - waiting 2 seconds...
-  timeout /t 2 /nobreak >nul
+  ping 127.0.0.1 -n 3 >nul
 )
 
 REM Kill any stale Electron before launching fresh
 powershell -NoProfile -Command "Get-Process -Name electron -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue" >nul 2>&1
-timeout /t 1 /nobreak >nul
+ping 127.0.0.1 -n 2 >nul
 
 REM Launch with /wait - CMD blocks here until Electron exits
 start /wait "" "%ELECTRON%" "%APP_DIR%"

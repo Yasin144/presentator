@@ -208,20 +208,23 @@ three is less than nine"></textarea>
           </div>
           <div className="tool-card english-translator-card">
             <div className="tool-card-head">
-              <span className="module-icon" style={{"background": "#5c2d91"}}>ENG</span>
-              <p className="tool-card-title">English Teacher Translator</p>
+              <span className="module-icon" style={{"background": "#5c2d91"}}>LNG</span>
+              <p className="tool-card-title">Language & Teacher Translator</p>
             </div>
-            <p className="upload-copy">Paste your normal English text here. The app polishes the grammar and formalizes the style automatically into the lesson box.</p>
-            <label className="field-label" htmlFor="englishSourceInput">English Source Input</label>
+            <p className="upload-copy">Translate lessons between English, Hindi, and Telugu. Or paste normal English to polish grammar automatically.</p>
+            <label className="field-label" htmlFor="englishSourceInput">Source Input (English, Hindi, Telugu)</label>
             <textarea id="englishSourceInput" className="lesson-input english-source-input" placeholder="Example:
 hello students today v r gonna learn about nouns.
 nouns r naming words like apple or delhi.
 plz open ur books!"></textarea>
-            <div className="toolbar toolbar-compact">
-              <button id="pureEnglishTranslateBtn" className="primary-btn" type="button" style={{"background": "#5c2d91"}}>Translate To Pure English</button>
-              <button id="clearEnglishSourceBtn" className="ghost-btn" type="button">Clear Source</button>
+            <div className="toolbar toolbar-compact" style={{"display": "flex", "flexWrap": "wrap", "gap": "6px"}}>
+              <button id="pureEnglishTranslateBtn" className="primary-btn" type="button" style={{"background": "#5c2d91"}}>Polish English</button>
+              <button id="translateToEnglishBtn" className="primary-btn" type="button" style={{"background": "#1e3a8a"}}>To English</button>
+              <button id="translateToHindiBtn" className="primary-btn" type="button" style={{"background": "#16a34a"}}>To Hindi</button>
+              <button id="translateToTeluguBtn" className="primary-btn" type="button" style={{"background": "#ea580c"}}>To Telugu</button>
+              <button id="clearEnglishSourceBtn" className="ghost-btn" type="button">Clear</button>
             </div>
-            <p className="upload-copy" id="englishTranslatorStatus">English translator is ready. Paste shorthand or informal text to formalize it.</p>
+            <p className="upload-copy" id="englishTranslatorStatus">Translator is ready. Translate text or polish grammar easily.</p>
           </div>
           <div className="tool-card place-value-card">
             <div className="tool-card-head">
@@ -970,15 +973,15 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 <span className="module-icon">VOX</span>
                 <p className="tool-card-title">2. Hear the lesson before showing the slide</p>
               </div>
-              <p className="upload-copy">Click Read Text to hear the latest output in Anjali voice.</p>
+              <p className="upload-copy">Click Read Text to hear the latest output in the selected voice.</p>
               <div className="toolbar toolbar-compact">
                 <button id="previewTextBtn" className="ghost-btn" type="button">Read Text</button>
                 <button id="stopPreviewBtn" className="ghost-btn" type="button" disabled>Stop Reading</button>
               </div>
               <div id="previewVoiceChooser" className="voice-choice hidden" aria-live="polite">
-                <p className="upload-copy">Anjali voice is used for reading.</p>
+                <p className="upload-copy">Selected voice is used for reading.</p>
                 <div className="toolbar toolbar-compact">
-                  <button id="previewAnjaliBtn" className="ghost-btn" type="button">Anjali Voice</button>
+                  <button id="previewAnjaliBtn" className="ghost-btn" type="button">Teacher Voice</button>
                 </div>
               </div>
               <label className="style-field" htmlFor="slideVoiceSelect">
@@ -986,9 +989,10 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 <select id="slideVoiceSelect" className="theme-select text-style-select"
                   aria-label="Choose saved slide voice" defaultValue="anjali">
                   <option value="anjali">Anjali Narration</option>
+                  <option value="pattan">Pattan Narration</option>
                 </select>
               </label>
-              <p className="upload-copy">Play Slide and Export Video use Anjali automatically.</p>
+              <p className="upload-copy">Play Slide and Export Video use the saved slide voice.</p>
             </div>
           </div>
 
@@ -1509,19 +1513,19 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <audio id="audioPreview" className="audio-preview hidden" controls preload="metadata"></audio>
             <p className="upload-copy" id="audioStatus">No narration audio selected.</p>
             <div className="toolbar toolbar-compact">
-              <button id="loadAnjaliNarrationBtn" className="primary-btn" type="button">Generate Anjali Narration</button>
-              <button id="downloadAnjaliBtn" className="ghost-btn" type="button">Download Anjali Narration</button>
+              <button id="loadAnjaliNarrationBtn" className="primary-btn" type="button">Generate Narration</button>
+              <button id="downloadAnjaliBtn" className="ghost-btn" type="button">Download Narration</button>
             </div>
             <div id="narrationLiveIndicator" className="progress-indicator narration-live-indicator hidden" role="status"
               aria-live="polite">
               <div className="progress-track">
                 <span id="narrationLiveProgressFill" className="progress-fill narration-live-progress-fill"></span>
               </div>
-              <p className="upload-copy narration-live-progress-label" id="narrationLiveProgressLabel">Anjali narration is
+              <p className="upload-copy narration-live-progress-label" id="narrationLiveProgressLabel">Narration is
                 preparing...</p>
             </div>
-            <p className="upload-copy" id="narrationGenStatus">Enter text, then generate Anjali narration directly into the
-              app or download the Anjali narration file.</p>
+            <p className="upload-copy" id="narrationGenStatus">Enter text, then generate narration directly into the
+              app or download the narration file.</p>
           </div>
         </div>
       </details>

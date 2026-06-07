@@ -73,6 +73,7 @@ function spawnManaged(key, cmd, args, opts = {}) {
     restartDelayMs   = 3000,
     env              = {},
     cwd              = ROOT,
+    showConsole      = false,
   } = opts;
 
   const entry = servers[key] || {
@@ -88,13 +89,13 @@ function spawnManaged(key, cmd, args, opts = {}) {
     console.log(`[PP] Starting ${key}...`);
     // On Windows, .cmd and .bat files need shell:true to execute Ã¢â‚¬â€
     // without it Node.js throws EINVAL.
-    const needsShell = /\.(cmd|bat)$/i.test(cmd);
+    const needsShell = showConsole || /\.(cmd|bat)$/i.test(cmd);
     const proc = spawn(cmd, args, {
       cwd,
       detached: false,
       stdio:    'ignore',
       shell:    needsShell,
-      windowsHide: true,
+      windowsHide: showConsole ? false : true,
       env: { ...process.env, ...env },
     });
 
@@ -352,7 +353,7 @@ async function waitForAnjaliHealth(timeoutMs = 20000) {
 async function startAnjaliServer() {
   const alive = await pingPort(8426, '/health', 5000);
   if (alive) {
-    console.log('[PP] Voice server on 8426 is alive and warm Ã¢â‚¬â€ Electron will use it as-is.');
+    console.log('[PP] Voice server on 8426 is alive and warm — Electron will use it as-is.');
     if (!servers['AnjaliAI']) {
       servers['AnjaliAI'] = { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
     }
@@ -361,7 +362,7 @@ async function startAnjaliServer() {
 
   const alreadyStarting = await isAnjaliServerProcessRunning();
   if (alreadyStarting) {
-    console.warn('[PP] Chatterbox Python process exists but 8426 is not healthy Ã¢â‚¬â€ waiting briefly.');
+    console.warn('[PP] Chatterbox Python process exists but 8426 is not healthy — waiting briefly.');
     if (!servers['AnjaliAI']) {
       servers['AnjaliAI'] = { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
     }
@@ -376,7 +377,7 @@ async function startAnjaliServer() {
       console.log('[PP] Chatterbox voice server became healthy on 8426.');
       return;
     }
-    console.warn('[PP] Stale Chatterbox process did not become healthy Ã¢â‚¬â€ restarting clone server.');
+    console.warn('[PP] Stale Chatterbox process did not become healthy — restarting clone server.');
     await killAnjaliServerProcesses();
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
@@ -387,6 +388,7 @@ async function startAnjaliServer() {
     restartDelayMs: 5000,
     maxRestarts: 4,
     restartWindowSec: 600,
+    showConsole: true,
     env: {
       PYTHONUTF8: '1',
       PYTHONUNBUFFERED: '1',
@@ -431,7 +433,7 @@ function startServers() {
   });
 
   // 5. SC3 singing model server (port 8431)
-  if (fs.existsSync(SC3_SINGING_SERVER)) {
+  if (false && fs.existsSync(SC3_SINGING_SERVER)) {
     spawnManaged('Sc3Singing', fs.existsSync(SINGING_PYTHON) ? SINGING_PYTHON : ANJALI_PYTHON, ['-u', SC3_SINGING_SERVER], {
       cwd: ROOT,
       restartDelayMs: 3000,
@@ -484,7 +486,7 @@ function freeServerPorts() {
 }
 
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Wait for Vite to be ready Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Wait for Vite to be ready ————————————————————————————————————————
 function waitForVite(url, retries = 60, delayMs = 500) {
   return new Promise((resolve, reject) => {
     let tries = 0;
@@ -503,7 +505,7 @@ function waitForVite(url, retries = 60, delayMs = 500) {
   });
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Create the main window Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Create the main window —————————————————————————————————————————————
 async function createWindow() {
   const { width, height } = require('electron').screen.getPrimaryDisplay().workAreaSize;
 
@@ -529,12 +531,39 @@ async function createWindow() {
     }
   });
 
-  Menu.setApplicationMenu(null);
+  const template = [
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload', accelerator: 'F5' },
+        { role: 'reload', accelerator: 'CmdOrCtrl+R' },
+        { role: 'forceReload', accelerator: 'CmdOrCtrl+Shift+R' },
+        { role: 'toggleDevTools', accelerator: 'F12' },
+        { role: 'toggleDevTools', accelerator: 'CmdOrCtrl+Shift+I' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
 
   win.once('ready-to-show', () => {
     win.maximize();
     win.show();
-    win.setTitle('Pattan Presentator Ã¢â‚¬â€ AI Teaching Studio');
+    win.setTitle('Pattan Presentator — AI Teaching Studio');
 
   });
 
@@ -544,7 +573,7 @@ async function createWindow() {
   });
 
   if (IS_DEV) {
-    await waitForVite(VITE_URL).catch(() => console.warn('[PP] Vite timeout Ã¢â‚¬â€ loading anyway'));
+    await waitForVite(VITE_URL).catch(() => console.warn('[PP] Vite timeout — loading anyway'));
     win.loadURL(VITE_URL);
   } else {
     // Use app:// protocol so absolute paths like /script.js resolve correctly.
@@ -554,18 +583,26 @@ async function createWindow() {
     win.loadURL('app://voice/' + htmlPath);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ IPC: Native Save File Dialog Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ————————————— IPC: Native Save File Dialog ————————————————————————————————————
   ipcMain.handle('show-save-dialog', async (_, options) => {
+    let defaultPath = options.defaultPath;
+    if (defaultPath) {
+      if (!path.isAbsolute(defaultPath)) {
+        defaultPath = path.join(os.homedir(), 'Desktop', defaultPath);
+      }
+    } else {
+      defaultPath = path.join(os.homedir(), 'Desktop', options.fileName || 'output.mp4');
+    }
     const result = await dialog.showSaveDialog(win, {
       title:       options.title       || 'Save File',
-      defaultPath: options.defaultPath || path.join(os.homedir(), 'Desktop', options.fileName || 'output.mp4'),
+      defaultPath: defaultPath,
       filters:     options.filters     || [{ name: 'MP4 Video', extensions: ['mp4'] }],
       buttonLabel: options.buttonLabel || 'Save'
     });
     return result;
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ IPC: Write file natively Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ————————————— IPC: Write file natively ————————————————————————————————————————
   ipcMain.handle('write-file', async (_, { filePath, base64Data }) => {
     try {
       const buf = Buffer.from(base64Data, 'base64');
@@ -576,12 +613,12 @@ async function createWindow() {
     }
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ IPC: Open folder in Explorer Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ————————————— IPC: Open folder in Explorer ————————————————————————————————————
   ipcMain.handle('show-item-in-folder', (_, filePath) => {
     shell.showItemInFolder(filePath);
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ IPC: System info Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ————————————— IPC: System info ————————————————————————————————————————————————
   ipcMain.handle('get-system-info', () => ({
     totalRam:   Math.round(os.totalmem()  / 1024 / 1024 / 1024 * 10) / 10,
     freeRam:    Math.round(os.freemem()   / 1024 / 1024 / 1024 * 10) / 10,
@@ -590,7 +627,7 @@ async function createWindow() {
     appVersion: app.getVersion()
   }));
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ IPC: Restart Anjali from renderer (when user clicks retry) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ————————————— IPC: Restart Anjali from renderer (when user clicks retry) ——————
   ipcMain.handle('restart-anjali', () => {
     console.log('[PP] Renderer requested Anjali restart.');
     restartServer('AnjaliAI');
@@ -622,14 +659,14 @@ async function createWindow() {
     };
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ IPC: Restart video export server from renderer Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ————————————— IPC: Restart video export server from renderer ——————————————————
   ipcMain.handle('restart-video-export', () => {
     console.log('[PP] Renderer requested video export server restart.');
     restartServer('FFmpegServer');
     return { ok: true };
   });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Crash-free Video Transcription (IPC) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Crash-free Video Transcription (IPC) ————————————————————————————
 // Renderer passes only the file PATH. Main process:
 //   1. FFmpeg extracts 16kHz mono WAV (speech-optimised, ~9 MB for 5-min video)
 //   2. Sends base64 WAV to transcription server (port 8428)
@@ -643,7 +680,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   const tmpWav = path.join(os.tmpdir(), 'caption-audio-' + Date.now() + '.wav');
 
   try {
-    // Extract 16kHz mono WAV Ã¢â‚¬â€ perfect for Whisper, ~9 MB per 5 minutes
+    // Extract 16kHz mono WAV — perfect for Whisper, ~9 MB per 5 minutes
     console.log('[PP] Transcribe: extracting audio from', path.basename(videoPath));
     await new Promise((resolve, reject) => {
       const proc = spawn(FFMPEG, [
@@ -658,7 +695,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     });
 
     const wavBase64 = fs.readFileSync(tmpWav).toString('base64');
-    console.log('[PP] Transcribe: audio', Math.round(fs.statSync(tmpWav).size / 1024), 'KB Ã¢â€ â€™ sending to transcription server');
+    console.log('[PP] Transcribe: audio', Math.round(fs.statSync(tmpWav).size / 1024), 'KB — sending to transcription server');
 
     // POST to transcription server
     const result = await postJsonForBuffer(8428, '/api/transcribe', {
@@ -684,7 +721,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   }
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Whisper Transcription Helper Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Whisper Transcription Helper —————————————————————————————————————
 // Spawns whisper-transcribe.py from .singing-venv (has faster-whisper installed).
 // Far more accurate than Windows Speech Recognition (port 8428) for Indian accents.
 async function runWhisperTranscribe(audioPath, timeoutMs = 300000) {
@@ -717,19 +754,19 @@ async function runWhisperTranscribe(audioPath, timeoutMs = 300000) {
   });
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ American English Ã¢â€ â€™ Indian English voice pipeline Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— American English —> Indian English voice pipeline —————————————————
 // Pipeline:
-//   1. FFmpeg Ã¢â€ â€™ 16 kHz mono WAV (for transcription)
-//   2. Whisper (faster-whisper tiny) Ã¢â€ â€™ full transcript text  Ã¢â€ Â replaces Windows SR
-//   3. convertToIndianEnglish() Ã¢â€ â€™ replace American slang with Indian equivalents
-//   4. Chatterbox TTS (port 8426, sc3 Indian voice) Ã¢â€ â€™ synthesise each sentence
+//   1. FFmpeg — 16 kHz mono WAV (for transcription)
+//   2. Whisper (faster-whisper tiny) — full transcript text  —  replaces Windows SR
+//   3. convertToIndianEnglish() — replace American slang with Indian equivalents
+//   4. Chatterbox TTS (port 8426, sc3 Indian voice) — synthesise each sentence
 //   5. FFmpeg concat + atempo time-scale to match original video duration
-//   6. FFmpeg mux new audio back into video Ã¢â€ â€™ saved to Downloads
+//   6. FFmpeg mux new audio back into video — saved to Downloads
 
 /** Converts American English slang/contractions to Indian English equivalents. */
 function convertToIndianEnglish(text) {
   return text
-    // contractions Ã¢â€ â€™ full form
+    // contractions — full form
     .replace(/\b(gonna)\b/gi, 'going to')
     .replace(/\b(wanna)\b/gi, 'want to')
     .replace(/\b(gotta)\b/gi, 'have to')
@@ -769,7 +806,7 @@ function convertToIndianEnglish(text) {
     .replace(/\b(what's)\b/gi, 'what is')
     .replace(/\b(who's)\b/gi, 'who is')
     .replace(/\b(let's)\b/gi, 'let us')
-    // American slang Ã¢â€ â€™ Indian English
+    // American slang — Indian English
     .replace(/\b(dude|bro|buddy|pal|man)\b/gi, 'friend')
     .replace(/\b(cool|awesome|rad|sick|lit)\b/gi, 'very good')
     .replace(/\b(totally|absolutely|for sure|heck yeah)\b/gi, 'certainly')
@@ -819,9 +856,9 @@ function splitIntoSentences(text, maxLen = 200) {
 }
 
 // ── Fast Mode: SC3 Singing timbre transfer for video ──────────────────────────
-// Extract audio → SC3 Singing (port 8431) converts timbre → mux back into video
+// Extract audio → SC3 Singing (port 8426) converts timbre → mux back into video
 ipcMain.handle('sc3-singing-replace-video', async (event, opts) => {
-  const { filePath, outputBaseName } = opts || {};
+  const { filePath, outputBaseName, voice = 'sc3' } = opts || {};
   if (!filePath) return { ok: false, error: 'No file path provided.' };
 
   const tmpDir  = require('os').tmpdir();
@@ -847,9 +884,9 @@ ipcMain.handle('sc3-singing-replace-video', async (event, opts) => {
     console.log('[Fast] Extracting audio from video...');
     await runFF(['-y', '-i', filePath, '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', audioWav], 'extract audio');
 
-    // 2. Send to SC3 Singing server (port 8431) for timbre conversion
+    // 2. Send to SC3 Singing server (port 8426) for timbre conversion
     console.log('[Fast] Sending to SC3 Singing for timbre conversion...');
-    const sc3Raw = await postJsonForBuffer(8431, '/api/convert-song', { filePath: audioWav }, 600000);
+    const sc3Raw = await postJsonForBuffer(8426, '/api/convert-song', { filePath: audioWav, voice }, 600000);
     if (!sc3Raw || sc3Raw.statusCode !== 200) throw new Error('SC3 Singing server failed (status ' + sc3Raw?.statusCode + '). Ensure SC3 Singing server is running.');
     const sc3Body = JSON.parse(sc3Raw.buffer.toString('utf8'));
     if (!sc3Body.audioBase64) throw new Error('SC3 Singing returned no audio.');
@@ -875,7 +912,7 @@ ipcMain.handle('sc3-singing-replace-video', async (event, opts) => {
 });
 
 ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
-  const { filePath, outputBaseName } = opts || {};
+  const { filePath, outputBaseName, voice = 'sc3' } = opts || {};
   if (!filePath) return { ok: false, error: 'No file path provided.' };
 
   const tmpDir  = require('os').tmpdir();
@@ -914,13 +951,14 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
     });
   }
 
-  // Call SC3 server with a file path Ã¢â‚¬â€ returns Buffer of converted MP3 or throws
+  // Call SC3 server with a file path — returns Buffer of converted MP3 or throws
   async function sc3ConvertChunk(chunkPath, chunkName) {
     console.log('[PP] SC3 converting chunk:', chunkName);
-    const sc3Raw = await postJsonForBuffer(8431, '/api/convert-song', {
+    const sc3Raw = await postJsonForBuffer(8426, '/api/convert-song', {
       filePath: chunkPath,
       outputFileName: chunkName + '.mp3',
-      saveToDownloads: false
+      saveToDownloads: false,
+      voice
     }, 600000);
     const bodyText = sc3Raw && sc3Raw.buffer ? sc3Raw.buffer.toString('utf8') : null;
     if (!sc3Raw || sc3Raw.statusCode !== 200) {
@@ -938,7 +976,7 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
     const start = Date.now();
     while (Date.now() - start < maxWaitMs) {
       const j = await new Promise((resolve) => {
-        const req = http.get({ hostname: '127.0.0.1', port: 8431, path: '/health', agent: false }, (res) => {
+        const req = http.get({ hostname: '127.0.0.1', port: 8426, path: '/health', agent: false }, (res) => {
           const chunks = []; res.on('data', d => chunks.push(d));
           res.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch (_) { resolve(null); } });
         });
@@ -949,7 +987,7 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
       if (j) console.log('[PP] SC3: waiting for converter to warm...');
       await new Promise(r => setTimeout(r, 5000));
     }
-    console.warn('[PP] SC3: warm timeout Ã¢â‚¬â€ proceeding anyway.');
+    console.warn('[PP] SC3: warm timeout — proceeding anyway.');
     return false;
   }
 
@@ -967,7 +1005,7 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
     const sizeMb = Math.round(fs.statSync(inputMp3).size / 1024 / 1024 * 10) / 10;
     console.log('[PP] SC3 replace: audio', Math.round(totalSecs), 'sec,', sizeMb, 'MB');
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Step A: Try Indian English pipeline (Transcribe Ã¢â€ â€™ Convert Ã¢â€ â€™ Chatterbox TTS) Ã¢â€â‚¬Ã¢â€â‚¬
+    // —————— Step A: Try Indian English pipeline (Transcribe —> Convert —> Chatterbox TTS) ——————
     let finalAudioMp3 = null;
     let usedIndianPipeline = false;
 
@@ -991,7 +1029,7 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
 
       console.log('[PP] SC3 Indian English: transcript', transcript.length, 'chars');
 
-      // Convert American slang/contractions Ã¢â€ â€™ Indian English
+      // Convert American slang/contractions —> Indian English
       const indianText = convertToIndianEnglish(transcript);
       console.log('[PP] SC3 Indian English: converted text', indianText.length, 'chars');
 
@@ -1002,7 +1040,7 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
       for (let i = 0; i < sentences.length; i++) {
         const sentence = sentences[i];
         console.log('[PP] SC3 Indian English: TTS', i + 1, '/', sentences.length);
-        const ttsRaw = await postJsonForBuffer(8426, '/api/narrate', { text: sentence }, 180000);
+        const ttsRaw = await postJsonForBuffer(8426, '/api/narrate', { text: sentence, voice }, 180000);
         if (!ttsRaw || ttsRaw.statusCode !== 200)
           throw new Error('Chatterbox TTS failed for sentence ' + (i + 1));
         const wavFile = path.join(tmpDir, 'sc3-tts-' + stamp + '-' + i + '.wav');
@@ -1046,7 +1084,7 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
       console.log('[PP] SC3 Indian English: synthesis complete!');
 
     } catch (indErr) {
-      // Pipeline failed Ã¢â‚¬â€ do not fall back to SC3 singing model, always use Chatterbox
+      // Pipeline failed — do not fall back to SC3 singing model, always use Chatterbox
       console.error('[PP] Chatterbox Indian English pipeline failed:', indErr.message);
       throw new Error('Chatterbox voice pipeline failed: ' + indErr.message + '. Please ensure the transcription server (port 8428) and Chatterbox server (port 8426) are running.');
     }
@@ -1071,11 +1109,11 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
   }
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Chatterbox sc3 Voice Narration for Audio Files Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-// Pipeline: Transcribe audio (port 8428) Ã¢â€ â€™ Indian English slang Ã¢â€ â€™ Chatterbox TTS (port 8426)
-// Used by Sing Song "Convert Voice Ã¢â€ â€™ Indian English" button for audio files.
+// ————————————— Chatterbox sc3 Voice Narration for Audio Files ———————————————————
+// Pipeline: Transcribe audio (port 8428) —> Indian English slang —> Chatterbox TTS (port 8426)
+// Used by Sing Song "Convert Voice —> Indian English" button for audio files.
 ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
-  const { filePath, outputBaseName } = opts || {};
+  const { filePath, outputBaseName, voice = 'sc3' } = opts || {};
   if (!filePath) return { ok: false, error: 'No file path provided.' };
 
   const tmpDir   = require('os').tmpdir();
@@ -1110,7 +1148,7 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
     if (!transcript) throw new Error('Whisper could not detect speech. Ensure the file contains clear voice recordings.');
     console.log('[PP] sc3-narrate-audio: transcript', transcript.length, 'chars');
 
-    // 3. Convert American slang Ã¢â€ â€™ Indian English
+    // 3. Convert American slang —> Indian English
     const indianText = convertToIndianEnglish(transcript);
     console.log('[PP] sc3-narrate-audio: converted text', indianText.length, 'chars');
 
@@ -1120,7 +1158,7 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
     const ttsWavFiles = [];
     for (let i = 0; i < sentences.length; i++) {
       console.log('[PP] sc3-narrate-audio: TTS sentence', i + 1, '/', sentences.length);
-      const ttsRaw = await postJsonForBuffer(8426, '/api/narrate', { text: sentences[i] }, 180000);
+      const ttsRaw = await postJsonForBuffer(8426, '/api/narrate', { text: sentences[i], voice }, 180000);
       if (!ttsRaw || ttsRaw.statusCode !== 200)
         throw new Error('Chatterbox TTS failed for sentence ' + (i + 1));
       const wavFile = path.join(tmpDir, 'narrate-tts-' + stamp + '-' + i + '.wav');
@@ -1156,14 +1194,107 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
 });
 
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ IPC: Get server health status Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— IPC: Burn Captions via FFmpeg (Express Export) ———————————————————
+// Uses FFmpeg to burn subtitle text directly onto video frames.
+// Audio is COPIED (no re-encode) → zero quality loss, instant mux.
+// Saves to Downloads as captioned_video_<timestamp>.mp4
+ipcMain.handle('burn-captions', async (event, opts) => {
+  const { videoPath, captions, fontSize = 28, position = 'bottom' } = opts || {};
+  if (!videoPath) return { ok: false, error: 'No video path provided.' };
+  if (!captions || !captions.length) return { ok: false, error: 'No captions provided.' };
+
+  // ── Dynamic FFmpeg detection ─────────────────────────────────────────────────
+  function findFFmpegPath() {
+    // 1. Try PATH lookup first (fastest)
+    try {
+      const { execSync } = require('child_process');
+      const result = execSync('where ffmpeg', { encoding: 'utf8', timeout: 3000 }).trim().split('\n')[0].trim();
+      if (result && require('fs').existsSync(result)) return result;
+    } catch (_) {}
+    // 2. Known WinGet install path (fallback)
+    const wingetPath = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+    if (require('fs').existsSync(wingetPath)) return wingetPath;
+    throw new Error('FFmpeg not found. Install it via: winget install Gyan.FFmpeg.Essentials');
+  }
+  const FFMPEG = findFFmpegPath();
+  const tmpDir  = require('os').tmpdir();
+  const stamp   = Date.now();
+  const srtPath = path.join(tmpDir, 'captions-' + stamp + '.srt');
+  const outFile = path.join(os.homedir(), 'Downloads', 'captioned_video_' + stamp + '.mp4');
+
+  // ── 1. Build SRT file from caption chunks ────────────────────────────────────
+  function toSrtTime(secs) {
+    const h   = Math.floor(secs / 3600);
+    const m   = Math.floor((secs % 3600) / 60);
+    const s   = Math.floor(secs % 60);
+    const ms  = Math.round((secs % 1) * 1000);
+    return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' +
+           String(s).padStart(2,'0') + ',' + String(ms).padStart(3,'0');
+  }
+
+  try {
+    const srtLines = [];
+    captions.forEach((c, i) => {
+      const start = Math.max(0, Number(c.start) || 0);
+      const end   = Math.max(start + 0.1, Number(c.end) || start + 2);
+      const text  = String(c.text || '').trim().replace(/[<>]/g, '');
+      if (!text) return;
+      srtLines.push(String(i + 1));
+      srtLines.push(toSrtTime(start) + ' --> ' + toSrtTime(end));
+      srtLines.push(text);
+      srtLines.push('');
+    });
+
+    require('fs').writeFileSync(srtPath, srtLines.join('\n'), 'utf8');
+    console.log('[BurnCaptions] SRT written:', srtPath, '(' + captions.length + ' captions)');
+
+    // ── 2. FFmpeg: burn SRT onto video, copy audio exactly ──────────────────────
+    // subtitles filter: font size, position (bottom), white text + black outline
+    const yPos       = position === 'top' ? '50' : '(h-text_h-50)';
+    const safeSrt    = srtPath.split('\\').join('/').split(':').join('\\:');
+    const subFilter  = `subtitles='${safeSrt}':force_style='FontName=Arial,FontSize=${fontSize},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Bold=1,Outline=2,Shadow=1,Alignment=2,MarginV=40'`;
+
+    await new Promise((resolve, reject) => {
+      const proc = spawn(FFMPEG, [
+        '-y', '-i', videoPath,
+        '-map', '0:v:0',
+        '-map', '0:a?',
+        '-vf', subFilter,
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
+        '-c:a', 'copy',          // ← copy audio stream as-is (no re-encode = perfect audio)
+        '-avoid_negative_ts', 'make_zero',
+        '-movflags', '+faststart',
+        outFile
+      ], { stdio: 'pipe', windowsHide: true });
+
+      let stderr = '';
+      if (proc.stderr) proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('error', err => reject(new Error('FFmpeg spawn: ' + err.message)));
+      proc.on('exit', code => {
+        if (code === 0) resolve();
+        else reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300)));
+      });
+    });
+
+    console.log('[BurnCaptions] Done:', path.basename(outFile));
+    return { ok: true, outputPath: outFile, fileName: path.basename(outFile) };
+
+  } catch (err) {
+    console.error('[BurnCaptions] Error:', err.message);
+    return { ok: false, error: err.message };
+  } finally {
+    try { require('fs').unlinkSync(srtPath); } catch (_) {}
+  }
+});
+
+  // ————————————— IPC: Get server health status ———————————————————————————————————
   ipcMain.handle('get-server-health', async () => {
     const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, sc3SingingAlive, viteAlive] = await Promise.all([
       pingPort(8426),
       pingPort(8427),
       pingPort(8428),
       pingPort(8430),
-      pingPort(8431),
+      pingPort(8426),
       pingPort(5173, '/')
     ]);
     return {

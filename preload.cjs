@@ -78,5 +78,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Check if running inside Electron
   isElectron: true,
   platform: process.platform,
+
+  // Fast caption export — burns subtitles into video using FFmpeg (no video playback)
+  burnCaptions: (opts) =>
+    ipcRenderer.invoke('burn-captions', opts),
+
+  // Desktop notification — alerts user when a task completes
+  showNotification: (title, body, opts) =>
+    ipcRenderer.invoke('show-notification', { title, body, ...opts }),
+
 });
 

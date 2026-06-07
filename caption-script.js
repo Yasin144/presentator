@@ -485,18 +485,43 @@ function bootCaptionStudio() {
         return btoa(binary);
     }
 
-    function buildLinearCaptionChunks(text, duration) {
+    function buildLinearCaptionChunks(text, duration, options) {
         const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
         if (!words.length) return [];
-        const safeDuration = Math.max(1, Number(duration) || words.length * 0.45);
+
+        // ── Use ACTUAL narration duration so highlights match the voice ──────────
+        // Priority order:
+        //  1. state.narration.durationMs  (measured from the real audio blob)
+        //  2. Caller-supplied override   (opts.narrationDurationSec)
+        //  3. WPM-based estimate         (140 wpm for SC3/pattan)
+        //  4. Caller-supplied videoDuration  (last resort – usually wrong)
+        const opts = options || {};
+        const WPM  = 140;  // SC3 / pattan TTS natural speaking rate
+        const wpmEstimateSec = (words.length / WPM) * 60;
+
+        let speechDurationSec = 0;
+        if (window.state && window.state.narration && Number(window.state.narration.durationMs) > 500) {
+            speechDurationSec = window.state.narration.durationMs / 1000;
+        } else if (Number(opts.narrationDurationSec) > 0.5) {
+            speechDurationSec = Number(opts.narrationDurationSec);
+        } else {
+            // Estimate from speech rate — far more accurate than video duration
+            speechDurationSec = wpmEstimateSec;
+        }
+
+        // Never exceed the video duration, but also don't use video duration
+        // as the primary timing reference (video may have long intro/outro)
+        const videoDuration = Math.max(1, Number(duration) || 60);
+        const safeDuration  = Math.min(speechDurationSec, videoDuration);
+
         const chunks = [];
         const chunkSize = 7;
         for (let i = 0; i < words.length; i += chunkSize) {
             const chunkWords = words.slice(i, i + chunkSize);
             const start = (i / words.length) * safeDuration;
-            const end = (Math.min(words.length, i + chunkWords.length) / words.length) * safeDuration;
+            const end   = (Math.min(words.length, i + chunkWords.length) / words.length) * safeDuration;
             chunks.push({
-                text: chunkWords.join(' '),
+                text:      chunkWords.join(' '),
                 timestamp: [start, Math.max(start + 0.35, end)]
             });
         }
@@ -581,6 +606,148 @@ function bootCaptionStudio() {
                 generatedCaptions.splice(index, 1);
                 populateEditor();
             });
+        });
+    }
+
+    // ── Multi-language Caption Translator ───────────────────────────────────
+    const TRANSLATE_SERVER = 'http://127.0.0.1:8434';
+
+    async function translateCaptionsTo(targetLang) {
+        if (!generatedCaptions || !generatedCaptions.length) {
+            statusText.innerHTML = '⚠️ Generate or load captions first, then translate.';
+            return;
+        }
+        const langLabel = { en: 'English', hi: 'हिंदी (Hindi)', te: 'తెలుగు (Telugu)' }[targetLang] || targetLang;
+        statusText.innerHTML = `🌐 Translating ${generatedCaptions.length} captions to ${langLabel}...`;
+
+        // Highlight active button
+        ['En','Hi','Te'].forEach(l => {
+            const b = document.getElementById('captionTranslate' + l + 'Btn');
+            if (b) b.style.opacity = (l.toLowerCase() === targetLang) ? '1' : '0.5';
+        });
+
+        const pBar = document.getElementById('captionProgressBarValue');
+        if (pBar) pBar.style.width = '10%';
+
+        // Check server health first
+        try {
+            const health = await fetch(`${TRANSLATE_SERVER}/health`, { signal: AbortSignal.timeout(3000) });
+            if (!health.ok) throw new Error('Server not ready');
+        } catch (e) {
+            statusText.innerHTML = `❌ Translation server not running. Please start <b>Translate-Server.cmd</b> in D:\\voice\\ then try again.`;
+            return;
+        }
+
+        // Batch translate all caption texts
+        const texts = generatedCaptions.map(c => c.text);
+        try {
+            const resp = await fetch(`${TRANSLATE_SERVER}/api/translate/batch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ texts, target: targetLang, source: 'auto' })
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const results = data.results || [];
+
+            // Apply translations back into captions
+            results.forEach((translated, i) => {
+                if (generatedCaptions[i] && translated) {
+                    generatedCaptions[i].text = translated;
+                    // Rebuild word list for translated text (re-split by words)
+                    if (generatedCaptions[i].words) {
+                        const ts = generatedCaptions[i].timestamp;
+                        const dur = ts[1] - ts[0];
+                        const words = translated.split(/\s+/).filter(Boolean);
+                        generatedCaptions[i].words = words.map((w, wi) => ({
+                            text: w,
+                            timestamp: [ts[0] + (wi / words.length) * dur,
+                                        ts[0] + ((wi + 1) / words.length) * dur]
+                        }));
+                    }
+                }
+            });
+
+            if (pBar) pBar.style.width = '100%';
+            editorPanel.style.display = 'block';
+            populateEditor();
+            statusText.innerHTML = `✅ Translated ${results.length} captions to ${langLabel}. Edit if needed, then Export.`;
+        } catch(e) {
+            statusText.innerHTML = `❌ Translation failed: ${e.message}`;
+            if (pBar) pBar.style.width = '0%';
+        }
+    }
+
+    // Wire translation buttons
+    const translateEnBtn = document.getElementById('captionTranslateEnBtn');
+    const translateHiBtn = document.getElementById('captionTranslateHiBtn');
+    const translateTeBtn = document.getElementById('captionTranslateTeBtn');
+    if (translateEnBtn) translateEnBtn.addEventListener('click', () => translateCaptionsTo('en'));
+    if (translateHiBtn) translateHiBtn.addEventListener('click', () => translateCaptionsTo('hi'));
+    if (translateTeBtn) translateTeBtn.addEventListener('click', () => translateCaptionsTo('te'));
+
+    // ── "Use Voice Text as Captions" button ─────────────────────────────────
+    const voiceTextBtn = document.getElementById('captionUseVoiceTextBtn');
+    if (voiceTextBtn) {
+        voiceTextBtn.addEventListener('click', () => {
+            // Read narration text from state (accumulated across all slides)
+            const narText = (
+                (window.state && Array.isArray(window.state.allNarrationTexts) && window.state.allNarrationTexts.length
+                    ? window.state.allNarrationTexts.join(' ')
+                    : window.state && window.state.lastNarrationText) ||
+                localStorage.getItem('pp_last_narration_text') ||
+                ''
+            ).trim();
+            const narVoice = (
+                (window.state && window.state.lastNarrationVoice) ||
+                localStorage.getItem('pp_last_narration_voice') ||
+                'anjali'
+            );
+
+            if (!narText) {
+                statusText.innerHTML = '⚠️ No voice narration found. Generate narration first, then open caption studio.';
+                return;
+            }
+
+            const duration = sourceVideo ? (sourceVideo.duration || 60) : 60;
+            // Use actual narration duration (state.narration.durationMs) if available
+            // so chunk timestamps reflect real speech speed rather than video length.
+            const chunks   = buildLinearCaptionChunks(narText, duration);
+
+
+            if (!chunks.length) {
+                statusText.innerHTML = '⚠️ Could not build captions from voice text.';
+                return;
+            }
+
+            // Convert to caption format with word-level data
+            generatedCaptions = chunks.map(c => {
+                const words = c.text.split(/\s+/).filter(Boolean);
+                const chunkDur = c.timestamp[1] - c.timestamp[0];
+                return {
+                    text: c.text,
+                    timestamp: c.timestamp,
+                    words: words.map((w, i) => ({
+                        text: w,
+                        timestamp: [
+                            c.timestamp[0] + (i / words.length) * chunkDur,
+                            c.timestamp[0] + ((i + 1) / words.length) * chunkDur
+                        ]
+                    }))
+                };
+            });
+
+            const langLabel = {
+                'anjali': 'English SC3', 'pattan': 'English Pattan',
+                'hindi': 'Hindi', 'telugu': 'Telugu', 'edge': 'Edge TTS'
+            }[narVoice] || narVoice;
+
+            statusText.innerHTML = `✅ ${generatedCaptions.length} caption chunks built from ${langLabel} voice text (${narText.length} chars). Edit below if needed.`;
+
+            editorPanel.style.display = 'block';
+            const pBar = document.getElementById('captionProgressBarValue');
+            if (pBar) pBar.style.width = '100%';
+            populateEditor();
         });
     }
 
@@ -1067,7 +1234,18 @@ function bootCaptionStudio() {
                   const totalWords = rawWords.length;
                   
                   if (currentChunk.words && currentChunk.words.length === totalWords) {
-                       let foundIdx = currentChunk.words.findIndex(w => adjustedTime <= (w.timestamp[1] !== null ? w.timestamp[1] : w.timestamp[0] + 0.2));
+                       let foundIdx = currentChunk.words.findIndex(w => {
+                           const start = Array.isArray(w.timestamp) ? Number(w.timestamp[0]) : NaN;
+                           const rawEnd = Array.isArray(w.timestamp) ? Number(w.timestamp[1]) : NaN;
+                           const end = Number.isFinite(rawEnd) ? rawEnd : (Number.isFinite(start) ? start + 0.2 : NaN);
+                           return Number.isFinite(start) && Number.isFinite(end) && adjustedTime >= start && adjustedTime < end;
+                       });
+                       if (foundIdx === -1) {
+                           foundIdx = currentChunk.words.findIndex(w => {
+                               const start = Array.isArray(w.timestamp) ? Number(w.timestamp[0]) : NaN;
+                               return Number.isFinite(start) && adjustedTime < start;
+                           });
+                       }
                        activeWordIndex = foundIdx !== -1 ? foundIdx : totalWords - 1;
                   } else {
                        const chunkDuration = currentChunk.timestamp[1] - currentChunk.timestamp[0];
@@ -1135,6 +1313,50 @@ function bootCaptionStudio() {
       }
     }
 
+    function getCaptionSourcePath() {
+        try {
+            if (!activeFile) return "";
+            if (window.electronAPI && typeof window.electronAPI.getPathForFile === 'function') {
+                return window.electronAPI.getPathForFile(activeFile) || "";
+            }
+            return activeFile.path || "";
+        } catch (error) {
+            console.warn('[Caption Export] Could not read source file path:', error);
+            return "";
+        }
+    }
+
+    function getCaptionSyncOffsetSeconds() {
+        const rawValue = syncSlider ? Number(syncSlider.value) : 0;
+        return Number.isFinite(rawValue) ? rawValue / 1000 : 0;
+    }
+
+    function getValidatedCaptionBurnList() {
+        const duration = Number(sourceVideo.duration) || 0;
+        const syncOffset = getCaptionSyncOffsetSeconds();
+        const sorted = (generatedCaptions || [])
+            .map((caption) => {
+                const timestamp = Array.isArray(caption.timestamp) ? caption.timestamp : [0, 0];
+                const start = Math.max(0, Number(timestamp[0]) + syncOffset);
+                const rawEnd = Number(timestamp[1]);
+                const end = Math.max(start + 0.12, (Number.isFinite(rawEnd) ? rawEnd : timestamp[0] + 2) + syncOffset);
+                return {
+                    text: String(caption.text || '').replace(/\s+/g, ' ').trim(),
+                    start,
+                    end: duration > 0 ? Math.min(end, duration) : end
+                };
+            })
+            .filter((caption) => caption.text && caption.end > caption.start)
+            .sort((a, b) => a.start - b.start);
+
+        for (let index = 0; index < sorted.length - 1; index += 1) {
+            if (sorted[index].end > sorted[index + 1].start) {
+                sorted[index].end = Math.max(sorted[index].start + 0.12, sorted[index + 1].start - 0.02);
+            }
+        }
+        return sorted;
+    }
+
     sourceVideo.addEventListener('loadedmetadata', () => {
         const ctx = renderCanvas.getContext('2d');
         ctx.imageSmoothingEnabled = true;
@@ -1155,99 +1377,206 @@ function bootCaptionStudio() {
         if (!isRecording) renderPreviewNow(sourceVideo.currentTime);
     });
 
-    exportBtn.addEventListener('click', () => {
-        if(isRecording) return;
-        isRecording = true; exportBtn.textContent = 'Rendering High-Quality Video...'; exportBtn.disabled = true;
-        statusText.innerHTML = "Processing original video with burned captions (please do not switch tabs)...";
-        sourceVideo.pause(); sourceVideo.currentTime = 0;
-        sourceVideo.playbackRate = 1.0; 
+    exportBtn.addEventListener('click', async () => {
+        if (isRecording) return;
+        isRecording = true;
+        exportBtn.textContent = '\u26a1 Express Export...';
+        exportBtn.disabled = true;
 
-        const exportWidth = sourceVideo.videoWidth || renderCanvas.width;
-        const exportHeight = sourceVideo.videoHeight || renderCanvas.height;
-        const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = exportWidth;
-        exportCanvas.height = exportHeight;
-        const exportCtx = exportCanvas.getContext('2d', { alpha: false });
+        // -- FAST PATH: FFmpeg burn-in via IPC (instant - no video playback needed) --
+        const _filePath = getCaptionSourcePath();
+        const _hasIpc   = window.electronAPI && typeof window.electronAPI.burnCaptions === 'function';
+        const _styleName = styleSelect ? styleSelect.value : 'default';
+        const _needsAnimatedCanvas = (_styleName && _styleName !== 'classic')
+            || (karaokeCheck && karaokeCheck.checked)
+            || (emojiCheck && emojiCheck.checked)
+            || (brollCheck && brollCheck.checked)
+            || (progressCheck && progressCheck.checked);
 
-        let exportFps = 30;
-        try {
-            const probeStream = typeof sourceVideo.captureStream === 'function' ? sourceVideo.captureStream() : null;
-            const probeTrack = probeStream && probeStream.getVideoTracks ? probeStream.getVideoTracks()[0] : null;
-            const probeFps = probeTrack && probeTrack.getSettings ? probeTrack.getSettings().frameRate : null;
-            if (probeFps && Number.isFinite(probeFps)) exportFps = Math.max(24, Math.min(60, Math.round(probeFps)));
-            if (probeTrack) probeTrack.stop();
-            if (probeStream) probeStream.getTracks().forEach(track => track.stop());
-        } catch (e) {}
-
-        let exportLoopStopped = false;
-        const exportIntervalMs = Math.max(16, Math.round(1000 / exportFps));
-        let exportLoopTimer = null;
-        const runExportLoop = () => {
-            if (exportLoopStopped) return;
-            renderCaptionFrame(exportCtx, exportWidth, exportHeight, sourceVideo.currentTime, { isPreviewSurface: false });
-        };
-        renderCaptionFrame(exportCtx, exportWidth, exportHeight, 0, { isPreviewSurface: false });
-        const stream = exportCanvas.captureStream(exportFps);
-        const sourceCapture = typeof sourceVideo.captureStream === 'function' ? sourceVideo.captureStream() : null;
-        const sourceAudioTracks = sourceCapture && sourceCapture.getAudioTracks ? sourceCapture.getAudioTracks() : [];
-        const exportAudioTrack = sourceAudioTracks[0] || null;
-        if (exportAudioTrack) stream.addTrack(exportAudioTrack);
-
-        // Maximize absolute bitrate for crispy text rendering!
-        let options = { mimeType: 'video/webm; codecs=vp9' };
-        let ext = 'webm';
-        if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.4d4028, mp4a.40.2"')) {
-            options = { mimeType: 'video/mp4; codecs="avc1.4d4028, mp4a.40.2"' }; // Forces AAC audio!
-            ext = 'mp4';
-        } else if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.4d4028"')) {
-            options = { mimeType: 'video/mp4; codecs="avc1.4d4028"' };
-            ext = 'mp4';
-        } else if (MediaRecorder.isTypeSupported('video/mp4')) {
-            options = { mimeType: 'video/mp4' };
-            ext = 'mp4';
-        } else if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-            options = { mimeType: 'video/webm; codecs=vp8' };
+        if (!_needsAnimatedCanvas && _filePath && _hasIpc && generatedCaptions && generatedCaptions.length > 0) {
+            try {
+                const captionsForBurn = getValidatedCaptionBurnList();
+                if (!captionsForBurn.length) {
+                    throw new Error('No valid caption timings are available for export.');
+                }
+                statusText.innerHTML = '\u26a1 Sync export: burning timestamp-locked captions with FFmpeg...';
+                const _fontSize = Math.max(18, Math.round((Number(sizeSlider && sizeSlider.value) || 80) * 0.55));
+                const _result = await window.electronAPI.burnCaptions({
+                    videoPath: _filePath,
+                    captions: captionsForBurn,
+                    style: _styleName,
+                    fontSize: _fontSize,
+                    position: 'bottom'
+                });
+                if (_result && _result.ok) {
+                    statusText.innerHTML = '\u2705 Synced caption export done! Saved to Downloads: <strong>' + (_result.fileName || 'captioned video') + '</strong>.';
+                    exportBtn.textContent = 'Export Result';
+                    exportBtn.disabled = false;
+                    isRecording = false;
+                    console.log('[Caption Export] FFmpeg express export done:', _result.outputPath);
+                    if (window.electronAPI && typeof window.electronAPI.showItemInFolder === 'function' && _result.outputPath) {
+                        window.electronAPI.showItemInFolder(_result.outputPath);
+                    }
+                    if (window.electronAPI && window.electronAPI.showNotification) {
+                        window.electronAPI.showNotification('Caption Export', 'Synced caption export done!');
+                    }
+                    return;
+                }
+                throw new Error((_result && _result.error) || 'FFmpeg caption export failed.');
+            } catch (_ffErr) {
+                console.warn('[Caption Export] FFmpeg IPC failed, falling back to recorder:', _ffErr.message);
+                statusText.innerHTML = '\u26a0\ufe0f FFmpeg synced export failed - using recorder fallback. ' + (_ffErr.message || '');
+            }
         }
-        
-        // Target 12 Mbps for a balance of small file size and good visual quality
-        options.videoBitsPerSecond = 12000000; 
 
-        const recorder = new MediaRecorder(stream, options);
-        const recordedChunks = [];
-        recorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
-        recorder.onstop = () => {
-            exportLoopStopped = true;
-            if (exportLoopTimer) clearInterval(exportLoopTimer);
-            const blob = new Blob(recordedChunks, { type: options.mimeType.split(';')[0] });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = `captioned_video.${ext}`; a.click(); URL.revokeObjectURL(url);
-            isRecording = false; exportBtn.textContent = 'Export Result'; exportBtn.disabled = false;
-            statusText.innerHTML = "✅ Export completed!";
-            sourceVideo.pause();
+        // -- FALLBACK: MediaRecorder (all 3 bugs fixed) --
+
+        // FIX 1: Silence to speakers (muted + volume=0)
+        const _origMuted  = sourceVideo.muted;
+        const _origVolume = sourceVideo.volume;
+        sourceVideo.muted  = true;
+        sourceVideo.volume = 0;
+        sourceVideo.pause();
+        sourceVideo.playbackRate = 1.0;
+
+        // FIX 2: Wait for seeked BEFORE starting recorder (prevents 2-sec truncation bug)
+        await new Promise(resolve => {
+            if (Math.abs(sourceVideo.currentTime) < 0.05) { resolve(); return; }
+            sourceVideo.addEventListener('seeked', resolve, { once: true });
             sourceVideo.currentTime = 0;
-            renderPreviewNow(0);
-            updatePlayPauseLabel();
-            stream.getTracks().forEach(track => track.stop());
-            if (sourceCapture) {
-                try { sourceCapture.getTracks().forEach(track => track.stop()); } catch (e) {}
+        });
+        sourceVideo.currentTime = 0;
+        await new Promise(r => setTimeout(r, 80));
+
+        const _duration = sourceVideo.duration || 0;
+        if (!_duration || !isFinite(_duration)) {
+            statusText.innerHTML = '\u274c Cannot export: video duration unknown. Try reloading the video.';
+            isRecording = false; exportBtn.textContent = 'Export Result'; exportBtn.disabled = false;
+            sourceVideo.muted = _origMuted; sourceVideo.volume = _origVolume;
+            return;
+        }
+
+        const _expW = sourceVideo.videoWidth  || renderCanvas.width;
+        const _expH = sourceVideo.videoHeight || renderCanvas.height;
+        const _expCanvas = document.createElement('canvas');
+        _expCanvas.width = _expW; _expCanvas.height = _expH;
+        const _expCtx = _expCanvas.getContext('2d', { alpha: false });
+        const _expFps = 30;
+        const _expMs  = Math.round(1000 / _expFps);
+
+        renderCaptionFrame(_expCtx, _expW, _expH, 0, { isPreviewSurface: false });
+
+        const _stream = _expCanvas.captureStream(_expFps);
+
+        // FIX 3: AudioContext routes audio to recording ONLY (NOT to speakers)
+        let _expAudioCtx = null;
+        try {
+            _expAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const _dest = _expAudioCtx.createMediaStreamDestination();
+            const _src  = _expAudioCtx.createMediaElementSource(sourceVideo);
+            _src.connect(_dest); // recording stream ONLY - no connect to _expAudioCtx.destination
+            const _aTracks = _dest.stream.getAudioTracks();
+            if (_aTracks.length > 0) _stream.addTrack(_aTracks[0]);
+        } catch (_aErr) {
+            console.warn('[Caption Export] AudioContext failed, exporting video-only:', _aErr.message);
+        }
+
+        let _opts = { mimeType: 'video/webm; codecs=vp9' };
+        let _ext  = 'webm';
+        if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.4d4028, mp4a.40.2"')) {
+            _opts = { mimeType: 'video/mp4; codecs="avc1.4d4028, mp4a.40.2"' }; _ext = 'mp4';
+        } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+            _opts = { mimeType: 'video/mp4' }; _ext = 'mp4';
+        } else if (!MediaRecorder.isTypeSupported(_opts.mimeType)) {
+            _opts = { mimeType: 'video/webm; codecs=vp8' };
+        }
+        _opts.videoBitsPerSecond = 12000000;
+
+        const _rec    = new MediaRecorder(_stream, _opts);
+        const _chunks = [];
+        let   _expDone   = false;
+        let   _loopTimer = null;
+        let   _progTimer = null;
+        let   _watchdog  = null;
+
+        _rec.ondataavailable = e => { if (e.data.size > 0) _chunks.push(e.data); };
+
+        const _finishExport = () => {
+            if (_expDone) return;
+            _expDone = true;
+            if (_loopTimer) { clearInterval(_loopTimer); _loopTimer = null; }
+            if (_progTimer) { clearInterval(_progTimer); _progTimer = null; }
+            if (_watchdog)  { clearTimeout(_watchdog);  _watchdog  = null; }
+            try { renderCaptionFrame(_expCtx, _expW, _expH, _duration, { isPreviewSurface: false }); } catch(e) {}
+            _rec.requestData();
+            setTimeout(() => { try { _rec.stop(); } catch(e) {} }, 200);
+        };
+
+        _rec.onstop = () => {
+            if (_loopTimer) clearInterval(_loopTimer);
+            if (_progTimer) clearInterval(_progTimer);
+            if (_watchdog)  clearTimeout(_watchdog);
+
+            const _blob = new Blob(_chunks, { type: _opts.mimeType.split(';')[0] });
+            const _url  = URL.createObjectURL(_blob);
+            const _a    = document.createElement('a');
+            _a.href = _url; _a.download = 'captioned_video.' + _ext; _a.click();
+            URL.revokeObjectURL(_url);
+
+            isRecording = false;
+            exportBtn.textContent = 'Export Result';
+            exportBtn.disabled    = false;
+            statusText.innerHTML  = '\u2705 Export complete! <strong>captioned_video.' + _ext + '</strong> saved to Downloads.';
+
+            sourceVideo.pause(); sourceVideo.currentTime = 0;
+            sourceVideo.muted = _origMuted; sourceVideo.volume = _origVolume;
+            renderPreviewNow(0); updatePlayPauseLabel();
+            _stream.getTracks().forEach(t => t.stop());
+            if (_expAudioCtx) { try { _expAudioCtx.close(); } catch(e) {} }
+            console.log('[Caption Export] Done. Duration:', _duration.toFixed(2) + 's, chunks:', _chunks.length);
+            if (window.electronAPI && window.electronAPI.showNotification) {
+                window.electronAPI.showNotification('Caption Export', 'Captioned video exported successfully!');
             }
         };
-        recorder.start();
-        runExportLoop();
-        exportLoopTimer = setInterval(runExportLoop, exportIntervalMs);
-        sourceVideo.play();
-        const onEnd = () => {
-            if (!isRecording) return;
-            exportLoopStopped = true;
-            renderCaptionFrame(exportCtx, exportWidth, exportHeight, sourceVideo.duration || sourceVideo.currentTime, { isPreviewSurface: false });
-            if (exportLoopTimer) clearInterval(exportLoopTimer);
-            recorder.requestData();
-            setTimeout(() => {
-                if (isRecording) recorder.stop();
-            }, 80);
+
+        const _runLoop = () => {
+            if (_expDone) return;
+            renderCaptionFrame(_expCtx, _expW, _expH, sourceVideo.currentTime, { isPreviewSurface: false });
         };
-        sourceVideo.addEventListener('ended', onEnd, { once: true });
+
+        // FIX 4: recorder.start(250) with timeslice - ensures data collected throughout (not just on stop)
+        _rec.start(250);
+        _loopTimer = setInterval(_runLoop, _expMs);
+        _runLoop();
+
+        // Real-time 0-100% progress indicator
+        _progTimer = setInterval(() => {
+            if (_expDone || !isRecording) return;
+            const _ct  = sourceVideo.currentTime;
+            const _pct = _duration > 0 ? Math.min(100, Math.round((_ct / _duration) * 100)) : 0;
+            statusText.innerHTML = '\ud83c\udf9e\ufe0f Exporting captioned video: <strong>' + _pct + '%</strong>&nbsp;&nbsp;(' + _ct.toFixed(1) + 's / ' + _duration.toFixed(1) + 's) \u2014 please wait\u2026';
+            exportBtn.textContent = '\u23f3 Exporting ' + _pct + '%';
+        }, 500);
+
+        // FIX 5: Safety watchdog - force stop if ended event never fires
+        _watchdog = setTimeout(() => {
+            console.warn('[Caption Export] Watchdog triggered at', _duration + 5, 's');
+            _finishExport();
+        }, (_duration + 5) * 1000);
+
+        statusText.innerHTML = '\ud83c\udf9e\ufe0f Exporting captioned video: <strong>0%</strong>&nbsp;&nbsp;(0.0s / ' + _duration.toFixed(1) + 's) \u2014 please wait\u2026';
+
+        try { await sourceVideo.play(); } catch(_pErr) {
+            console.warn('[Caption Export] play() rejected:', _pErr);
+        }
+
+        // FIX 6: ended event stops recording at true video end
+        sourceVideo.addEventListener('ended', () => {
+            if (!isRecording) return;
+            _finishExport();
+        }, { once: true });
     });
+
 
     // stageCaptionExportBtn is handled by script.js — do not add a second listener here.
 

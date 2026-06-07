@@ -41,13 +41,13 @@ function App() {
 
   useEffect(() => {
     const scriptSources = [
-      "/logo-data.js",
-      "/script.js",
-      "/caption-script.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js",
-      "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js",
-      "/3d-engine.js",
-      "/dubbing-studio.js",
+      "../logo-data.js",
+      "../script.js",
+      "../caption-script.js",
+      "app://voice/vendor/three.min.js",
+      "app://voice/vendor/GLTFLoader.js",
+      "../3d-engine.js",
+      "../dubbing-studio.js",
     ];
 
     const loadScript = (src) =>

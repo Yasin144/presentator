@@ -17,7 +17,517 @@ import wave
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import asyncio
+import edge_tts
+import ssl
 
+# ── Edge TTS Async Helper & Converters ──────────────────────────────────────────
+# Allows fallback to Edge TTS neural voices for Hindi and Telugu synthesis since local
+# Chatterbox only speaks English.
+
+
+
+# ── Indic Transliteration Engine v2 (Hindi + Telugu → Phonetic Indian English) ─
+# Converts Devanagari/Telugu to phonetics that Chatterbox pronounces with Indian
+# accent when driven by the sc3/pattan voice reference (audio_prompt_path).
+# Key design: syllable hyphens + Indian vowel spellings + no false final-a.
+
+# ── Devanagari (Hindi) → Phonetic English ────────────────────────────────────
+_DEVA_VOWELS = {
+    'अ': 'u',   # schwa /ə/ — like English 'u' in 'but'
+    'आ': 'aa',
+    'इ': 'i',
+    'ई': 'ee',
+    'उ': 'u',
+    'ऊ': 'oo',
+    'ऋ': 'ri',
+    'ए': 'ay',  # Indian /eː/ not English /iː/
+    'ऐ': 'ai',
+    'ओ': 'oh',  # Indian /oː/
+    'औ': 'ow',
+    'अं': 'um',
+    'अः': 'uh',
+    'ॐ': 'om',
+}
+_DEVA_CONSONANTS = {
+    # Velars
+    'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
+    # Palatals
+    'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
+    # Retroflex
+    'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
+    # Dentals
+    'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+    # Labials
+    'प': 'p', 'फ': 'f', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+    # Sonorants
+    'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'ळ': 'l',
+    # Sibilants + glottal
+    'श': 'sh', 'ष': 'sh', 'स': 's', 'ह': 'h',
+    # Nukta (dotted) forms
+    'ड़': 'r', 'ढ़': 'rh', 'ज़': 'z', 'फ़': 'f', 'ग़': 'gh',
+    # Conjuncts
+    'क्ष': 'ksh', 'त्र': 'tr', 'ज्ञ': 'gn', 'श्र': 'shr',
+}
+_DEVA_MATRAS = {
+    'ा': 'aa', 'ि': 'i', 'ी': 'ee',
+    'ु': 'u',  'ू': 'oo', 'ृ': 'ri',
+    'े': 'ay', 'ै': 'ai', 'ो': 'oh', 'ौ': 'ow',
+    'ं': 'n',  'ः': 'h',  'ँ': 'n',
+    '्': None,   # virama — suppress inherent vowel (None = no output)
+    'ऽ': '',
+    '़': '',    # nukta — handled in consonant map
+}
+_DEVA_DIGITS = {
+    '०':'0','१':'1','२':'2','३':'3','४':'4',
+    '५':'5','६':'6','७':'7','८':'8','९':'9',
+}
+_DEVA_PUNCT = {'\u0964': '.', '\u0965': '.', '\u0970': '.'}
+
+
+# ── Telugu → Phonetic English ─────────────────────────────────────────────────
+_TELU_VOWELS = {
+    'అ': 'u',   # schwa
+    'ఆ': 'aa',
+    'ఇ': 'i',
+    'ఈ': 'ee',
+    'ఉ': 'u',
+    'ఊ': 'oo',
+    'ఋ': 'ri',
+    'ఎ': 'e',
+    'ఏ': 'ay',
+    'ఐ': 'ai',
+    'ఒ': 'o',
+    'ఓ': 'oh',
+    'ఔ': 'ow',
+    'అం': 'am',
+    'అః': 'ah',
+    'అఁ': 'am',
+    'ఓం': 'om',
+}
+_TELU_CONSONANTS = {
+    # Velars
+    'క': 'k', 'ఖ': 'kh', 'గ': 'g', 'ఘ': 'gh', 'ఙ': 'ng',
+    # Palatals
+    'చ': 'ch', 'ఛ': 'chh', 'జ': 'j', 'ఝ': 'jh', 'ఞ': 'ny',
+    # Retroflex
+    'ట': 't', 'ఠ': 'th', 'డ': 'd', 'ఢ': 'dh', 'ణ': 'n',
+    # Dentals
+    'త': 't', 'థ': 'th', 'ద': 'd', 'ధ': 'dh', 'న': 'n',
+    # Labials
+    'ప': 'p', 'ఫ': 'f', 'బ': 'b', 'భ': 'bh', 'మ': 'm',
+    # Sonorants
+    'య': 'y', 'ర': 'r', 'ల': 'l', 'వ': 'v', 'ళ': 'll', 'ఱ': 'r',
+    # Sibilants + glottal
+    'శ': 'sh', 'ష': 'sh', 'స': 's', 'హ': 'h',
+    # Conjuncts
+    'క్ష': 'ksh', 'జ్ఞ': 'gn', 'శ్ర': 'shr',
+}
+_TELU_MATRAS = {
+    'ా': 'aa', 'ి': 'i',  'ీ': 'ee',
+    'ు': 'u',  'ూ': 'oo', 'ృ': 'ri',
+    'ె': 'e',  'ే': 'ay', 'ై': 'ai',
+    'ొ': 'o',  'ో': 'oh', 'ౌ': 'ow',
+    'ం': 'm',  'ః': 'h',  'ఁ': 'm',
+    '్': None,   # virama — suppress inherent vowel
+}
+_TELU_DIGITS = {
+    '౦':'0','౧':'1','౨':'2','౩':'3','౪':'4',
+    '౫':'5','౬':'6','౭':'7','౮':'8','౯':'9',
+}
+
+def _deva_syllable_list(text: str):
+    """
+    Parse Devanagari into syllable tokens: (phoneme, has_next_char_that_is_vowel_mark).
+    Returns list of strings (phonemes).
+    """
+    result = []
+    chars = list(text)
+    i = 0
+    n = len(chars)
+    while i < n:
+        c = chars[i]
+        # Try longest match in consonants (3-char conjuncts)
+        triple = ''.join(chars[i:i+3])
+        double = ''.join(chars[i:i+2])
+        match_len = 0
+        phoneme = None
+        if triple in _DEVA_CONSONANTS:
+            phoneme = _DEVA_CONSONANTS[triple]; match_len = 3
+        elif double in _DEVA_CONSONANTS:
+            phoneme = _DEVA_CONSONANTS[double]; match_len = 2
+        elif c in _DEVA_CONSONANTS:
+            phoneme = _DEVA_CONSONANTS[c]; match_len = 1
+
+        if phoneme is not None:
+            i += match_len
+            # Look at the following character for matra or virama
+            if i < n and chars[i] in _DEVA_MATRAS:
+                matra_val = _DEVA_MATRAS[chars[i]]
+                i += 1
+                if matra_val is None:
+                    # Virama: no inherent vowel
+                    result.append(phoneme)
+                else:
+                    result.append(phoneme + matra_val)
+            else:
+                # No matra: add inherent schwa ONLY if not at absolute word end
+                at_word_end = (i >= n) or (chars[i] in ' .,!?;:')
+                if at_word_end:
+                    result.append(phoneme)   # no inherent vowel at word end
+                else:
+                    result.append(phoneme + 'u')  # schwa = 'u'
+            continue
+
+        if c in _DEVA_VOWELS:
+            result.append(_DEVA_VOWELS[c])
+            i += 1
+            continue
+        if c in _DEVA_MATRAS:
+            # Stray matra (shouldn't happen but handle gracefully)
+            val = _DEVA_MATRAS[c]
+            if val is not None:
+                result.append(val)
+            i += 1
+            continue
+        if c in _DEVA_DIGITS:
+            result.append(_DEVA_DIGITS[c])
+            i += 1
+            continue
+        if c in _DEVA_PUNCT:
+            result.append(_DEVA_PUNCT[c])
+            i += 1
+            continue
+        # Latin, space, punctuation — keep as-is
+        result.append(c)
+        i += 1
+    return result
+
+
+def _telu_syllable_list(text: str):
+    """Parse Telugu into phoneme list."""
+    result = []
+    chars = list(text)
+    i = 0
+    n = len(chars)
+    while i < n:
+        c = chars[i]
+        triple = ''.join(chars[i:i+3])
+        double = ''.join(chars[i:i+2])
+        match_len = 0
+        phoneme = None
+        if triple in _TELU_CONSONANTS:
+            phoneme = _TELU_CONSONANTS[triple]; match_len = 3
+        elif double in _TELU_CONSONANTS:
+            phoneme = _TELU_CONSONANTS[double]; match_len = 2
+        elif c in _TELU_CONSONANTS:
+            phoneme = _TELU_CONSONANTS[c]; match_len = 1
+
+        if phoneme is not None:
+            i += match_len
+            if i < n and chars[i] in _TELU_MATRAS:
+                matra_val = _TELU_MATRAS[chars[i]]
+                i += 1
+                if matra_val is None:
+                    result.append(phoneme)
+                else:
+                    result.append(phoneme + matra_val)
+            else:
+                at_word_end = (i >= n) or (chars[i] in ' .,!?;:')
+                if at_word_end:
+                    result.append(phoneme)
+                else:
+                    result.append(phoneme + 'u')
+            continue
+
+        if c in _TELU_VOWELS:
+            result.append(_TELU_VOWELS[c])
+            i += 1
+            continue
+        if c in _TELU_MATRAS:
+            val = _TELU_MATRAS[c]
+            if val is not None:
+                result.append(val)
+            i += 1
+            continue
+        if c in _TELU_DIGITS:
+            result.append(_TELU_DIGITS[c])
+            i += 1
+            continue
+        result.append(c)
+        i += 1
+    return result
+
+
+def _transliterate_devanagari(text: str) -> str:
+    return ''.join(_deva_syllable_list(text))
+
+
+def _transliterate_telugu(text: str) -> str:
+    return ''.join(_telu_syllable_list(text))
+
+
+def _transliterate_to_phonetic(text: str, lang: str) -> str:
+    """
+    Convert Indic script to phonetic English tuned for Indian accent.
+    Uses syllable-level phonemes that Chatterbox pronounces with Indian rhythm
+    when driven by the sc3/pattan reference voice via audio_prompt_path.
+    """
+    import re as _re
+    if lang == 'hi':
+        phonetic = _transliterate_devanagari(text)
+    elif lang == 'te':
+        phonetic = _transliterate_telugu(text)
+    else:
+        return text
+
+    # Post-processing for natural Chatterbox pronunciation:
+    # 1. Collapse triple+ same consonants (e.g. 'lll' → 'll')
+    phonetic = _re.sub(r'([bcdfghjklmnpqrstvwxyz]){2,}', r'', phonetic)
+    # 2. Max 2 identical vowels
+    phonetic = _re.sub(r'([aeiou]){2,}', r'', phonetic)
+    # 3. Fix awkward 'uu' that English reads as /juː/ → keep as is (oo is better)
+    phonetic = phonetic.replace('uu', 'oo')
+    # 4. Spaces
+    phonetic = _re.sub(r'\s+', ' ', phonetic).strip()
+    print(f"[Translit v2] {lang}: {repr(text[:40])} → {repr(phonetic[:70])}", flush=True)
+    return phonetic
+
+def detect_lang(text: str) -> str:
+    if any('ऀ' <= char <= 'ॿ' for char in text):
+        return 'hi'
+    if any('ఀ' <= char <= '౿' for char in text):
+        return 'te'
+    return 'en'
+
+
+def _mp3_bytes_to_wav(mp3_bytes: bytes, target_sr: int = 24000, leading_pad_ms: int = 80) -> bytes:
+    import subprocess, tempfile
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_in:
+        tmp_in.write(mp3_bytes)
+        tmp_in_path = tmp_in.name
+    tmp_out_path = tmp_in_path.replace(".mp3", ".wav")
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i",  tmp_in_path,
+                "-af", f"adelay={leading_pad_ms}:all=1,aresample={target_sr}",
+                "-ac", "1",
+                "-ar", str(target_sr),
+                "-sample_fmt", "s16",
+                tmp_out_path,
+            ],
+            capture_output=True, check=True,
+        )
+        with open(tmp_out_path, "rb") as f:
+            return f.read()
+    finally:
+        for p in (tmp_in_path, tmp_out_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+# ── OpenVoice Tone Color Converter Helpers ─────────────────────────────────────────
+_CONVERTER = None
+_TARGET_SE_MAP = {}
+_CONVERTER_LOCK = threading.Lock()
+
+def _ensure_converter(device="cpu", voice="sc3"):
+    global _CONVERTER, _TARGET_SE_MAP
+    voice = str(voice or "sc3").strip().lower()
+    voice_key = "sc3" if voice in ("sc3", "anjali") else "pattan"
+    ref_voice_path = PROJECT_ROOT / f"voice-reference-{voice_key}.wav"
+
+    if not ref_voice_path.exists():
+        raise FileNotFoundError(f"Reference voice not found: {ref_voice_path}")
+
+    try:
+        import openvoice_cli
+        from openvoice_cli.api import ToneColorConverter
+        from openvoice_cli.downloader import download_checkpoint
+
+        if _CONVERTER is None:
+            package_dir = Path(openvoice_cli.__file__).resolve().parent
+            checkpoint_dir = package_dir / "checkpoints" / "converter"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            if not (checkpoint_dir / "checkpoint.pth").exists() or not (checkpoint_dir / "config.json").exists():
+                download_checkpoint(str(checkpoint_dir))
+
+            _CONVERTER = ToneColorConverter(str(checkpoint_dir / "config.json"), device=device)
+            _CONVERTER.load_ckpt(str(checkpoint_dir / "checkpoint.pth"))
+
+        if voice_key not in _TARGET_SE_MAP:
+            print(f"[Voice] Extracting speaker embedding (SE) for {voice_key} using {ref_voice_path.name}...", flush=True)
+            _TARGET_SE_MAP[voice_key] = _CONVERTER.extract_se(str(ref_voice_path))
+
+        return _CONVERTER, _TARGET_SE_MAP[voice_key]
+    except Exception as exc:
+        print(f"[ERROR] Failed to ensure converter: {exc}", flush=True)
+        raise
+
+def _convert_voice_color(wav_bytes: bytes, voice: str) -> bytes:
+    import tempfile
+    import subprocess
+    voice_key = "sc3" if voice in ("sc3", "anjali") else "pattan"
+    
+    # Run tone color conversion in a thread-safe way
+    with _CONVERTER_LOCK:
+        # device is defined globally at startup
+        converter, target_se = _ensure_converter(device=device, voice=voice_key)
+        
+        with tempfile.TemporaryDirectory(prefix="voice-color-") as temp_dir:
+            temp_path = Path(temp_dir)
+            input_path = temp_path / "edge_input.wav"
+            prepared_path = temp_path / "prepared.wav"
+            converted_path = temp_path / "converted.wav"
+            output_path = temp_path / "output.wav"
+            
+            # Write input bytes
+            input_path.write_bytes(wav_bytes)
+            
+            # Prepare WAV (44100Hz, stereo) using ffmpeg
+            subprocess.run([
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", str(input_path),
+                "-ar", "44100",
+                "-ac", "2",
+                str(prepared_path),
+            ], check=True)
+            
+            # Extract source SE
+            source_se = converter.extract_se(str(prepared_path))
+            
+            # Convert
+            converter.convert(
+                audio_src_path=str(prepared_path),
+                src_se=source_se,
+                tgt_se=target_se,
+                output_path=str(converted_path),
+            )
+            
+            # Resample back to 24000Hz mono WAV (PCM s16)
+            subprocess.run([
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", str(converted_path),
+                "-ac", "1",
+                "-ar", "24000",
+                "-sample_fmt", "s16",
+                str(output_path),
+            ], check=True)
+            
+            return output_path.read_bytes()
+
+
+# ── Song/Audio Conversion Helpers (replaces Singing Server) ──────────────────────
+def _prepare_wav(input_path, output_path):
+    import subprocess
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_path),
+        "-ar", "44100",
+        "-ac", "2",
+        str(output_path),
+    ], check=True)
+
+def _write_mp3(input_path, output_path):
+    import subprocess
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_path),
+        "-codec:a", "libmp3lame",
+        "-b:a", "192k",
+        str(output_path),
+    ], check=True)
+
+def _safe_output_file_name(file_name, fallback_name="sc3-voice.mp3"):
+    safe_name = Path(str(file_name or fallback_name)).name.strip() or fallback_name
+    for character in '<>:"/\\|?*':
+        safe_name = safe_name.replace(character, "-")
+    if not Path(safe_name).suffix:
+        safe_name = f"{safe_name}.mp3"
+    return safe_name
+
+def _downloads_dir():
+    user_profile = Path.home()
+    downloads = user_profile / "Downloads"
+    if downloads.exists():
+        return downloads
+    return user_profile
+
+def _unique_download_path(file_name):
+    directory = _downloads_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    safe_name = _safe_output_file_name(file_name)
+    candidate = directory / safe_name
+    index = 1
+    while candidate.exists():
+        candidate = directory / f"{candidate.stem} ({index}){candidate.suffix}"
+        index += 1
+    return candidate
+
+def _run_direct_model(payload):
+    import base64
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="sc3-direct-") as temp_dir:
+        temp_path = Path(temp_dir)
+        input_path = temp_path / "input-audio"
+        prepared_path = temp_path / "input.wav"
+        converted_path = temp_path / "sc3-voice.wav"
+        output_path = temp_path / "sc3-voice.mp3"
+
+        song_base64 = str(payload.get("songBase64") or "")
+        file_path   = str(payload.get("filePath") or "")
+        voice       = payload.get("voice", "sc3")
+
+        print("[Voice] received direct convert-song request.", flush=True)
+
+        if file_path:
+            input_path = Path(file_path)
+            if not input_path.exists():
+                raise FileNotFoundError(f"filePath not found: {file_path}")
+            print(f"[Voice] reading audio from disk: {input_path.name}", flush=True)
+        elif song_base64:
+            input_path.write_bytes(base64.b64decode(song_base64))
+        else:
+            raise ValueError("Either filePath or songBase64 is required.")
+
+        print("[Voice] preparing uploaded audio.", flush=True)
+        _prepare_wav(input_path, prepared_path)
+        
+        with _CONVERTER_LOCK:
+            print(f"[Voice] converting uploaded audio to {voice}...", flush=True)
+            converter, target_se = _ensure_converter(device=device, voice=voice)
+            source_se = converter.extract_se(str(prepared_path))
+            converter.convert(
+                audio_src_path=str(prepared_path),
+                src_se=source_se,
+                tgt_se=target_se,
+                output_path=str(converted_path),
+            )
+            
+        print("[Voice] writing mp3 output.", flush=True)
+        _write_mp3(converted_path, output_path)
+
+        if not output_path.exists() or output_path.stat().st_size <= 0:
+            raise RuntimeError("Direct conversion did not create an output MP3.")
+
+        saved_path = ""
+        if bool(payload.get("saveToDownloads")):
+            saved_target = _unique_download_path(payload.get("outputFileName") or "sc3-voice.mp3")
+            saved_target.write_bytes(output_path.read_bytes())
+            saved_path = str(saved_target)
+            print(f"[Voice] saved mp3 to {saved_path}", flush=True)
+
+        return {
+            "ok": True,
+            "contentType": "audio/mpeg",
+            "audioBase64": base64.b64encode(output_path.read_bytes()).decode("ascii"),
+            "fileName": str(payload.get("outputFileName") or "sc3-voice.mp3"),
+            "savedPath": saved_path,
+        }
 # Force UTF-8 stdout
 if hasattr(sys.stdout, "reconfigure"):
     try: sys.stdout.reconfigure(encoding="utf-8")
@@ -27,13 +537,34 @@ if hasattr(sys.stdout, "reconfigure"):
 for _k in ("HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy"):
     os.environ.pop(_k, None)
 
+# ── Point HuggingFace to the correct cache location on D: drive ──────────────
+# Models are stored at D:\AppData\hf-cache\huggingface (3 GB, already downloaded).
+# Without this, from_pretrained() looks in C:\Users\patan\.cache\huggingface and
+# tries to re-download everything.
+_HF_CACHE = r"D:\AppData\hf-cache\huggingface"
+os.environ["HF_HOME"]               = _HF_CACHE
+os.environ["HUGGINGFACE_HUB_CACHE"] = _HF_CACHE + r"\hub"
+os.environ["HF_HUB_CACHE"]          = _HF_CACHE + r"\hub"
+os.environ["TRANSFORMERS_CACHE"]    = _HF_CACHE + r"\hub"
+# Prevent any network call — use local files only
+os.environ["HF_HUB_OFFLINE"]        = "1"
+os.environ["TRANSFORMERS_OFFLINE"]  = "1"
+print(f"[Voice] HF cache → {_HF_CACHE}", flush=True)
+
+
 # â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 PROJECT_ROOT  = Path(__file__).resolve().parent
 PORT          = 8426
 CACHE_LIMIT   = 256
 
-# Voice reference — sc3.mp4 voice clone (same teacher as paragraph.mp4)
-VOICE_REF_WAV = str(PROJECT_ROOT / "voice-reference-sc3.wav")
+VOICE_MAP = {
+    "sc3": str(PROJECT_ROOT / "voice-reference-sc3.wav"),
+    "anjali": str(PROJECT_ROOT / "voice-reference-sc3.wav"),
+    "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav")
+}
+CURRENT_VOICE = "sc3"
+
+VOICE_REF_WAV = VOICE_MAP["sc3"]
 VOICE_REF_SRC = str(Path.home() / "Downloads" / "paragraph.mp4")
 
 # â”€â”€ Load Chatterbox SYNCHRONOUSLY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -64,17 +595,16 @@ try:
     MODEL = ChatterboxTTS.from_pretrained(device=device)
 
     # Cap max_new_tokens inside t3.inference() — this is where the sampling loop runs.
-    # ChatterboxTTS.generate() doesn't expose max_new_tokens; it's internal to t3.
-    # Patching here cuts generation from ~400s (1000 tokens) to ~140s (350 tokens).
+    # 350 tokens = fast generation. Cache handles repeated sentences — no regeneration needed.
     _orig_t3_inf = MODEL.t3.inference
     def _capped_t3_inference(*args, **kwargs):
         kwargs['max_new_tokens'] = min(kwargs.get('max_new_tokens', 350), 350)
         return _orig_t3_inf(*args, **kwargs)
     MODEL.t3.inference = _capped_t3_inference
-    print(f"[Voice] max_new_tokens capped to 350 inside t3.inference for speed.", flush=True)
+    print(f"[Voice] max_new_tokens = 350 (fast). Cache handles repeated phrases.", flush=True)
 
     print(f"[Voice] Pre-computing sc3 voice embeddings...", flush=True)
-    MODEL.prepare_conditionals(VOICE_REF_WAV, exaggeration=0.2)
+    MODEL.prepare_conditionals(VOICE_REF_WAV, exaggeration=0.45)
 
     SAMPLE_RATE = getattr(MODEL, "sr", 24000)
     print(f"[Voice] ✔ Ready! sr={SAMPLE_RATE}, device={device}", flush=True)
@@ -109,11 +639,82 @@ def _add_pad(wav: bytes, ms: int = 40) -> bytes:
     return buf.getvalue()
 
 
+def _trim_silence(wav: bytes, threshold_db: float = -42.0, tail_ms: int = 80) -> bytes:
+    """Strip leading/trailing silence from a WAV clip.
+    Chatterbox fills unused max_new_tokens with silence, creating gaps
+    of 1-5 seconds between narration sentences. This removes that silence.
+    """
+    import numpy as np
+    with wave.open(io.BytesIO(wav), "rb") as r:
+        p = r.getparams()
+        raw = r.readframes(r.getnframes())
+    # Convert to float32 [-1, 1]
+    data = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    if data.size == 0:
+        return wav
+    threshold = 10.0 ** (threshold_db / 20.0)
+    loud = np.where(np.abs(data) > threshold)[0]
+    if loud.size == 0:
+        return wav  # entirely silent — return as-is
+    first = max(0, loud[0] - int(p.framerate * 0.02))   # 20ms lead-in
+    last  = min(data.size, loud[-1] + int(p.framerate * tail_ms / 1000))
+    trimmed = (data[first:last] * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setparams(p)
+        w.writeframes(trimmed.tobytes())
+    return buf.getvalue()
+
+
+
 # â”€â”€ Text cleaner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+def _clean_indian_slang(text: str) -> str:
+    import re
+    t = str(text or "").strip()
+    replacements = {
+        r'\b(gonna)\b': 'going to',
+        r'\b(wanna)\b': 'want to',
+        r'\b(gotta)\b': 'have to',
+        r'\b(lemme)\b': 'let me',
+        r'\b(gimme)\b': 'give me',
+        r'\b(kinda)\b': 'kind of',
+        r'\b(sorta)\b': 'sort of',
+        r'\b(dunno)\b': 'do not know',
+        r'\b(y\'all|yall)\b': 'all of you',
+        r'\b(ain\'t)\b': 'is not',
+        r'\b(can\'t)\b': 'cannot',
+        r'\b(won\'t)\b': 'will not',
+        r'\b(don\'t)\b': 'do not',
+        r'\b(doesn\'t)\b': 'does not',
+        r'\b(didn\'t)\b': 'did not',
+        r'\b(isn\'t)\b': 'is not',
+        r'\b(wasn\'t)\b': 'was not',
+        r'\b(weren\'t)\b': 'were not',
+        r'\b(haven\'t)\b': 'have not',
+        r'\b(hasn\'t)\b': 'has not',
+        r'\b(hadn\'t)\b': 'had not',
+        r'\b(wouldn\'t)\b': 'would not',
+        r'\b(shouldn\'t)\b': 'should not',
+        r'\b(couldn\'t)\b': 'could not',
+        r'\b(it\'s)\b': 'it is',
+        r'\b(that\'s)\b': 'that is',
+        r'\b(there\'s)\b': 'there is',
+        r'\b(they\'re)\b': 'they are',
+        r'\b(we\'re)\b': 'we are',
+        r'\b(you\'re)\b': 'you are',
+        r'\b(I\'m)\b': 'I am',
+        r'\b(I\'ve)\b': 'I have',
+        r'\b(I\'ll)\b': 'I will',
+        r'\b(I\'d)\b': 'I would',
+    }
+    for pattern, repl in replacements.items():
+        t = re.sub(pattern, repl, t, flags=re.I)
+    return t
 
 def _clean(text: str) -> str:
     import re
-    t = str(text or "").strip()
+    t = _clean_indian_slang(text)
     t = re.sub(r'\s*&\s*', ' and ', t)
     t = re.sub(r'\s*@\s*', ' at ', t)
     t = re.sub(r'(?<=\d)\s*%\b', ' percent', t)
@@ -125,9 +726,60 @@ def _clean(text: str) -> str:
     t = re.sub(r'^\s*[\u2022\-\*\+]\s+', '', t, flags=re.M)
     t = re.sub(r'^\s*\d+[.)]\s+', '', t, flags=re.M)
     t = re.sub(r'<[^>]+>', '', t)
-    t = re.sub(r'[<>@#$%^&+=\[\]{}\\/~|]', ' ', t)
+    t = re.sub(r'[<>@#$%^\&+=\[\]{}\\/~|]', ' ', t)
     t = re.sub(r'[ \t]+', ' ', t)
+    # ── Expand digits → spoken words ──────────────────────────────────────────
+    t = _expand_numbers(t)
     return t.strip()
+
+
+def _num_to_words(n: int) -> str:
+    """Convert a non-negative integer to English words (Indian numbering)."""
+    ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
+            'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen',
+            'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen']
+    tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty',
+            'sixty', 'seventy', 'eighty', 'ninety']
+    if n < 0:
+        return 'minus ' + _num_to_words(-n)
+    if n == 0:
+        return 'zero'
+    if n < 20:
+        return ones[n]
+    if n < 100:
+        return tens[n // 10] + ((' ' + ones[n % 10]) if n % 10 else '')
+    if n < 1000:
+        rest = n % 100
+        return ones[n // 100] + ' hundred' + ((' and ' + _num_to_words(rest)) if rest else '')
+    if n < 100000:
+        rest = n % 1000
+        return _num_to_words(n // 1000) + ' thousand' + ((' ' + _num_to_words(rest)) if rest else '')
+    if n < 10000000:
+        rest = n % 100000
+        return _num_to_words(n // 100000) + ' lakh' + ((' ' + _num_to_words(rest)) if rest else '')
+    rest = n % 10000000
+    return _num_to_words(n // 10000000) + ' crore' + ((' ' + _num_to_words(rest)) if rest else '')
+
+
+def _expand_numbers(text: str) -> str:
+    """Replace digit sequences with spoken words inside text."""
+    import re as _re
+    # Strip comma-separators from numbers (1,00,000 → 100000 and 1,000,000 → 1000000)
+    text = _re.sub(r'(?<=\d),(?=\d)', '', text)
+    def _replace(m):
+        raw = m.group(0)
+        if '.' in raw:
+            parts = raw.split('.', 1)
+            int_words  = _num_to_words(abs(int(parts[0])))
+            dec_digits = ' '.join(_num_to_words(int(d)) for d in parts[1])
+            sign = 'minus ' if raw.startswith('-') else ''
+            return sign + int_words + ' point ' + dec_digits
+        else:
+            return _num_to_words(abs(int(raw)))
+    return _re.sub(r'-?\b\d+(?:\.\d+)?\b', _replace, text)
+
+
+
 
 
 # â”€â”€ Synthesis engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -144,14 +796,15 @@ DISK_CACHE_DIR = PROJECT_ROOT / "tts-cache"
 DISK_CACHE_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
 DISK_CACHE_DIR.mkdir(exist_ok=True)
 
-def _disk_key(text: str) -> str:
-    """SHA-256 hash of cleaned text → used as filename."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+def _disk_key(text: str, voice: str) -> str:
+    """SHA-256 hash of voice + cleaned text → used as filename."""
+    composite = f"{voice}:{text}"
+    return hashlib.sha256(composite.encode("utf-8")).hexdigest()
 
-def _disk_cache_get(clean_text: str):
+def _disk_cache_get(clean_text: str, voice: str):
     """Return cached WAV bytes from disk, or None if not cached."""
     try:
-        p = DISK_CACHE_DIR / (_disk_key(clean_text) + ".wav")
+        p = DISK_CACHE_DIR / (_disk_key(clean_text, voice) + ".wav")
         if p.exists():
             p.touch()  # update mtime so LRU trimming keeps recently used files
             return p.read_bytes()
@@ -159,20 +812,27 @@ def _disk_cache_get(clean_text: str):
         pass
     return None
 
-def _disk_cache_set(clean_text: str, wav_bytes: bytes):
+def _disk_cache_set(clean_text: str, voice: str, wav_bytes: bytes):
     """Save WAV bytes to disk cache, then trim if over 1 GB."""
     try:
-        p = DISK_CACHE_DIR / (_disk_key(clean_text) + ".wav")
+        p = DISK_CACHE_DIR / (_disk_key(clean_text, voice) + ".wav")
         p.write_bytes(wav_bytes)
-        # Trim oldest files if over limit
-        files = sorted(DISK_CACHE_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime)
-        total = sum(f.stat().st_size for f in files)
-        while total > DISK_CACHE_MAX_BYTES and files:
+        
+        # Trim cache if over limit (1 GB)
+        files = sorted(
+            [f for f in DISK_CACHE_DIR.glob("*.wav")],
+            key=lambda x: x.stat().st_mtime
+        )
+        total_size = sum(f.stat().st_size for f in files)
+        while total_size > DISK_CACHE_MAX_BYTES and files:
             oldest = files.pop(0)
-            total -= oldest.stat().st_size
-            oldest.unlink(missing_ok=True)
-    except Exception:
-        pass
+            try:
+                total_size -= oldest.stat().st_size
+                oldest.unlink()
+            except Exception:
+                pass
+    except Exception as exc:
+        print(f"[Cache] Failed to write to disk cache: {exc}", flush=True)
 
 
 # Real-time synthesis progress â€” polled by the app banner
@@ -231,7 +891,13 @@ def _start_generate_progress(text: str, start_pct: int = 20, end_pct: int = 81):
     return stop_event
 
 
-def synthesize(text: str) -> bytes:
+def synthesize(text: str, voice: str = "sc3") -> bytes:
+    global CURRENT_VOICE
+    # Normalize voice name
+    voice = str(voice or "sc3").strip().lower()
+    if voice not in VOICE_MAP:
+        voice = "sc3"
+    
     with _synth_lock:
         _set_progress(STAGES[0][0], STAGES[0][1], active=True, text=text)
         clean = _clean(text)
@@ -239,27 +905,145 @@ def synthesize(text: str) -> bytes:
             _set_progress("idle", 0, active=False)
             raise ValueError("Empty text after cleaning.")
 
+        # Check if we need to switch voice embeddings
+        if voice != CURRENT_VOICE:
+            print(f"[Voice] Switching voice from {CURRENT_VOICE} to {voice}...", flush=True)
+            ref_wav = VOICE_MAP[voice]
+            if not os.path.exists(ref_wav):
+                print(f"[ERROR] Voice reference WAV for {voice} not found: {ref_wav}. Keeping {CURRENT_VOICE}.", flush=True)
+            else:
+                try:
+                    # Re-prepare conditionals
+                    MODEL.prepare_conditionals(ref_wav, exaggeration=0.45)
+                    CURRENT_VOICE = voice
+                    print(f"[Voice] Switched voice successfully to {voice}!", flush=True)
+                except Exception as e:
+                    print(f"[ERROR] Failed to switch voice embeddings to {voice}: {e}", flush=True)
+                    traceback.print_exc()
+
+        # Normalize voice key for caches
+        voice_key = "sc3" if voice in ("sc3", "anjali") else voice
+        cache_key = (clean, voice_key)
+
         # 1. RAM cache hit — instant
         wav = None
         with _cache_lock:
-            if clean in _cache:
-                _cache.move_to_end(clean)
-                wav = _cache[clean]
+            if cache_key in _cache:
+                _cache.move_to_end(cache_key)
+                wav = _cache[cache_key]
         if wav is not None:
             _set_progress("Done (RAM cache)", 100, active=False, cached=True, text=text)
             return wav
 
         # 2. Disk cache hit — near-instant (no AI needed)
-        wav = _disk_cache_get(clean)
+        wav = _disk_cache_get(clean, voice_key)
         if wav is not None:
             with _cache_lock:
-                _cache[clean] = wav
-                _cache.move_to_end(clean)
+                _cache[cache_key] = wav
+                _cache.move_to_end(cache_key)
                 while len(_cache) > CACHE_LIMIT:
                     _cache.popitem(last=False)
             _set_progress("Done (disk cache)", 100, active=False, cached=True, text=text)
-            print(f"[Cache] Disk hit: {clean[:50]!r}", flush=True)
+            print(f"[Cache] Disk hit: {clean[:50]!r} ({voice_key})", flush=True)
             return wav
+
+        # ── Hindi/Telugu: Edge TTS → SC3 Singing Server (OpenVoice timbre transfer) ──
+        # Strict rule: sc3/pattan voice only. For Hindi/Telugu:
+        #   1. Synthesise speech via Edge TTS in a dedicated worker thread
+        #   2. Send audio to sc3-singing-server (port 8431) for OpenVoice voice conversion
+        #   Result: sc3/pattan VOICE with correct Hindi/Telugu language phonetics
+        lang = detect_lang(clean)
+        if lang in ('hi', 'te'):
+            print(f"[Voice] Detected '{lang}' — Edge TTS + SC3 Singing (OpenVoice) → {voice_key}", flush=True)
+            try:
+                import concurrent.futures, tempfile, subprocess as _sp, base64 as _b64
+                import urllib.request as _ur, json as _js
+                from pathlib import Path as _P
+
+                HINDI_EDGE_VOICES  = {"pattan": "hi-IN-MadhurNeural", "sc3": "hi-IN-SwaraNeural",  "anjali": "hi-IN-SwaraNeural"}
+                TELUGU_EDGE_VOICES = {"pattan": "te-IN-MohanNeural",   "sc3": "te-IN-ShrutiNeural", "anjali": "te-IN-ShrutiNeural"}
+                edge_voice = (HINDI_EDGE_VOICES if lang == 'hi' else TELUGU_EDGE_VOICES).get(voice_key, "hi-IN-SwaraNeural")
+                print(f"[Voice] Edge TTS voice: {edge_voice}", flush=True)
+                _set_progress("Synthesising Hindi/Telugu via Edge TTS...", 20, active=True, text=text)
+
+                # ── Step 1: Edge TTS in a worker thread (avoids asyncio event-loop conflicts) ──
+                def _edge_tts_worker(txt, vid):
+                    import asyncio as _aio, edge_tts as _etts
+                    async def _run():
+                        communicate = _etts.Communicate(txt, vid)
+                        chunks = []
+                        async for chunk in communicate.stream():
+                            if chunk["type"] == "audio":
+                                chunks.append(chunk["data"])
+                        return b"".join(chunks)
+                    return _aio.run(_run())
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                    fut = _pool.submit(_edge_tts_worker, clean, edge_voice)
+                    mp3_bytes = fut.result(timeout=90)
+
+                if not mp3_bytes:
+                    raise RuntimeError("Edge TTS returned empty audio")
+                print(f"[Voice] Edge TTS: {len(mp3_bytes)} MP3 bytes received", flush=True)
+
+                # ── Step 2: OpenVoice timbre conversion via singing server (port 8431) ──
+                _set_progress("Converting voice timbre via SC3 Singing (OpenVoice)...", 50, active=True, text=text)
+
+                with tempfile.TemporaryDirectory(prefix="hi-te-voice-") as tmpdir:
+                    tmp          = _P(tmpdir)
+                    mp3_in       = tmp / "edge.mp3"
+                    wav44        = tmp / "edge44.wav"
+                    mp3_out      = tmp / "sc3_result.mp3"
+                    wav_final    = tmp / "final.wav"
+
+                    mp3_in.write_bytes(mp3_bytes)
+
+                    # Resample to 44100Hz stereo (required by OpenVoice)
+                    _sp.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                             "-i", str(mp3_in), "-ar", "44100", "-ac", "2", str(wav44)],
+                            check=True)
+
+                    # POST to singing server for OpenVoice conversion
+                    payload_bytes = _js.dumps({
+                        "filePath": str(wav44), "voice": voice_key, "saveToDownloads": False,
+                    }).encode("utf-8")
+                    req = _ur.Request("http://127.0.0.1:8431/api/convert-song",
+                                      data=payload_bytes,
+                                      headers={"Content-Type": "application/json"},
+                                      method="POST")
+                    print(f"[Voice] Calling singing server (port 8431) for OpenVoice conversion...", flush=True)
+                    with _ur.urlopen(req, timeout=300) as resp:
+                        result = _js.loads(resp.read())
+
+                    if not result.get("ok"):
+                        raise RuntimeError(f"Singing server error: {result.get('error', 'unknown')}")
+
+                    print(f"[Voice] OpenVoice conversion done!", flush=True)
+
+                    # Decode result MP3 → 24000Hz mono WAV for the app
+                    mp3_out.write_bytes(_b64.b64decode(result["audioBase64"]))
+                    _sp.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                             "-i", str(mp3_out), "-ac", "1", "-ar", "24000", "-sample_fmt", "s16", str(wav_final)],
+                            check=True)
+                    wav = wav_final.read_bytes()
+
+                # Cache result
+                with _cache_lock:
+                    _cache[cache_key] = wav
+                    _cache.move_to_end(cache_key)
+                    while len(_cache) > CACHE_LIMIT:
+                        _cache.popitem(last=False)
+                _disk_cache_set(clean, voice_key, wav)
+
+                _set_progress("Done", 100, active=False, cached=False, text=text)
+                print(f"[Voice] ✔ {lang} → {voice_key} via Edge TTS + OpenVoice (singing server)", flush=True)
+                return wav
+
+            except Exception as e:
+                print(f"[Voice] Hindi/Telugu singing conversion FAILED: {e}", flush=True)
+                traceback.print_exc()
+
+
 
         _set_progress(STAGES[1][0], STAGES[1][1], active=True, text=text)
 
@@ -267,12 +1051,15 @@ def synthesize(text: str) -> bytes:
             _set_progress(STAGES[2][0], STAGES[2][1], active=True, text=text)
             progress_stop = _start_generate_progress(text)
             try:
+                # MAX FIDELITY: audio_prompt_path feeds the reference wav directly
+                # into the generation loop — Chatterbox hears the voice and clones it
+                current_ref = VOICE_MAP.get(CURRENT_VOICE, VOICE_MAP["sc3"])
                 wav_t = MODEL.generate(
                     clean,
-                    audio_prompt_path=None,
-                    exaggeration=0.2,
-                    cfg_weight=0.5,
-                    temperature=0.7,
+                    audio_prompt_path=current_ref,
+                    exaggeration=0.3,
+                    cfg_weight=0.9,
+                    temperature=0.45,
                     repetition_penalty=1.2,
                 )
             finally:
@@ -283,17 +1070,17 @@ def synthesize(text: str) -> bytes:
             raise
 
         _set_progress(STAGES[4][0], STAGES[4][1], active=True, text=text)
-        wav = _add_pad(_to_wav(wav_t))
+        wav = _trim_silence(_add_pad(_to_wav(wav_t)))  # strip Chatterbox trailing silence
 
         with _cache_lock:
-            _cache[clean] = wav
-            _cache.move_to_end(clean)
+            _cache[cache_key] = wav
+            _cache.move_to_end(cache_key)
             while len(_cache) > CACHE_LIMIT:
                 _cache.popitem(last=False)
 
         # 3. Save to disk cache for future app restarts
-        _disk_cache_set(clean, wav)
-        print(f"[Cache] Saved to disk: {clean[:50]!r}", flush=True)
+        _disk_cache_set(clean, voice_key, wav)
+        print(f"[Cache] Saved to disk: {clean[:50]!r} ({voice_key})", flush=True)
 
         _set_progress(STAGES[5][0], active=False, pct=100, cached=False, text=text)
         return wav
@@ -367,19 +1154,29 @@ class Handler(BaseHTTPRequestHandler):
                 "cacheEntries":  len(_cache),
                 "device":        device,
                 "error":         "",
+                "modelReady":      True,
+                "converterWarmed": True,
             })
             return
 
         if self.path.startswith("/voices"):
             self._json({
-                "ok": True, "locked": True,
-                "voices": [{
-                    "shortName":    "paragraph-cloned",
-                    "friendlyName": "paragraph.mp4 Voice Clone [LOCKED]",
-                    "gender": "Female", "locale": "en-IN",
-                    "current": True, "locked": True,
-                }],
-                "active": "paragraph-cloned",
+                "ok": True, "locked": False,
+                "voices": [
+                    {
+                        "shortName":    "sc3",
+                        "friendlyName": "sc3 cloned voice",
+                        "gender": "Female", "locale": "en-IN",
+                        "current": CURRENT_VOICE in ("sc3", "anjali"), "locked": False,
+                    },
+                    {
+                        "shortName":    "pattan",
+                        "friendlyName": "pattan voice",
+                        "gender": "Male", "locale": "en-IN",
+                        "current": CURRENT_VOICE == "pattan", "locked": False,
+                    }
+                ],
+                "active": CURRENT_VOICE,
             })
             return
 
@@ -407,6 +1204,15 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "Route not found."}, 404)
 
     def do_POST(self):
+        if self.path == "/api/convert-song":
+            try:
+                payload = self._read_json()
+                res = _run_direct_model(payload)
+                self._json(res)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
         if self.path == "/api/vision/analyze":
             try:
                 import re
@@ -423,8 +1229,22 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/set-voice":
-            self._json({"ok": True, "voice": "sc3-cloned", "locked": True,
-                        "message": "Voice is permanently locked to sc3.mp4 clone."})
+            try:
+                payload = self._read_json()
+                voice   = payload.get("voice", "sc3")
+                voice = str(voice or "sc3").strip().lower()
+                if voice not in VOICE_MAP:
+                    voice = "sc3"
+                global CURRENT_VOICE
+                if voice != CURRENT_VOICE:
+                    ref_wav = VOICE_MAP[voice]
+                    if os.path.exists(ref_wav):
+                        MODEL.prepare_conditionals(ref_wav, exaggeration=0.45)
+                        CURRENT_VOICE = voice
+                self._json({"ok": True, "voice": CURRENT_VOICE, "locked": False,
+                            "message": f"Active voice is set to {CURRENT_VOICE}."})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
             return
 
         if self.path.startswith("/api/narrate/progress"):
@@ -437,11 +1257,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "Route not found."}, 404)
             return
 
-        # â”€â”€ Narrate â€” sc3.mp4 cloned voice ONLY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Narrate ── sc3 and pattan voices ──────────────────────────
         try:
             payload   = self._read_json()
             text      = payload.get("text", "")
-            wav_bytes = synthesize(text)
+            voice     = payload.get("voice") or payload.get("generationOptions", {}).get("voice") or "sc3"
+            wav_bytes = synthesize(text, voice)
             if self._headers(200, "audio/wav", len(wav_bytes)):
                 self._write(wav_bytes)
         except _DISC:

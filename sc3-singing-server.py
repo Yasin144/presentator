@@ -14,7 +14,7 @@ MODEL_DIR = ROOT / "AI_Models" / "sc3-singing"
 CONFIG_PATH = MODEL_DIR / "singing-model.json"
 REFERENCE_VOICE = ROOT / "voice-reference-sc3.wav"
 _CONVERTER = None
-_TARGET_SE = None
+_TARGET_SE_MAP = {}
 _CONVERTER_ERROR = ""
 _CONVERTER_LOCK = threading.Lock()
 
@@ -84,7 +84,7 @@ def _model_status():
         "port": PORT,
         "modelReady": True,
         "mode": "direct-openvoice" if direct_ready else "external-command",
-        "converterWarmed": _CONVERTER is not None and _TARGET_SE is not None,
+        "converterWarmed": _CONVERTER is not None and bool(_TARGET_SE_MAP),
         "modelDir": str(MODEL_DIR),
         "message": "sc3 direct voice replacement is ready." if direct_ready else "Separate sc3 singing model is ready.",
     }
@@ -93,7 +93,7 @@ def _model_status():
 def _direct_converter_importable():
     try:
         import openvoice_cli  # noqa: F401
-        return REFERENCE_VOICE.exists()
+        return True
     except Exception:
         return False
 
@@ -147,29 +147,37 @@ def _unique_download_path(file_name):
     return candidate
 
 
-def _ensure_converter(device="cpu"):
-    global _CONVERTER, _TARGET_SE, _CONVERTER_ERROR
-    if _CONVERTER is not None and _TARGET_SE is not None:
-        return _CONVERTER, _TARGET_SE
+def _ensure_converter(device="cpu", voice="sc3"):
+    global _CONVERTER, _TARGET_SE_MAP, _CONVERTER_ERROR
+    voice = str(voice or "sc3").strip().lower()
+    voice_key = "sc3" if voice in ("sc3", "anjali") else "pattan"
+    voice_file = "voice-reference-sc3.wav" if voice_key == "sc3" else "voice-reference-pattan.wav"
+    ref_voice_path = ROOT / voice_file
+
+    if not ref_voice_path.exists():
+        raise FileNotFoundError(f"Reference voice not found: {ref_voice_path}")
 
     try:
         import openvoice_cli
         from openvoice_cli.api import ToneColorConverter
         from openvoice_cli.downloader import download_checkpoint
 
-        package_dir = Path(openvoice_cli.__file__).resolve().parent
-        checkpoint_dir = package_dir / "checkpoints" / "converter"
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        if not (checkpoint_dir / "checkpoint.pth").exists() or not (checkpoint_dir / "config.json").exists():
-            download_checkpoint(str(checkpoint_dir))
+        if _CONVERTER is None:
+            package_dir = Path(openvoice_cli.__file__).resolve().parent
+            checkpoint_dir = package_dir / "checkpoints" / "converter"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            if not (checkpoint_dir / "checkpoint.pth").exists() or not (checkpoint_dir / "config.json").exists():
+                download_checkpoint(str(checkpoint_dir))
 
-        converter = ToneColorConverter(str(checkpoint_dir / "config.json"), device=device)
-        converter.load_ckpt(str(checkpoint_dir / "checkpoint.pth"))
-        target_se = converter.extract_se(str(REFERENCE_VOICE))
-        _CONVERTER = converter
-        _TARGET_SE = target_se
+            _CONVERTER = ToneColorConverter(str(checkpoint_dir / "config.json"), device=device)
+            _CONVERTER.load_ckpt(str(checkpoint_dir / "checkpoint.pth"))
+
+        if voice_key not in _TARGET_SE_MAP:
+            print(f"[sc3-singing] extracting SE for {voice_key} using {ref_voice_path.name}...", flush=True)
+            _TARGET_SE_MAP[voice_key] = _CONVERTER.extract_se(str(ref_voice_path))
+
         _CONVERTER_ERROR = ""
-        return _CONVERTER, _TARGET_SE
+        return _CONVERTER, _TARGET_SE_MAP[voice_key]
     except Exception as exc:
         _CONVERTER_ERROR = str(exc)
         raise
@@ -185,6 +193,7 @@ def _run_direct_model(payload):
 
         song_base64 = str(payload.get("songBase64") or "")
         file_path   = str(payload.get("filePath") or "")
+        voice       = payload.get("voice", "sc3")
 
         print("[sc3-singing] received direct conversion request.", flush=True)
 
@@ -204,8 +213,8 @@ def _run_direct_model(payload):
         print("[sc3-singing] preparing uploaded audio.", flush=True)
         _prepare_wav(input_path, prepared_path)
         with _CONVERTER_LOCK:
-            print("[sc3-singing] converting uploaded audio to sc3.", flush=True)
-            converter, target_se = _ensure_converter("cpu")
+            print(f"[sc3-singing] converting uploaded audio to {voice}.", flush=True)
+            converter, target_se = _ensure_converter("cpu", voice)
             source_se = converter.extract_se(str(prepared_path))
             converter.convert(
                 audio_src_path=str(prepared_path),

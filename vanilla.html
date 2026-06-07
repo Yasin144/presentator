@@ -578,24 +578,69 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 </div>
               </div>
 
-              <!-- ── Voice Picker ─────────────────────────────────────────── -->
+              <!-- Language Model Picker -->
               <div class="voice-picker-card" id="voicePickerCard">
                 <div class="voice-picker-head">
                   <span class="module-icon" style="font-size:11px;padding:4px 7px;">VOX</span>
-                  <span class="voice-picker-title">Narration Voice</span>
-                  <span class="voice-active-badge" id="voiceActiveBadge">Loading…</span>
+                  <span class="voice-picker-title">Language Model</span>
+                  <span class="voice-active-badge" id="voiceActiveBadge">Loading&#8230;</span>
                 </div>
-                <input
-                  id="voiceSearchInput"
-                  class="voice-search-input"
-                  type="search"
-                  placeholder="Search voices…"
-                  autocomplete="off"
-                />
-                <div class="voice-list-scroll" id="voiceListScroll">
-                  <p class="upload-copy" style="padding:10px 14px;opacity:.6">Loading voices…</p>
+
+                <!-- SC3 Chatterbox Models grouped -->
+                <div style="padding:8px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.08em;opacity:.5;text-transform:uppercase;">
+                  &#127908; SC3 Chatterbox &#8212; Reference Voice Clone
+                </div>
+                <div id="langModelGroup" style="display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 10px;">
+                  <button class="lang-model-btn" id="voiceBtn-anjali" data-voice="anjali"
+                    style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 14px;border-radius:10px;border:2px solid transparent;cursor:pointer;background:var(--card-bg,#1e2030);transition:all .18s;"
+                    title="English SC3 cloned voice - Chatterbox TTS">
+                    <span style="font-size:18px;">&#127468;&#127463;</span>
+                    <span style="font-size:11px;font-weight:700;">English</span>
+                    <span style="font-size:9px;opacity:.6;">SC3</span>
+                  </button>
+                  <button class="lang-model-btn" id="voiceBtn-pattan" data-voice="pattan"
+                    style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 14px;border-radius:10px;border:2px solid transparent;cursor:pointer;background:var(--card-bg,#1e2030);transition:all .18s;"
+                    title="English Pattan cloned voice - Chatterbox TTS">
+                    <span style="font-size:18px;">&#127468;&#127463;</span>
+                    <span style="font-size:11px;font-weight:700;">English</span>
+                    <span style="font-size:9px;opacity:.6;">Pattan</span>
+                  </button>
+                  <button class="lang-model-btn" id="voiceBtn-hindi" data-voice="hindi"
+                    style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 14px;border-radius:10px;border:2px solid transparent;cursor:pointer;background:var(--card-bg,#1e2030);transition:all .18s;"
+                    title="Hindi reference voice - Chatterbox TTS port 8432">
+                    <span style="font-size:18px;">&#127470;&#127475;</span>
+                    <span style="font-size:11px;font-weight:700;">&#2361;&#2367;&#2306;&#2342;&#2368;</span>
+                    <span style="font-size:9px;opacity:.6;">Hindi</span>
+                  </button>
+                  <button class="lang-model-btn" id="voiceBtn-telugu" data-voice="telugu"
+                    style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 14px;border-radius:10px;border:2px solid transparent;cursor:pointer;background:var(--card-bg,#1e2030);transition:all .18s;"
+                    title="Telugu reference voice - Chatterbox TTS port 8433">
+                    <span style="font-size:18px;">&#127470;&#127475;</span>
+                    <span style="font-size:11px;font-weight:700;">&#3108;&#3142;&#3122;&#3137;&#3095;&#3137;</span>
+                    <span style="font-size:9px;opacity:.6;">Telugu</span>
+                  </button>
+                </div>
+
+                <!-- Divider between Chatterbox and Edge TTS -->
+                <div style="margin:0 12px;border-top:1px solid rgba(255,255,255,.08);"></div>
+
+                <!-- Edge TTS separately -->
+                <div style="padding:8px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.08em;opacity:.5;text-transform:uppercase;">
+                  &#9729; Edge TTS &#8212; Microsoft Neural (Cloud)
+                </div>
+                <div style="padding:0 12px 12px;">
+                  <button class="lang-model-btn" id="voiceBtn-edge" data-voice="edge"
+                    style="display:flex;flex-direction:row;align-items:center;gap:8px;padding:8px 16px;border-radius:10px;border:2px solid transparent;cursor:pointer;background:var(--card-bg,#1e2030);transition:all .18s;width:100%;"
+                    title="Microsoft Edge TTS - cloud neural voice, no reference clone">
+                    <span style="font-size:18px;">&#9729;</span>
+                    <div style="text-align:left;">
+                      <div style="font-size:11px;font-weight:700;">Edge TTS</div>
+                      <div style="font-size:9px;opacity:.6;">Microsoft Neural &#183; No voice clone</div>
+                    </div>
+                  </button>
                 </div>
               </div>
+
             </div>
           </div>
 
@@ -723,12 +768,36 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <input id="captionVideoInput" class="image-input" type="file" accept="video/*" onchange="console.log('HARD_CHANGE_FIRED', this.files)">
 
             <div class="toolbar toolbar-compact">
+              <button id="captionUseVoiceTextBtn" class="primary-btn" type="button"
+                style="background:linear-gradient(135deg,#7c6ef7,#a855f7);border:none;display:flex;align-items:center;gap:6px;"
+                title="Use the narration text from the last TTS generation as captions - no transcription needed!">
+                &#128172; Use Voice Text as Captions
+              </button>
               <button id="captionActionBtn" class="primary-btn" type="button" disabled>Generate Captions (Upload Source First)</button>
               <button id="captionExportBtn" class="accent-btn hidden" type="button">Export Result</button>
               <button id="captionViralShortBtn" class="primary-btn hidden" type="button" style="background:#f90;">✂️
                 Export 15s Viral Short</button>
               <button id="captionResetBtn" class="ghost-btn hidden" type="button">Clear Video</button>
+              <span style="width:1px;height:28px;background:rgba(255,255,255,.12);margin:0 4px;align-self:center;"></span>
+              <span style="font-size:10px;font-weight:700;opacity:.5;white-space:nowrap;align-self:center;">&#127760; Translate:</span>
+              <button id="captionTranslateEnBtn" class="ghost-btn" type="button"
+                style="padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;border:2px solid rgba(255,255,255,.2);"
+                title="Translate all captions to English">
+                &#127468;&#127463; EN
+              </button>
+              <button id="captionTranslateHiBtn" class="ghost-btn" type="button"
+                style="padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;border:2px solid rgba(255,150,0,.45);color:#ffaa00;"
+                title="Translate all captions to Hindi">
+                &#127470;&#127475; &#2361;&#2367;
+              </button>
+              <button id="captionTranslateTeBtn" class="ghost-btn" type="button"
+                style="padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;border:2px solid rgba(80,200,255,.45);color:#50c8ff;"
+                title="Translate all captions to Telugu">
+                &#127470;&#127475; &#3108;&#3142;
+              </button>
             </div>
+
+
 
 
             <div class="display-style-card"
@@ -1108,15 +1177,58 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             </button>
           </div>
 
-          <!-- Progress Bar -->
+          <!-- Rich Queue Progress Panel -->
           <div id="singSongProgress" class="progress-indicator hidden" role="progressbar"
             aria-live="polite" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
-            style="margin-top:0.75rem;">
-            <div class="progress-track">
-              <span id="singSongProgressBar" class="progress-fill" style="background:linear-gradient(90deg,#7c3aed,#a855f7);"></span>
+            style="margin-top:0.75rem; background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.25); border-radius:12px; padding:14px 16px;">
+
+            <!-- Top row: big % + counters -->
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+              <div style="display:flex; align-items:baseline; gap:6px;">
+                <span id="singSongProgressPct" style="font-size:2.2rem; font-weight:800; color:#a855f7; line-height:1; font-variant-numeric:tabular-nums;">0</span>
+                <span style="font-size:1rem; color:#7c3aed; font-weight:600;">%</span>
+              </div>
+              <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+                <span id="singSongQueueCounter" style="font-size:0.85rem; font-weight:700; color:#e5e7eb;">0 / 0 videos</span>
+                <span id="singSongProgressEta"  style="font-size:0.72rem; color:#9ca3af;">—</span>
+              </div>
             </div>
-            <p id="singSongProgressLabel" class="upload-copy" style="margin-top:4px;">0% complete</p>
+
+            <!-- Full-width progress track -->
+            <div style="position:relative; height:14px; background:rgba(0,0,0,0.3); border-radius:7px; overflow:hidden; margin-bottom:10px;">
+              <span id="singSongProgressBar"
+                style="display:block; height:100%; width:0%; border-radius:7px;
+                       background:linear-gradient(90deg,#6d28d9,#a855f7,#ec4899);
+                       transition:width 0.5s cubic-bezier(0.4,0,0.2,1);
+                       box-shadow:0 0 12px rgba(168,85,247,0.5);">
+              </span>
+              <!-- Shimmer animation overlay -->
+              <span id="singSongProgressShimmer"
+                style="position:absolute;top:0;left:-100%;width:60%;height:100%;
+                       background:linear-gradient(90deg,transparent,rgba(255,255,255,0.18),transparent);
+                       animation:queueShimmer 1.5s infinite linear; display:none;">
+              </span>
+            </div>
+
+            <!-- Current video label -->
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+              <span id="singSongProgressSpinner" style="font-size:1rem; animation:queueSpin 1s linear infinite; display:none;">⚙️</span>
+              <p id="singSongProgressLabel" style="font-size:0.78rem; color:#c4b5fd; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;">Ready</p>
+            </div>
+
+            <!-- Elapsed + speed row -->
+            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+              <span style="font-size:0.7rem; color:#6b7280;">⏱ Elapsed: <strong id="singSongElapsed" style="color:#9ca3af;">0:00</strong></span>
+              <span style="font-size:0.7rem; color:#6b7280;">🏁 ETA: <strong id="singSongEtaDetail" style="color:#9ca3af;">calculating…</strong></span>
+              <span style="font-size:0.7rem; color:#6b7280;">✅ Done: <strong id="singSongDoneCount" style="color:#34d399;">0</strong></span>
+              <span style="font-size:0.7rem; color:#6b7280;">❌ Failed: <strong id="singSongFailCount" style="color:#f87171;">0</strong></span>
+            </div>
           </div>
+
+          <style>
+            @keyframes queueShimmer { from{left:-100%} to{left:200%} }
+            @keyframes queueSpin    { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+          </style>
 
           <!-- Status -->
           <p class="upload-copy" id="singSongStatus" style="margin-top:0.5rem;">
