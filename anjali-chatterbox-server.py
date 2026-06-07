@@ -561,8 +561,6 @@ VOICE_MAP = {
     "sc3":    str(PROJECT_ROOT / "voice-reference-sc3.wav"),
     "anjali": str(PROJECT_ROOT / "voice-reference-sc3.wav"),
     "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav"),
-    "hindi":  str(PROJECT_ROOT / "voice-reference-hindi.wav"),
-    "telugu": str(PROJECT_ROOT / "voice-reference-telugu.wav"),
 }
 CURRENT_VOICE = "sc3"
 
@@ -988,8 +986,10 @@ def synthesize(text: str, voice: str = "sc3") -> bytes:
         #   1. Synthesise speech via Edge TTS in a dedicated worker thread
         #   2. Send audio to sc3-singing-server (port 8431) for OpenVoice voice conversion
         #   Result: sc3/pattan VOICE with correct Hindi/Telugu language phonetics
+        # Force Edge TTS + SC3 Singing for hindi/telugu voice OR hindi/telugu text
         lang = detect_lang(clean)
-        if lang in ('hi', 'te'):
+        if voice in ('hindi', 'telugu') or lang in ('hi', 'te'):
+            lang = 'hi' if voice == 'hindi' else ('te' if voice == 'telugu' else lang)
             print(f"[Voice] Detected '{lang}' — Edge TTS + SC3 Singing (OpenVoice) → {voice_key}", flush=True)
             try:
                 import concurrent.futures, tempfile, subprocess as _sp, base64 as _b64
