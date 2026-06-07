@@ -558,9 +558,11 @@ PORT          = 8426
 CACHE_LIMIT   = 256
 
 VOICE_MAP = {
-    "sc3": str(PROJECT_ROOT / "voice-reference-sc3.wav"),
+    "sc3":    str(PROJECT_ROOT / "voice-reference-sc3.wav"),
     "anjali": str(PROJECT_ROOT / "voice-reference-sc3.wav"),
-    "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav")
+    "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav"),
+    "hindi":  str(PROJECT_ROOT / "voice-reference-hindi.wav"),
+    "telugu": str(PROJECT_ROOT / "voice-reference-telugu.wav"),
 }
 CURRENT_VOICE = "sc3"
 
@@ -904,6 +906,40 @@ def synthesize(text: str, voice: str = "sc3") -> bytes:
         if not clean:
             _set_progress("idle", 0, active=False)
             raise ValueError("Empty text after cleaning.")
+
+        # ── Transliterate Devanagari → phonetic English for Hindi/Telugu voice ──
+        # Chatterbox is English-only; transliteration lets it pronounce Indian
+        # text correctly while using the Hindi/Telugu voice embedding.
+        if voice in ("hindi", "telugu") and any('\u0900' <= c <= '\u097f' for c in clean):
+            import unicodedata
+            # Basic Devanagari → Latin transliteration table
+            _dev = {
+                'अ':'u','आ':'aa','इ':'i','ई':'ee','उ':'u','ऊ':'oo',
+                'ए':'ay','ऐ':'ai','ओ':'oh','औ':'ow','अं':'um',
+                'क':'k','ख':'kh','ग':'g','घ':'gh','च':'ch',
+                'छ':'chh','ज':'j','झ':'jh','ट':'t','ठ':'th',
+                'ड':'d','ढ':'dh','ण':'n','त':'t','थ':'th',
+                'द':'d','ध':'dh','न':'n','प':'p','फ':'f',
+                'ब':'b','भ':'bh','म':'m','य':'y','र':'r',
+                'ल':'l','व':'v','श':'sh','ष':'sh','स':'s','ह':'h',
+                'ा':'aa','ि':'i','ी':'ee','ु':'u','ू':'oo',
+                'े':'ay','ै':'ai','ो':'oh','ौ':'ow','ं':'n','्':None,
+            }
+            out = []
+            for ch in clean:
+                v = _dev.get(ch)
+                if v is not None:
+                    out.append(v)
+                elif v is None:
+                    pass  # virama — skip
+                elif '\u0900' <= ch <= '\u097f':
+                    pass  # unknown Devanagari — skip
+                else:
+                    out.append(ch)
+            transliterated = ' '.join(''.join(out).split())
+            if transliterated:
+                print(f"[Voice] Transliterated {voice}: {transliterated[:60]!r}", flush=True)
+                clean = transliterated
 
         # Check if we need to switch voice embeddings
         if voice != CURRENT_VOICE:

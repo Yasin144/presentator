@@ -11348,42 +11348,31 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
   try { localStorage.setItem("pp_last_narration_text",  _fullNarText); } catch(e) {}
   try { localStorage.setItem("pp_last_narration_voice", safeVoice);    } catch(e) {}
 
-// ── Route to Hindi / Telugu server if selected ──────────────────────────
-  if (safeVoice === HINDI_NARRATION_VOICE) {
+// ── Route Hindi / Telugu through SC3 server (8426) with voice param ────────
+  // Hindi and Telugu reuse the already-loaded Chatterbox model in the SC3
+  // server. VOICE_MAP in anjali-chatterbox-server.py includes "hindi" and
+  // "telugu" reference WAVs. No separate process (8432/8433) is needed.
+  if (safeVoice === HINDI_NARRATION_VOICE || safeVoice === TELUGU_NARRATION_VOICE) {
+    const langLabel = safeVoice === HINDI_NARRATION_VOICE ? "Hindi" : "Telugu";
     if (typeof options.onProgress === "function") {
-      options.onProgress({ label: "Sending to Hindi voice server (port 8432)...", progress: 0.22 });
+      options.onProgress({ label: `Sending ${langLabel} text to SC3 voice server...`, progress: 0.22 });
     }
-    const hindiRes = await fetchWithTimeout(`${state.hindiServerUrl}/api/narrate`, {
+    const serverReady = await ensureAnjaliCloneServer();
+    if (!serverReady) {
+      throw new Error("SC3 voice server is not ready on port 8426.");
+    }
+    const langRes = await fetchWithTimeout(`${state.anjaliServerUrl}/api/narrate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: narrationText }),
+      body: JSON.stringify({ text: narrationText, voice: safeVoice }),
       cache: "no-store"
     }, 0);
-    if (!hindiRes.ok) {
-      const err = await hindiRes.json().catch(() => null);
-      throw new Error(err?.error || `Hindi voice server error (${hindiRes.status}). Is hindi-voice-server.py running on port 8432?`);
+    if (!langRes.ok) {
+      const err = await langRes.json().catch(() => null);
+      throw new Error(err?.error || `${langLabel} voice error (${langRes.status}).`);
     }
-    const blob = await hindiRes.blob();
-    if (!blob.size) throw new Error("Hindi voice server returned empty audio.");
-    return blob;
-  }
-
-  if (safeVoice === TELUGU_NARRATION_VOICE) {
-    if (typeof options.onProgress === "function") {
-      options.onProgress({ label: "Sending to Telugu voice server (port 8433)...", progress: 0.22 });
-    }
-    const teluguRes = await fetchWithTimeout(`${state.teluguServerUrl}/api/narrate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: narrationText }),
-      cache: "no-store"
-    }, 0);
-    if (!teluguRes.ok) {
-      const err = await teluguRes.json().catch(() => null);
-      throw new Error(err?.error || `Telugu voice server error (${teluguRes.status}). Is telugu-voice-server.py running on port 8433?`);
-    }
-    const blob = await teluguRes.blob();
-    if (!blob.size) throw new Error("Telugu voice server returned empty audio.");
+    const blob = await langRes.blob();
+    if (!blob.size) throw new Error(`${langLabel} voice server returned empty audio.`);
     return blob;
   }
 
