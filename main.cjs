@@ -358,7 +358,7 @@ async function waitForAnjaliHealth(timeoutMs = 20000) {
     if (await pingPort(8426, '/health', 2500)) {
       return true;
     }
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
   return false;
 }
@@ -375,7 +375,7 @@ async function startAnjaliServer() {
 
   const alreadyStarting = await isAnjaliServerProcessRunning();
   if (alreadyStarting) {
-    console.warn('[PP] Chatterbox Python process exists but 8426 is not healthy — waiting briefly.');
+    console.warn('[PP] Chatterbox Python process exists but 8426 is not healthy — waiting up to 6 min for model load.');
     if (!servers['AnjaliAI']) {
       servers['AnjaliAI'] = { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
     }
@@ -383,14 +383,14 @@ async function startAnjaliServer() {
       w.webContents.send('server-status', {
         server: 'anjali',
         status: 'starting',
-        message: 'Chatterbox voice server is starting on port 8426...'
+        message: 'Chatterbox voice server loading (takes 3-5 min on first start)...'
       });
     });
-    if (await waitForAnjaliHealth(120000)) {
+    if (await waitForAnjaliHealth(360000)) {  // 6 minutes — model needs 3-5 min
       console.log('[PP] Chatterbox voice server became healthy on 8426.');
       return;
     }
-    console.warn('[PP] Stale Chatterbox process did not become healthy — restarting clone server.');
+    console.warn('[PP] Chatterbox process timed out — restarting.');
     await killAnjaliServerProcesses();
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
@@ -399,9 +399,9 @@ async function startAnjaliServer() {
   spawnManaged('AnjaliAI', ANJALI_PYTHON, ['-u', ANJALI_SERVER], {
     cwd: ROOT,
     restartDelayMs: 5000,
-    maxRestarts: 4,
-    restartWindowSec: 600,
-    showConsole: true,
+    maxRestarts: 6,
+    restartWindowSec: 900,
+    showConsole: false,
     env: PYTHON_ENV,
   });
   BrowserWindow.getAllWindows().forEach(w => {
