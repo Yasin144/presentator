@@ -11361,7 +11361,7 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
     if (!serverReady) {
       throw new Error("SC3 voice server is not ready on port 8426.");
     }
-    const langRes = await fetchWithTimeout(`${state.anjaliServerUrl}/api/narrate`, {
+    const langRes = await fetchWithTimeout(`${state.anjaliCloneServerUrl}/api/narrate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: narrationText, voice: safeVoice }),
