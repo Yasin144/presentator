@@ -300,6 +300,19 @@ const EDGE_TTS_SERVER = path.join(ROOT, 'timed-voiceover-server.py');
 const SC3_SINGING_SERVER = path.join(ROOT, 'sc3-singing-server.py');
 const WHISPER_PYTHON = path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe');
 const WHISPER_SCRIPT = path.join(ROOT, 'whisper-transcribe.py');
+// PYTHONPATH lets system Python 3.12 find chatterbox/torch/edge_tts from the venv
+const VENV_SITE_PACKAGES = path.join(ROOT, '.voiceclone-venv', 'Lib', 'site-packages');
+const SINGING_SITE_PACKAGES = path.join(ROOT, '.singing-venv', 'Lib', 'site-packages');
+const PYTHON_ENV = {
+  PYTHONUTF8: '1',
+  PYTHONUNBUFFERED: '1',
+  PYTHONPATH: VENV_SITE_PACKAGES,
+};
+const SINGING_ENV = {
+  PYTHONUTF8: '1',
+  PYTHONUNBUFFERED: '1',
+  PYTHONPATH: SINGING_SITE_PACKAGES + ';' + VENV_SITE_PACKAGES,
+};
 
 function isAnjaliServerProcessRunning() {
   return new Promise((resolve) => {
@@ -389,10 +402,7 @@ async function startAnjaliServer() {
     maxRestarts: 4,
     restartWindowSec: 600,
     showConsole: true,
-    env: {
-      PYTHONUTF8: '1',
-      PYTHONUNBUFFERED: '1',
-    }
+    env: PYTHON_ENV,
   });
   BrowserWindow.getAllWindows().forEach(w => {
     w.webContents.send('server-status', {
@@ -426,20 +436,17 @@ function startServers() {
     restartDelayMs: 3000,
     maxRestarts: 4,
     restartWindowSec: 600,
-    env: {
-      PYTHONUTF8: '1',
-      PYTHONUNBUFFERED: '1',
-    }
+    env: PYTHON_ENV,
   });
 
   // 5. SC3 singing model server (port 8431)
-  if (false && fs.existsSync(SC3_SINGING_SERVER)) {
+  if (fs.existsSync(SC3_SINGING_SERVER)) {
     spawnManaged('Sc3Singing', fs.existsSync(SINGING_PYTHON) ? SINGING_PYTHON : ANJALI_PYTHON, ['-u', SC3_SINGING_SERVER], {
       cwd: ROOT,
       restartDelayMs: 3000,
       maxRestarts: 4,
       restartWindowSec: 600,
-      env: { PYTHONUTF8: '1', PYTHONUNBUFFERED: '1' }
+      env: SINGING_ENV,
     });
   }
 
