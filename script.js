@@ -2859,25 +2859,11 @@ function normalizeOutcomesTitle(value = "") {
 }
 
 function getPresentationTitleText() {
-  // 1. Explicit outcomes-title input always wins
-  const explicit = normalizeOutcomesTitle(state.outcomesTitle)
-    || normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value);
-  if (explicit) return explicit;
-
-  // 2. Extract first # heading from lesson text
-  if (state.text) {
-    const headingMatch = String(state.text).match(/^#([^\n#]+)/m);
-    if (headingMatch) {
-      const h = normalizeOutcomesTitle(headingMatch[1]);
-      if (h) return h;
-    }
-  }
-
-  // 3. Subject mode label
-  if (state.subjectMode === 'english') return 'ENGLISH';
-  if (state.subjectMode === 'maths')   return 'MATHS';
-
-  return 'LESSON';
+  // ONLY use the explicit 'Learning Outcomes Template Title' input.
+  // Nothing else — no heading fallback, no subject mode.
+  return normalizeOutcomesTitle(state.outcomesTitle)
+    || normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value)
+    || '';
 }
 
 function getStoredOutcomesTitle() {
@@ -15773,6 +15759,8 @@ function drawInfoKidsLogo() {
     }
 
   const titleText = getPresentationTitleText();
+  // If no title has been typed in the title input, skip the badge entirely
+  if (!titleText) return;
 
   // Ã¢â€â‚¬Ã¢â€â‚¬ Timing constants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const BADGE_IN_MS   = 1400;  // slower, cinematic entrance (ms)
