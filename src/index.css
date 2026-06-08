@@ -4015,3 +4015,146 @@ kbd {
   position: absolute; bottom: 0; left: 0; right: 0; height: 26%;
   background: #1a3010; clip-path: ellipse(55% 70% at 50% 100%); display: block;
 }
+
+/* ================================================================
+   3D Template Gallery Row
+   ================================================================ */
+.template-gallery-scroll {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 18px 4px 24px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  perspective: 1000px;
+}
+.template-gallery-scroll::-webkit-scrollbar { height: 4px; }
+.template-gallery-scroll::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.35); border-radius: 4px; }
+.template-gallery-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* 3D Card wrapper */
+.tpl3d-card {
+  flex: 0 0 130px;
+  scroll-snap-align: start;
+  perspective: 800px;
+  cursor: pointer;
+}
+.tpl3d-inner {
+  width: 130px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(255,255,255,0.10);
+  background: rgba(14,20,36,0.85);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.32s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.28s ease, border-color 0.22s ease;
+  transform-style: preserve-3d;
+  will-change: transform;
+  transform: rotateY(0deg) rotateX(2deg);
+}
+.tpl3d-card:hover .tpl3d-inner {
+  transform: rotateY(-6deg) rotateX(-4deg) translateY(-6px) scale(1.04);
+  box-shadow: 8px 16px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(139,92,246,0.4);
+  border-color: rgba(139,92,246,0.55);
+}
+.tpl3d-card.is-active .tpl3d-inner {
+  border-color: rgba(139,92,246,0.9) !important;
+  box-shadow: 0 0 0 2px rgba(139,92,246,0.5), 0 8px 32px rgba(109,40,217,0.45) !important;
+  transform: rotateY(-3deg) rotateX(-2deg) translateY(-4px) scale(1.03) !important;
+}
+
+/* Preview thumbnail */
+.tpl3d-preview {
+  width: 130px;
+  height: 84px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+  flex-shrink: 0;
+}
+
+/* Reuse existing preview backgrounds */
+.tpl3d-preview-classic  { background: linear-gradient(135deg, #0d2137, #0a3a4a, #0d2137); }
+.tpl3d-preview-outcomes { background: linear-gradient(135deg, #e8f4fd, #f0f8ff); display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.tpl3d-preview-sunrise  { background: linear-gradient(170deg, #1a0533 0%, #6b1a3a 28%, #d4572a 58%, #f4913a 80%, #ffd06e 100%); position:relative; overflow:hidden; display:flex; align-items:flex-end; justify-content:center; }
+.tpl3d-preview-galaxy   { background: radial-gradient(ellipse at 25% 40%, rgba(140,0,255,0.5) 0%, transparent 55%), radial-gradient(ellipse at 78% 30%, rgba(0,80,255,0.4) 0%, transparent 50%), linear-gradient(140deg, #020010, #08004a, #01001e); position:relative; overflow:hidden; display:flex; align-items:flex-start; justify-content:flex-end; padding:8px; }
+.tpl3d-preview-tropical { background: linear-gradient(180deg, #0077cc 0%, #55ddff 45%, #1a7a2a 46%, #0d4015 100%); position:relative; overflow:hidden; display:flex; align-items:flex-end; justify-content:center; }
+.tpl3d-preview-royal    { background: radial-gradient(ellipse at 50% 20%, rgba(255,200,0,0.20) 0%, transparent 55%), linear-gradient(145deg, #1a0038, #2d006e, #0d001e); position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+.tpl3d-preview-candy    { background: radial-gradient(ellipse at 30% 40%, rgba(255,100,180,0.5) 0%, transparent 55%), radial-gradient(ellipse at 70% 60%, rgba(180,0,255,0.4) 0%, transparent 50%), linear-gradient(140deg, #2d0045, #5a0072, #220035); position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+.tpl3d-preview-neon     { background: linear-gradient(180deg, #020008, #060018, #0a0020); position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+.tpl3d-preview-golden   { background: linear-gradient(170deg, #1a0510 0%, #4a0e00 20%, #c44a00 45%, #f5a000 72%, #ffe880 100%); position:relative; overflow:hidden; display:flex; align-items:flex-end; justify-content:center; }
+
+/* Outcomes text inside preview */
+.tpl3d-preview-outcomes .template-preview-outcomes-header { font-size:7px; font-weight:900; color:#1a3a5c; letter-spacing:0.05em; }
+.tpl3d-preview-outcomes .template-preview-outcomes-logo   { font-size:7px; color:#2196f3; font-weight:700; }
+
+/* Reuse tpl- element styles (already defined) but scaled for 130px */
+.tpl3d-preview .tpl-sun  { position:absolute; bottom:18%; left:50%; transform:translateX(-50%); width:22px; height:22px; border-radius:50%; background:radial-gradient(circle,#ffe84d 30%,#f4913a 70%,transparent 100%); box-shadow:0 0 16px 8px rgba(255,210,60,0.55); display:block; }
+.tpl3d-preview .tpl-hills{ position:absolute; bottom:0; left:0; right:0; height:28%; background:#1a3a1a; clip-path:ellipse(60% 65% at 50% 100%); display:block; }
+.tpl3d-preview .tpl-planet{ width:20px; height:20px; border-radius:50%; background:radial-gradient(circle at 35% 35%,#8080ff,#2020aa,#000033); box-shadow:0 0 10px 4px rgba(100,80,255,0.55); display:block; flex-shrink:0; }
+.tpl3d-preview .tpl-stars { position:absolute; top:6px; left:5px; font-size:7px; color:rgba(220,210,255,0.85); letter-spacing:2px; display:block; }
+.tpl3d-preview .tpl-palm  { font-size:20px; padding-bottom:2px; position:relative; z-index:1; display:block; }
+.tpl3d-preview .tpl-tropical-sky { position:absolute; top:12%; left:12%; width:22px; height:13px; border-radius:50%; background:rgba(255,255,255,0.85); box-shadow:14px -3px 0 rgba(255,255,255,0.75); display:block; }
+.tpl3d-preview .tpl-crown { font-size:22px; filter:drop-shadow(0 0 8px rgba(255,215,0,0.9)); position:relative; z-index:1; display:block; }
+.tpl3d-preview .tpl-royal-glow { position:absolute; inset:0; background:repeating-linear-gradient(45deg,transparent,transparent 14px,rgba(255,200,80,0.07) 14px,rgba(255,200,80,0.07) 16px); display:block; }
+.tpl3d-preview .tpl-candy { font-size:22px; filter:drop-shadow(0 0 8px rgba(255,100,220,0.9)); position:relative; z-index:1; display:block; }
+.tpl3d-preview .tpl-rainbow { position:absolute; top:-40px; left:50%; transform:translateX(-50%); width:150px; height:80px; border-radius:50%; border:5px solid transparent; border-top-color:rgba(255,120,220,0.3); display:block; }
+.tpl3d-preview .tpl-neon-grid { position:absolute; inset:0; background:repeating-linear-gradient(90deg,transparent,transparent 17px,rgba(0,220,255,0.08) 18px),repeating-linear-gradient(0deg,transparent,transparent 17px,rgba(0,220,255,0.08) 18px); display:block; }
+.tpl3d-preview .tpl-neon-sign { font-size:22px; filter:drop-shadow(0 0 12px rgba(0,255,255,1)); position:relative; z-index:1; display:block; }
+.tpl3d-preview .tpl-golden-sun { position:absolute; bottom:22%; left:50%; transform:translateX(-50%); width:28px; height:28px; border-radius:50%; background:radial-gradient(circle,#ffe840 30%,#ffaa00 70%,transparent 100%); box-shadow:0 0 20px 10px rgba(255,200,0,0.45); display:block; }
+.tpl3d-preview .tpl-golden-hills { position:absolute; bottom:0; left:0; right:0; height:24%; background:#1a3010; clip-path:ellipse(55% 70% at 50% 100%); display:block; }
+
+/* Classic stage rings for 3D card */
+.tpl3d-preview .template-preview-classic-rings { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+.tpl3d-preview .template-preview-classic-rings::before { content:""; display:block; width:90px; height:45px; border-radius:50%; border:2px solid rgba(6,182,212,0.35); box-shadow:0 0 0 8px rgba(6,182,212,0.12),0 0 0 16px rgba(6,182,212,0.06); }
+.tpl3d-preview .template-preview-classic-card { position:absolute; bottom:14%; left:50%; transform:translateX(-50%); width:72%; height:22%; border-radius:6px; background:rgba(6,182,212,0.2); border:1px solid rgba(6,182,212,0.4); display:block; }
+
+/* Card body */
+.tpl3d-body {
+  padding: 7px 8px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+}
+.tpl3d-name {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  letter-spacing: 0.01em;
+}
+.tpl3d-select-btn {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(139,92,246,0.5);
+  background: rgba(109,40,217,0.18);
+  color: rgba(167,139,250,0.9);
+  font-size: 0.6rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tpl3d-select-btn:hover {
+  background: rgba(109,40,217,0.45);
+  border-color: rgba(139,92,246,0.9);
+  color: #fff;
+  transform: scale(1.05);
+}
+.tpl3d-card.is-active .tpl3d-select-btn {
+  background: linear-gradient(135deg, rgba(109,40,217,0.7), rgba(139,92,246,0.5));
+  border-color: rgba(139,92,246,1);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(109,40,217,0.45);
+}

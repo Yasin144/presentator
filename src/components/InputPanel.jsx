@@ -101,146 +101,124 @@ function InputPanel() {
         <div className="section-content">
           <div className="template-section-shell">
             <div className="template-section-copy">
-              <p className="upload-copy">
-                Pick a screen look before you open the presentation. If you do nothing, the current Classic blue
-                teaching board remains active and all existing workflows continue exactly as they do now.
-              </p>
-              <p className="upload-copy" id="presentationTemplateStatus">Classic stage is active by default.</p>
+              <p className="upload-copy" id="presentationTemplateStatus">🎨 Click any template card below to instantly switch the presentation screen.</p>
             </div>
-            <label className="toggle-check template-toggle-check" htmlFor="presentationTemplateOutcomesToggle">
-              <input id="presentationTemplateOutcomesToggle" type="checkbox" />
-              <span>Use the second template: Learning Outcomes</span>
-            </label>
-            <p className="upload-copy">Unchecked uses the first template, <strong>Classic Stage</strong>. Checked uses the
-              second template, <strong>Learning Outcomes</strong>.</p>
-            <div className="template-gallery" role="group" aria-label="Presentation template previews">
-              <div className="template-card is-active" id="templateCardClassic" data-template="classic">
-                <span className="template-card-preview template-card-preview-classic" aria-hidden="true">
-                  <span className="template-preview-classic-rings"></span>
-                  <span className="template-preview-classic-card"></span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Classic Stage</strong>
-                    <span className="template-chip">Default</span>
-                  </span>
-                  <span className="template-card-copy">Keep the current blue classroom board with the familiar layout and
-                    working behavior.</span>
-                </span>
+            <div className="template-gallery-scroll" role="group" aria-label="Presentation template previews">
+              <div className="tpl3d-card" id="templateCardClassic" data-template="classic">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-classic">
+                    <span className="template-preview-classic-rings"></span>
+                    <span className="template-preview-classic-card"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">Classic Stage</span>
+                    <button className="tpl3d-select-btn" data-tpl="classic" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
-              <div className="template-card" id="templateCardOutcomes" data-template="learning-outcomes">
-                <span className="template-card-preview template-card-preview-outcomes" aria-hidden="true">
-                  <span className="template-preview-outcomes-header">LEARNING OUTCOMES</span>
-                  <span className="template-preview-outcomes-logo">Info kids</span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Learning Outcomes</strong>
-                    <span className="template-chip template-chip-optional">Optional</span>
-                  </span>
-                  <span className="template-card-copy">Use a cleaner classroom poster look with a white title strip and soft
-                    teaching board body.</span>
-                </span>
+              <div className="tpl3d-card" id="templateCardOutcomes" data-template="learning-outcomes">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-outcomes">
+                    <span className="template-preview-outcomes-header">OUTCOMES</span>
+                    <span className="template-preview-outcomes-logo">Info kids</span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">Learning Outcomes</span>
+                    <button className="tpl3d-select-btn" data-tpl="learning-outcomes" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
-              {/* ── 7 New Animated Backgrounds ─────────────────────────── */}
-              <div className="template-card" id="templateCard_sunrise-classroom" data-template="sunrise-classroom">
-                <span className="template-card-preview template-card-preview-sunrise" aria-hidden="true">
-                  <span className="tpl-sun"></span>
-                  <span className="tpl-hills"></span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Sunrise Classroom</strong>
-                    <span className="template-chip template-chip-optional">New</span>
-                  </span>
-                  <span className="template-card-copy">Warm orange sunrise with rolling hills and soaring birds — uplifting morning energy.</span>
-                </span>
+              <div className="tpl3d-card" id="templateCard_sunrise-classroom" data-template="sunrise-classroom">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-sunrise">
+                    <span className="tpl-sun"></span>
+                    <span className="tpl-hills"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🌅 Sunrise</span>
+                    <button className="tpl3d-select-btn" data-tpl="sunrise-classroom" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
-              <div className="template-card" id="templateCard_galaxy-night" data-template="galaxy-night">
-                <span className="template-card-preview template-card-preview-galaxy" aria-hidden="true">
-                  <span className="tpl-planet"></span>
-                  <span className="tpl-stars">✦ · ✦ · ✧</span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Galaxy Night</strong>
-                    <span className="template-chip template-chip-optional">New</span>
-                  </span>
-                  <span className="template-card-copy">Deep space purple with nebulas, twinkling stars, and a glowing ringed planet.</span>
-                </span>
+              <div className="tpl3d-card" id="templateCard_galaxy-night" data-template="galaxy-night">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-galaxy">
+                    <span className="tpl-planet"></span>
+                    <span className="tpl-stars">✦ · ✦ · ✧</span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🌌 Galaxy</span>
+                    <button className="tpl3d-select-btn" data-tpl="galaxy-night" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
-              <div className="template-card" id="templateCard_tropical-green" data-template="tropical-green">
-                <span className="template-card-preview template-card-preview-tropical" aria-hidden="true">
-                  <span className="tpl-tropical-sky"></span>
-                  <span className="tpl-palm">🌴</span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Tropical Garden</strong>
-                    <span className="template-chip template-chip-optional">New</span>
-                  </span>
-                  <span className="template-card-copy">Bright tropical sky, swaying palm trees, exotic flowers, and shimmering water.</span>
-                </span>
+              <div className="tpl3d-card" id="templateCard_tropical-green" data-template="tropical-green">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-tropical">
+                    <span className="tpl-tropical-sky"></span>
+                    <span className="tpl-palm">🌴</span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🌴 Tropical</span>
+                    <button className="tpl3d-select-btn" data-tpl="tropical-green" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
-              <div className="template-card" id="templateCard_royal-purple" data-template="royal-purple">
-                <span className="template-card-preview template-card-preview-royal" aria-hidden="true">
-                  <span className="tpl-crown">👑</span>
-                  <span className="tpl-royal-glow"></span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Royal Stage</strong>
-                    <span className="template-chip template-chip-optional">New</span>
-                  </span>
-                  <span className="template-card-copy">Majestic deep purple with gold crown, diamond grid, sparkles, and velvet curtains.</span>
-                </span>
+              <div className="tpl3d-card" id="templateCard_royal-purple" data-template="royal-purple">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-royal">
+                    <span className="tpl-crown">👑</span>
+                    <span className="tpl-royal-glow"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">👑 Royal</span>
+                    <button className="tpl3d-select-btn" data-tpl="royal-purple" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
-              <div className="template-card" id="templateCard_candy-pink" data-template="candy-pink">
-                <span className="template-card-preview template-card-preview-candy" aria-hidden="true">
-                  <span className="tpl-rainbow"></span>
-                  <span className="tpl-candy">🍭</span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Candy Pop</strong>
-                    <span className="template-chip template-chip-optional">New</span>
-                  </span>
-                  <span className="template-card-copy">Fun pastel pink-purple with rainbow arcs, confetti rain, and floating bubbles.</span>
-                </span>
+              <div className="tpl3d-card" id="templateCard_candy-pink" data-template="candy-pink">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-candy">
+                    <span className="tpl-rainbow"></span>
+                    <span className="tpl-candy">🍭</span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🍭 Candy Pop</span>
+                    <button className="tpl3d-select-btn" data-tpl="candy-pink" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
-              <div className="template-card" id="templateCard_neon-cyber" data-template="neon-cyber">
-                <span className="template-card-preview template-card-preview-neon" aria-hidden="true">
-                  <span className="tpl-neon-grid"></span>
-                  <span className="tpl-neon-sign">⚡</span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Neon City</strong>
-                    <span className="template-chip template-chip-optional">New</span>
-                  </span>
-                  <span className="template-card-copy">Dark cyber night with neon perspective grid, city skyline, and glowing rain.</span>
-                </span>
+              <div className="tpl3d-card" id="templateCard_neon-cyber" data-template="neon-cyber">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-neon">
+                    <span className="tpl-neon-grid"></span>
+                    <span className="tpl-neon-sign">⚡</span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">⚡ Neon City</span>
+                    <button className="tpl3d-select-btn" data-tpl="neon-cyber" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
-              <div className="template-card" id="templateCard_golden-hour" data-template="golden-hour">
-                <span className="template-card-preview template-card-preview-golden" aria-hidden="true">
-                  <span className="tpl-golden-sun"></span>
-                  <span className="tpl-golden-hills"></span>
-                </span>
-                <span className="template-card-body">
-                  <span className="template-card-title-row">
-                    <strong>Golden Hour</strong>
-                    <span className="template-chip template-chip-optional">New</span>
-                  </span>
-                  <span className="template-card-copy">Warm amber sunset with layered hills, golden rays, and firefly particles.</span>
-                </span>
+              <div className="tpl3d-card" id="templateCard_golden-hour" data-template="golden-hour">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-golden">
+                    <span className="tpl-golden-sun"></span>
+                    <span className="tpl-golden-hills"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">✨ Golden Hour</span>
+                    <button className="tpl3d-select-btn" data-tpl="golden-hour" type="button">✓ Select</button>
+                  </div>
+                </div>
               </div>
 
             </div>
