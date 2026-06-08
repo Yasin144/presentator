@@ -14072,7 +14072,45 @@ function drawRoundedRectAtOrigin(x, y, width, height, radius) {
 }
 
 function drawContentHighlightPanel(contentArea, options = {}) {
-  return;
+  // Skip for Learning Outcomes (has its own full-screen layout)
+  const _tpl = normalizePresentationTemplate(state.presentationTemplate);
+  if (_tpl === PRESENTATION_TEMPLATE_OUTCOMES) return;
+
+  const insetX = options.insetX || 0;
+  const insetY = options.insetY || 0;
+  const radius = options.radius || 16;
+
+  const px = contentArea.x - insetX;
+  const py = contentArea.y - insetY;
+  const pw = contentArea.width + insetX * 2;
+  const ph = contentArea.height + insetY * 2;
+
+  // Pick overlay opacity based on backdrop brightness
+  // Light backdrops need a darker overlay; dark ones need only a subtle one
+  const lightBackdrops = ['cherry-blossom', 'rainbow-garden', 'desert-dunes'];
+  const alpha = lightBackdrops.includes(_tpl) ? 0.72 : 0.48;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#061820';
+  ctx.beginPath();
+  ctx.roundRect
+    ? ctx.roundRect(px, py, pw, ph, radius)
+    : (function() {
+        ctx.moveTo(px + radius, py);
+        ctx.lineTo(px + pw - radius, py);
+        ctx.quadraticCurveTo(px + pw, py, px + pw, py + radius);
+        ctx.lineTo(px + pw, py + ph - radius);
+        ctx.quadraticCurveTo(px + pw, py + ph, px + pw - radius, py + ph);
+        ctx.lineTo(px + radius, py + ph);
+        ctx.quadraticCurveTo(px, py + ph, px, py + ph - radius);
+        ctx.lineTo(px, py + radius);
+        ctx.quadraticCurveTo(px, py, px + radius, py);
+        ctx.closePath();
+      }());
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function drawClassicTeachingStageBackdrop() {
@@ -15687,9 +15725,9 @@ infoKidsLogoImg.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAArQAAADwCAY
 
 
 function drawInfoKidsLogo() {
-  if (normalizePresentationTemplate(state.presentationTemplate) !== PRESENTATION_TEMPLATE_OUTCOMES) {
-    return;
-  }
+  const _logoTpl = normalizePresentationTemplate(state.presentationTemplate);
+  // InfoKids logo image: outcomes-only (it's positioned for that layout)
+  if (_logoTpl === PRESENTATION_TEMPLATE_OUTCOMES) {
 
   const enableCheck = document.getElementById("logoEnableCheck");
   if (enableCheck && !enableCheck.checked) {
@@ -15716,6 +15754,8 @@ function drawInfoKidsLogo() {
   }
 
   // Ã¢â€â‚¬Ã¢â€â‚¬ Animated title badge Ã¢â‚¬â€ slides in from right at playback start, out at end Ã¢â€â‚¬Ã¢â€â‚¬
+    }
+
   const titleText = getPresentationTitleText();
 
   // Ã¢â€â‚¬Ã¢â€â‚¬ Timing constants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -16822,6 +16862,15 @@ function markSceneDirty() {
 
 function isSceneActuallyDirty(mouthOpen) {
   if (_sceneIsDirty) return true;
+  // Animated backdrops use performance.now() for time-based animation
+  // They must redraw every frame even when speech/text is idle
+  const _animTpl = (typeof normalizePresentationTemplate === 'function' && typeof state !== 'undefined')
+    ? normalizePresentationTemplate(state.presentationTemplate)
+    : null;
+  const _animatedBackdrops = ['sunrise-classroom','galaxy-night','tropical-green','royal-purple',
+    'candy-pink','neon-cyber','golden-hour','ocean-waves','winter-snow','cherry-blossom',
+    'desert-dunes','aurora-borealis','lightning-storm','mountain-mist','rainbow-garden'];
+  if (_animTpl && _animatedBackdrops.indexOf(_animTpl) >= 0) return true;
   if (state.exportingVideo || state.exportVideoTrack?.readyState === "live") return true;
   if (state.speaking !== _lastDrawnSpeaking) return true;
   if (state.titleIntroActive !== _lastDrawnTitleIntroActive) return true;
@@ -28374,11 +28423,11 @@ setPureInputMode(false);
         } else if (typeof window.setPresentationTemplate === 'function') {
           window.setPresentationTemplate(val);
         }
-        // Belt-and-suspenders: force a draw even if hidden check fails
+        // Mark dirty so the animation loop redraws on next tick
+        // (Do NOT call drawScene(0) here - it resets _lastDrawnMouthOpen to 0
+        //  which breaks the mouth-sync check during active narration.)
         try {
-          if (typeof state !== 'undefined') state.presentationTemplate = val;
-          if (typeof updatePresentationTemplateUi === 'function') updatePresentationTemplateUi();
-          if (typeof drawScene === 'function') drawScene(0);
+          if (typeof markSceneDirty === 'function') markSceneDirty();
         } catch (_e2) {}
       } catch (_e3) {
         console.error('stageTemplateSelect change error:', _e3);
@@ -28418,9 +28467,7 @@ document.addEventListener('change', function _topLevelTplChange(e) {
       if (typeof setPresentationTemplate === 'function') setPresentationTemplate(_v);
     } catch (_ex) {}
     try {
-      if (typeof state !== 'undefined') state.presentationTemplate = _v;
-      if (typeof updatePresentationTemplateUi === 'function') updatePresentationTemplateUi();
-      if (typeof drawScene === 'function') drawScene(0);
+      if (typeof markSceneDirty === 'function') markSceneDirty();
     } catch (_ex2) {}
   }
 });
