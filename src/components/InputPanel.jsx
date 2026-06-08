@@ -221,6 +221,110 @@ function InputPanel() {
                 </div>
               </div>
 
+              <div className="tpl3d-card" id="templateCard_ocean-waves" data-template="ocean-waves">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-ocean">
+                    <span className="tpl-wave"></span>
+                    <span className="tpl-wave2"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🌊 Ocean</span>
+                    <button className="tpl3d-select-btn" data-tpl="ocean-waves" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tpl3d-card" id="templateCard_winter-snow" data-template="winter-snow">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-winter">
+                    <span className="tpl-snowflake">❄</span>
+                    <span className="tpl-snowfall"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">❄ Winter</span>
+                    <button className="tpl3d-select-btn" data-tpl="winter-snow" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tpl3d-card" id="templateCard_cherry-blossom" data-template="cherry-blossom">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-cherry">
+                    <span className="tpl-petal">🌸</span>
+                    <span className="tpl-branch"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🌸 Cherry</span>
+                    <button className="tpl3d-select-btn" data-tpl="cherry-blossom" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tpl3d-card" id="templateCard_desert-dunes" data-template="desert-dunes">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-desert">
+                    <span className="tpl-desert-sun"></span>
+                    <span className="tpl-dune"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🏜 Desert</span>
+                    <button className="tpl3d-select-btn" data-tpl="desert-dunes" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tpl3d-card" id="templateCard_aurora-borealis" data-template="aurora-borealis">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-aurora">
+                    <span className="tpl-aurora-band"></span>
+                    <span className="tpl-aurora-band2"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🌀 Aurora</span>
+                    <button className="tpl3d-select-btn" data-tpl="aurora-borealis" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tpl3d-card" id="templateCard_lightning-storm" data-template="lightning-storm">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-lightning">
+                    <span className="tpl-lightning">⚡</span>
+                    <span className="tpl-stormcloud"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">⚡ Storm</span>
+                    <button className="tpl3d-select-btn" data-tpl="lightning-storm" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tpl3d-card" id="templateCard_mountain-mist" data-template="mountain-mist">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-mountain">
+                    <span className="tpl-peak"></span>
+                    <span className="tpl-mist"></span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🏔 Mountain</span>
+                    <button className="tpl3d-select-btn" data-tpl="mountain-mist" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tpl3d-card" id="templateCard_rainbow-garden" data-template="rainbow-garden">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-rainbow">
+                    <span className="tpl-rainbow2"></span>
+                    <span className="tpl-flower">🌻</span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🌈 Rainbow</span>
+                    <button className="tpl3d-select-btn" data-tpl="rainbow-garden" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
             </div>
             <div className="outcomes-title-row">
               <label className="field-label" htmlFor="outcomesTitleInput">Learning Outcomes Template Title</label>
