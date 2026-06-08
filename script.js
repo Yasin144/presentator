@@ -14082,45 +14082,8 @@ function drawRoundedRectAtOrigin(x, y, width, height, radius) {
 }
 
 function drawContentHighlightPanel(contentArea, options = {}) {
-  // Skip for Learning Outcomes (has its own full-screen layout)
-  const _tpl = normalizePresentationTemplate(state.presentationTemplate);
-  if (_tpl === PRESENTATION_TEMPLATE_OUTCOMES) return;
-
-  const insetX = options.insetX || 0;
-  const insetY = options.insetY || 0;
-  const radius = options.radius || 16;
-
-  const px = contentArea.x - insetX;
-  const py = contentArea.y - insetY;
-  const pw = contentArea.width + insetX * 2;
-  const ph = contentArea.height + insetY * 2;
-
-  // Pick overlay opacity based on backdrop brightness
-  // Light backdrops need a darker overlay; dark ones need only a subtle one
-  const lightBackdrops = ['cherry-blossom', 'rainbow-garden', 'desert-dunes'];
-  const alpha = lightBackdrops.includes(_tpl) ? 0.72 : 0.48;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = '#061820';
-  ctx.beginPath();
-  ctx.roundRect
-    ? ctx.roundRect(px, py, pw, ph, radius)
-    : (function() {
-        ctx.moveTo(px + radius, py);
-        ctx.lineTo(px + pw - radius, py);
-        ctx.quadraticCurveTo(px + pw, py, px + pw, py + radius);
-        ctx.lineTo(px + pw, py + ph - radius);
-        ctx.quadraticCurveTo(px + pw, py + ph, px + pw - radius, py + ph);
-        ctx.lineTo(px + radius, py + ph);
-        ctx.quadraticCurveTo(px, py + ph, px, py + ph - radius);
-        ctx.lineTo(px, py + radius);
-        ctx.quadraticCurveTo(px, py, px + radius, py);
-        ctx.closePath();
-      }());
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.restore();
+  // No background overlay - content renders directly on backdrop
+  return;
 }
 
 function drawClassicTeachingStageBackdrop() {
@@ -15797,13 +15760,8 @@ function drawInfoKidsLogo() {
   // outro after all lesson text is visible, so no word gets sacrificed for the
   // title movement.
   if (state.titleAnim.startedAt && !state.titleAnim.exitStartedAt) {
-    // Fire exit when:
-    //   a) narration has finished, OR
-    //   b) narration is >80% complete (badge leaves before the last word to avoid overlap)
-    const narrationDoneOrNear = !state.speaking
-      || (narrationMs > 0 && state.titleAnim.startedAt &&
-          (now - state.titleAnim.startedAt) >= narrationMs * 0.80);
-    if (narrationDoneOrNear && !state.titleAnim.holdUntilSpeaking) {
+    // Exit ONLY after narration has fully stopped
+    if (!state.speaking && !state.titleAnim.holdUntilSpeaking) {
       state.titleAnim.exitStartedAt = now;
     }
   }
