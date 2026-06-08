@@ -198,7 +198,8 @@ function StagePanel() {
             <label className="stage-speed-field stage-speed-field-inline" htmlFor="stageTemplateSelect">
               <span className="style-label">Screen Theme</span>
               <select id="stageTemplateSelect" className="theme-select text-style-select stage-template-select"
-                aria-label="Choose presentation background theme">
+                aria-label="Choose presentation background theme"
+                onChange={(e) => { if (typeof window.setPresentationTemplate === 'function') window.setPresentationTemplate(e.target.value); }}>
                 <option value="classic">🎓 Classic Stage</option>
                 <option value="learning-outcomes">📋 Learning Outcomes</option>
                 <option value="sunrise-classroom">🌅 Sunrise Classroom</option>
@@ -208,6 +209,14 @@ function StagePanel() {
                 <option value="candy-pink">🍭 Candy Pop</option>
                 <option value="neon-cyber">⚡ Neon City</option>
                 <option value="golden-hour">✨ Golden Hour</option>
+                <option value="ocean-waves">🌊 Ocean Waves</option>
+                <option value="winter-snow">❄️ Winter Snow</option>
+                <option value="cherry-blossom">🌸 Cherry Blossom</option>
+                <option value="desert-dunes">🏜️ Desert Dunes</option>
+                <option value="aurora-borealis">🌀 Aurora Borealis</option>
+                <option value="lightning-storm">⚡ Lightning Storm</option>
+                <option value="mountain-mist">🏔️ Mountain Mist</option>
+                <option value="rainbow-garden">🌈 Rainbow Garden</option>
               </select>
             </label>
             <p id="stageTemplateStatus" className="stage-speed-copy">Classic Stage active. Select a theme to change the background live.</p>
