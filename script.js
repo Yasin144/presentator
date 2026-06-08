@@ -28359,34 +28359,17 @@ setPureInputMode(false);
   if (window.__tplDelegationWired) return;
   window.__tplDelegationWired = true;
 
-  // Wire stageTemplateSelect via native DOM change (not React onChange)
-  // React synthetic onChange loses sync when updatePresentationTemplateUi()
-  // sets stageTemplateSelect.value directly on the DOM.
-  (function wireTemplateDropdown() {
-    var sel = document.getElementById('stageTemplateSelect');
-    if (!sel || sel._tplDropdownWired) return;
-    sel._tplDropdownWired = true;
-    sel.addEventListener('change', function() {
-      var val = this.value;
+  // Wire stageTemplateSelect via document-level change delegation.
+  // Cannot getElementById at script load time (React hasn't rendered yet).
+  // change event bubbles from <select> up to document - always works.
+  document.addEventListener('change', function(e) {
+    if (e.target && e.target.id === 'stageTemplateSelect') {
+      var val = e.target.value;
       if (val && typeof setPresentationTemplate === 'function') {
         setPresentationTemplate(val);
       }
-    });
-  }());
-
-  // Also wire it on a small delay in case DOM is not ready yet
-  setTimeout(function() {
-    var sel2 = document.getElementById('stageTemplateSelect');
-    if (sel2 && !sel2._tplDropdownWired) {
-      sel2._tplDropdownWired = true;
-      sel2.addEventListener('change', function() {
-        var val = this.value;
-        if (val && typeof setPresentationTemplate === 'function') {
-          setPresentationTemplate(val);
-        }
-      });
     }
-  }, 1500);
+  });
 
   document.addEventListener('click', function(e) {
     // Check if user clicked a Select button
