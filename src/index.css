@@ -4055,15 +4055,121 @@ kbd {
   will-change: transform;
   transform: rotateY(0deg) rotateX(2deg);
 }
-.tpl3d-card:hover .tpl3d-inner {
-  transform: rotateY(-6deg) rotateX(-4deg) translateY(-6px) scale(1.04);
-  box-shadow: 8px 16px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(139,92,246,0.4);
-  border-color: rgba(139,92,246,0.55);
+
+/* ── Unique 3D hover effect per template card ──────────────────────────────── */
+/* Each card tilts its own unique direction + themed glow color */
+
+.tpl3d-card[data-template="classic"]:hover .tpl3d-inner {
+  transform: rotateY(-7deg) rotateX(-3deg) translateY(-7px) scale(1.04);
+  box-shadow: 10px 18px 44px rgba(0,0,0,0.6), 0 0 0 1px rgba(6,182,212,0.5), 0 0 20px rgba(6,182,212,0.2);
+  border-color: rgba(6,182,212,0.65);
 }
+.tpl3d-card[data-template="learning-outcomes"]:hover .tpl3d-inner {
+  transform: rotateY(7deg) rotateX(-2deg) translateY(-6px) scale(1.04);
+  box-shadow: -10px 16px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(20,184,166,0.5), 0 0 20px rgba(20,184,166,0.2);
+  border-color: rgba(20,184,166,0.65);
+}
+.tpl3d-card[data-template="sunrise-classroom"]:hover .tpl3d-inner {
+  transform: rotateY(-5deg) rotateX(-5deg) translateY(-8px) scale(1.05);
+  box-shadow: 8px 20px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(249,115,22,0.5), 0 0 24px rgba(249,115,22,0.25);
+  border-color: rgba(249,115,22,0.65);
+}
+.tpl3d-card[data-template="galaxy-night"]:hover .tpl3d-inner {
+  transform: rotateY(4deg) rotateX(-6deg) rotateZ(-1deg) translateY(-8px) scale(1.04);
+  box-shadow: -6px 18px 48px rgba(0,0,0,0.65), 0 0 0 1px rgba(167,139,250,0.6), 0 0 28px rgba(109,40,217,0.3);
+  border-color: rgba(167,139,250,0.7);
+}
+.tpl3d-card[data-template="tropical-green"]:hover .tpl3d-inner {
+  transform: rotateY(-3deg) rotateX(-4deg) translateY(-9px) scale(1.06);
+  box-shadow: 5px 22px 44px rgba(0,0,0,0.55), 0 0 0 1px rgba(34,197,94,0.5), 0 0 22px rgba(34,197,94,0.25);
+  border-color: rgba(34,197,94,0.65);
+}
+.tpl3d-card[data-template="royal-purple"]:hover .tpl3d-inner {
+  transform: rotateY(0deg) rotateX(-7deg) translateY(-10px) scale(1.05);
+  box-shadow: 0 24px 48px rgba(0,0,0,0.65), 0 0 0 2px rgba(234,179,8,0.5), 0 0 28px rgba(234,179,8,0.3);
+  border-color: rgba(234,179,8,0.7);
+}
+.tpl3d-card[data-template="candy-pink"]:hover .tpl3d-inner {
+  transform: rotateY(-8deg) rotateX(-2deg) translateY(-7px) scale(1.05);
+  box-shadow: 12px 16px 44px rgba(0,0,0,0.55), 0 0 0 1px rgba(236,72,153,0.55), 0 0 24px rgba(236,72,153,0.25);
+  border-color: rgba(236,72,153,0.7);
+}
+.tpl3d-card[data-template="neon-cyber"]:hover .tpl3d-inner {
+  transform: rotateY(6deg) rotateX(-3deg) rotateZ(1deg) translateY(-7px) scale(1.04);
+  box-shadow: -10px 16px 44px rgba(0,0,0,0.7), 0 0 0 1px rgba(6,182,212,0.6), 0 0 30px rgba(6,182,212,0.3);
+  border-color: rgba(6,182,212,0.8);
+}
+.tpl3d-card[data-template="golden-hour"]:hover .tpl3d-inner {
+  transform: rotateY(-5deg) rotateX(-4deg) translateY(-8px) scale(1.05);
+  box-shadow: 8px 20px 44px rgba(0,0,0,0.6), 0 0 0 1px rgba(245,158,11,0.55), 0 0 26px rgba(245,158,11,0.25);
+  border-color: rgba(245,158,11,0.7);
+}
+.tpl3d-card[data-template="ocean-waves"]:hover .tpl3d-inner {
+  transform: rotateY(5deg) rotateX(-3deg) translateY(-8px) scale(1.04);
+  box-shadow: -8px 18px 44px rgba(0,0,0,0.6), 0 0 0 1px rgba(14,165,233,0.55), 0 0 24px rgba(14,165,233,0.25);
+  border-color: rgba(14,165,233,0.7);
+}
+.tpl3d-card[data-template="winter-snow"]:hover .tpl3d-inner {
+  transform: rotateY(-4deg) rotateX(-8deg) translateY(-6px) scale(1.03);
+  box-shadow: 6px 20px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(147,197,253,0.55), 0 0 22px rgba(147,197,253,0.25);
+  border-color: rgba(147,197,253,0.7);
+}
+.tpl3d-card[data-template="cherry-blossom"]:hover .tpl3d-inner {
+  transform: rotateY(3deg) rotateX(-2deg) translateY(-10px) scale(1.05);
+  box-shadow: -4px 24px 44px rgba(0,0,0,0.45), 0 0 0 1px rgba(251,113,133,0.55), 0 0 24px rgba(251,113,133,0.3);
+  border-color: rgba(251,113,133,0.7);
+}
+.tpl3d-card[data-template="desert-dunes"]:hover .tpl3d-inner {
+  transform: rotateY(-6deg) rotateX(-2deg) translateY(-7px) scale(1.04);
+  box-shadow: 10px 16px 44px rgba(0,0,0,0.6), 0 0 0 1px rgba(251,146,60,0.55), 0 0 22px rgba(251,146,60,0.2);
+  border-color: rgba(251,146,60,0.7);
+}
+.tpl3d-card[data-template="aurora-borealis"]:hover .tpl3d-inner {
+  transform: rotateY(7deg) rotateX(-5deg) translateY(-9px) scale(1.05);
+  box-shadow: -10px 22px 48px rgba(0,0,0,0.65), 0 0 0 1px rgba(52,211,153,0.6), 0 0 28px rgba(52,211,153,0.3);
+  border-color: rgba(52,211,153,0.75);
+}
+.tpl3d-card[data-template="lightning-storm"]:hover .tpl3d-inner {
+  transform: rotateY(-3deg) rotateX(-4deg) rotateZ(-1.5deg) translateY(-9px) scale(1.06);
+  box-shadow: 6px 22px 48px rgba(0,0,0,0.7), 0 0 0 2px rgba(196,181,253,0.6), 0 0 32px rgba(167,139,250,0.35);
+  border-color: rgba(196,181,253,0.8);
+}
+.tpl3d-card[data-template="mountain-mist"]:hover .tpl3d-inner {
+  transform: rotateY(-6deg) rotateX(-4deg) translateY(-7px) scale(1.04);
+  box-shadow: 10px 18px 44px rgba(0,0,0,0.6), 0 0 0 1px rgba(148,163,184,0.55), 0 0 20px rgba(148,163,184,0.2);
+  border-color: rgba(148,163,184,0.65);
+}
+.tpl3d-card[data-template="rainbow-garden"]:hover .tpl3d-inner {
+  transform: rotateY(5deg) rotateX(-3deg) translateY(-9px) scale(1.05);
+  box-shadow: -8px 22px 48px rgba(0,0,0,0.5),
+    0 0 0 1px transparent,
+    0 0 20px rgba(255,100,100,0.15),
+    0 0 30px rgba(100,200,255,0.15);
+  border-image: linear-gradient(135deg,#ff6b6b,#ffd93d,#6bcb77,#4d96ff,#cc5de8) 1;
+  border-color: rgba(255,150,100,0.6);
+}
+
+/* Unique active/selected glow per card */
+.tpl3d-card[data-template="classic"].is-active .tpl3d-inner        { border-color:rgba(6,182,212,0.9)!important; box-shadow:0 0 0 2px rgba(6,182,212,0.4),0 8px 32px rgba(6,182,212,0.3)!important; }
+.tpl3d-card[data-template="learning-outcomes"].is-active .tpl3d-inner { border-color:rgba(20,184,166,0.9)!important; box-shadow:0 0 0 2px rgba(20,184,166,0.4),0 8px 32px rgba(20,184,166,0.3)!important; }
+.tpl3d-card[data-template="sunrise-classroom"].is-active .tpl3d-inner { border-color:rgba(249,115,22,0.9)!important; box-shadow:0 0 0 2px rgba(249,115,22,0.4),0 8px 32px rgba(249,115,22,0.3)!important; }
+.tpl3d-card[data-template="galaxy-night"].is-active .tpl3d-inner   { border-color:rgba(167,139,250,0.9)!important; box-shadow:0 0 0 2px rgba(167,139,250,0.4),0 8px 32px rgba(109,40,217,0.4)!important; }
+.tpl3d-card[data-template="tropical-green"].is-active .tpl3d-inner  { border-color:rgba(34,197,94,0.9)!important; box-shadow:0 0 0 2px rgba(34,197,94,0.4),0 8px 32px rgba(34,197,94,0.3)!important; }
+.tpl3d-card[data-template="royal-purple"].is-active .tpl3d-inner    { border-color:rgba(234,179,8,0.9)!important; box-shadow:0 0 0 2px rgba(234,179,8,0.45),0 8px 32px rgba(234,179,8,0.35)!important; }
+.tpl3d-card[data-template="candy-pink"].is-active .tpl3d-inner      { border-color:rgba(236,72,153,0.9)!important; box-shadow:0 0 0 2px rgba(236,72,153,0.4),0 8px 32px rgba(236,72,153,0.3)!important; }
+.tpl3d-card[data-template="neon-cyber"].is-active .tpl3d-inner      { border-color:rgba(6,182,212,0.9)!important; box-shadow:0 0 0 2px rgba(6,182,212,0.5),0 8px 32px rgba(6,182,212,0.4)!important; }
+.tpl3d-card[data-template="golden-hour"].is-active .tpl3d-inner     { border-color:rgba(245,158,11,0.9)!important; box-shadow:0 0 0 2px rgba(245,158,11,0.4),0 8px 32px rgba(245,158,11,0.3)!important; }
+.tpl3d-card[data-template="ocean-waves"].is-active .tpl3d-inner     { border-color:rgba(14,165,233,0.9)!important; box-shadow:0 0 0 2px rgba(14,165,233,0.4),0 8px 32px rgba(14,165,233,0.3)!important; }
+.tpl3d-card[data-template="winter-snow"].is-active .tpl3d-inner     { border-color:rgba(147,197,253,0.9)!important; box-shadow:0 0 0 2px rgba(147,197,253,0.4),0 8px 32px rgba(147,197,253,0.3)!important; }
+.tpl3d-card[data-template="cherry-blossom"].is-active .tpl3d-inner  { border-color:rgba(251,113,133,0.9)!important; box-shadow:0 0 0 2px rgba(251,113,133,0.4),0 8px 32px rgba(251,113,133,0.3)!important; }
+.tpl3d-card[data-template="desert-dunes"].is-active .tpl3d-inner    { border-color:rgba(251,146,60,0.9)!important; box-shadow:0 0 0 2px rgba(251,146,60,0.4),0 8px 32px rgba(251,146,60,0.3)!important; }
+.tpl3d-card[data-template="aurora-borealis"].is-active .tpl3d-inner { border-color:rgba(52,211,153,0.9)!important; box-shadow:0 0 0 2px rgba(52,211,153,0.4),0 8px 32px rgba(52,211,153,0.3)!important; }
+.tpl3d-card[data-template="lightning-storm"].is-active .tpl3d-inner { border-color:rgba(196,181,253,0.9)!important; box-shadow:0 0 0 2px rgba(196,181,253,0.5),0 8px 32px rgba(167,139,250,0.4)!important; }
+.tpl3d-card[data-template="mountain-mist"].is-active .tpl3d-inner   { border-color:rgba(148,163,184,0.9)!important; box-shadow:0 0 0 2px rgba(148,163,184,0.4),0 8px 32px rgba(148,163,184,0.3)!important; }
+.tpl3d-card[data-template="rainbow-garden"].is-active .tpl3d-inner  { border-color:rgba(250,204,21,0.9)!important; box-shadow:0 0 0 2px rgba(250,204,21,0.4),0 8px 40px rgba(250,204,21,0.25)!important; }
+
 .tpl3d-card.is-active .tpl3d-inner {
-  border-color: rgba(139,92,246,0.9) !important;
-  box-shadow: 0 0 0 2px rgba(139,92,246,0.5), 0 8px 32px rgba(109,40,217,0.45) !important;
-  transform: rotateY(-3deg) rotateX(-2deg) translateY(-4px) scale(1.03) !important;
+  transform: rotateY(-2deg) rotateX(-2deg) translateY(-4px) scale(1.03) !important;
 }
 
 /* Preview thumbnail */
