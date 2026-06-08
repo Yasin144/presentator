@@ -3909,3 +3909,109 @@ kbd {
 .voice-use-btn:hover { background: rgba(34,197,94,0.25); border-color: #4ade80; }
 .voice-default-btn { flex: 1; padding: 7px 10px; border-radius: 8px; border: 1.5px solid rgba(255,140,0,0.35); background: rgba(255,140,0,0.1); color: #FF8C00; font-size: 11px; font-weight: 700; cursor: pointer; transition: background .15s; font-family: inherit; }
 .voice-default-btn:hover { background: rgba(255,140,0,0.22); border-color: #FF8C00; }
+
+/* ── 7 New Template Card Previews ─────────────────────────────────────── */
+.template-card-preview-sunrise {
+  background: linear-gradient(170deg, #1a0533 0%, #6b1a3a 28%, #d4572a 58%, #f4913a 80%, #ffd06e 100%);
+  border-radius: 8px; position: relative; overflow: hidden;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.tpl-sun {
+  position: absolute; bottom: 20%; left: 50%; transform: translateX(-50%);
+  width: 38px; height: 38px; border-radius: 50%;
+  background: radial-gradient(circle, #ffe84d 30%, #f4913a 70%, transparent 100%);
+  box-shadow: 0 0 28px 12px rgba(255,210,60,0.55); display: block;
+}
+.tpl-hills {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 30%;
+  background: #1a3a1a; clip-path: ellipse(60% 65% at 50% 100%); display: block;
+}
+.template-card-preview-galaxy {
+  background:
+    radial-gradient(ellipse at 25% 40%, rgba(140,0,255,0.5) 0%, transparent 55%),
+    radial-gradient(ellipse at 78% 30%, rgba(0,80,255,0.4) 0%, transparent 50%),
+    linear-gradient(140deg, #020010, #08004a, #01001e);
+  border-radius: 8px; position: relative; overflow: hidden;
+  display: flex; align-items: flex-start; justify-content: flex-end; padding: 10px;
+}
+.tpl-planet {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #8080ff, #2020aa, #000033);
+  box-shadow: 0 0 14px 5px rgba(100,80,255,0.55); display: block; flex-shrink: 0;
+}
+.tpl-stars {
+  position: absolute; top: 8px; left: 8px;
+  font-size: 9px; color: rgba(220,210,255,0.85); letter-spacing: 3px; display: block;
+}
+.template-card-preview-tropical {
+  background: linear-gradient(180deg, #0077cc 0%, #55ddff 45%, #1a7a2a 46%, #0d4015 100%);
+  border-radius: 8px; position: relative; overflow: hidden;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.tpl-tropical-sky {
+  position: absolute; top: 15%; left: 15%;
+  width: 30px; height: 18px; border-radius: 50%;
+  background: rgba(255,255,255,0.85);
+  box-shadow: 18px -4px 0 rgba(255,255,255,0.75), -14px 2px 0 rgba(255,255,255,0.6); display: block;
+}
+.tpl-palm { font-size: 26px; padding-bottom: 2px; position: relative; z-index: 1; display: block; }
+.template-card-preview-royal {
+  background:
+    radial-gradient(ellipse at 50% 20%, rgba(255,200,0,0.20) 0%, transparent 55%),
+    linear-gradient(145deg, #1a0038, #2d006e, #0d001e);
+  border-radius: 8px; position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.tpl-crown { font-size: 28px; filter: drop-shadow(0 0 10px rgba(255,215,0,0.9)); position: relative; z-index: 1; display: block; }
+.tpl-royal-glow {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(45deg, transparent, transparent 18px, rgba(255,200,80,0.07) 18px, rgba(255,200,80,0.07) 20px);
+  display: block;
+}
+.template-card-preview-candy {
+  background:
+    radial-gradient(ellipse at 30% 40%, rgba(255,100,180,0.5) 0%, transparent 55%),
+    radial-gradient(ellipse at 70% 60%, rgba(180,0,255,0.4) 0%, transparent 50%),
+    linear-gradient(140deg, #2d0045, #5a0072, #220035);
+  border-radius: 8px; position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.tpl-rainbow {
+  position: absolute; top: -55px; left: 50%; transform: translateX(-50%);
+  width: 200px; height: 110px; border-radius: 50%; border: 7px solid transparent;
+  border-top-color: rgba(255,120,220,0.3); display: block;
+}
+.tpl-candy { font-size: 26px; filter: drop-shadow(0 0 10px rgba(255,100,220,0.9)); position: relative; z-index: 1; display: block; }
+.template-card-preview-neon {
+  background: linear-gradient(180deg, #020008, #060018, #0a0020);
+  border-radius: 8px; position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.tpl-neon-grid {
+  position: absolute; inset: 0;
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 22px, rgba(0,220,255,0.07) 23px),
+    repeating-linear-gradient(0deg,  transparent, transparent 22px, rgba(0,220,255,0.07) 23px);
+  display: block;
+}
+.tpl-neon-grid::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, #00ffff, #ff00ff, #00ffff, transparent);
+  top: 62%; box-shadow: 0 0 14px 4px rgba(0,255,255,0.55);
+}
+.tpl-neon-sign { font-size: 28px; filter: drop-shadow(0 0 14px rgba(0,255,255,1)); position: relative; z-index: 1; display: block; }
+.template-card-preview-golden {
+  background: linear-gradient(170deg, #1a0510 0%, #4a0e00 20%, #c44a00 45%, #f5a000 72%, #ffe880 100%);
+  border-radius: 8px; position: relative; overflow: hidden;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.tpl-golden-sun {
+  position: absolute; bottom: 25%; left: 50%; transform: translateX(-50%);
+  width: 42px; height: 42px; border-radius: 50%;
+  background: radial-gradient(circle, #ffe840 30%, #ffaa00 70%, transparent 100%);
+  box-shadow: 0 0 32px 16px rgba(255,200,0,0.45); display: block;
+}
+.tpl-golden-hills {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 26%;
+  background: #1a3010; clip-path: ellipse(55% 70% at 50% 100%); display: block;
+}

@@ -360,6 +360,20 @@ const EXPORT_NARRATION_VOICE = SC3_NARRATION_VOICE;
 const DEFAULT_NARRATION_VOICE = SC3_NARRATION_VOICE;
 const PRESENTATION_TEMPLATE_CLASSIC = "classic";
 const PRESENTATION_TEMPLATE_OUTCOMES = "learning-outcomes";
+// ── Presentation Template identifiers ───────────────────────────────────────
+const PRESENTATION_TEMPLATE_SUNRISE   = "sunrise-classroom";
+const PRESENTATION_TEMPLATE_GALAXY    = "galaxy-night";
+const PRESENTATION_TEMPLATE_TROPICAL  = "tropical-green";
+const PRESENTATION_TEMPLATE_ROYAL     = "royal-purple";
+const PRESENTATION_TEMPLATE_CANDY     = "candy-pink";
+const PRESENTATION_TEMPLATE_NEON      = "neon-cyber";
+const PRESENTATION_TEMPLATE_GOLDEN    = "golden-hour";
+const EXTRA_PRESENTATION_TEMPLATES    = [
+  PRESENTATION_TEMPLATE_SUNRISE, PRESENTATION_TEMPLATE_GALAXY,
+  PRESENTATION_TEMPLATE_TROPICAL, PRESENTATION_TEMPLATE_ROYAL,
+  PRESENTATION_TEMPLATE_CANDY, PRESENTATION_TEMPLATE_NEON,
+  PRESENTATION_TEMPLATE_GOLDEN
+];
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
 const NARRATION_STYLE_PROMPT = "You are a fast, energetic Indian female teacher on an educational kids channel Ã¢â‚¬â€ like Info Kids. Speak quickly and clearly. Introduce each word or concept with excitement, then give the definition immediately with no delay. Keep the energy high and continuous. No long pauses. Sound enthusiastic and friendly like a YouTube kids educator.";
 const NARRATION_STYLE_CONFIG = Object.freeze({
@@ -2501,16 +2515,28 @@ function normalizePresentationTemplate(value) {
     const liveInputValue = document.querySelector('input[name="presentationTemplate"]:checked')?.value;
     effectiveValue = liveToggleValue || liveInputValue || PRESENTATION_TEMPLATE_CLASSIC;
   }
-  
-  return String(effectiveValue || "").trim().toLowerCase() === PRESENTATION_TEMPLATE_OUTCOMES
-    ? PRESENTATION_TEMPLATE_OUTCOMES
-    : PRESENTATION_TEMPLATE_CLASSIC;
+
+  const v = String(effectiveValue || "").trim().toLowerCase();
+  if (v === PRESENTATION_TEMPLATE_OUTCOMES) return PRESENTATION_TEMPLATE_OUTCOMES;
+  if (EXTRA_PRESENTATION_TEMPLATES.includes(v)) return v;
+  return PRESENTATION_TEMPLATE_CLASSIC;
 }
 
 function getPresentationTemplateLabel(template = state.presentationTemplate) {
-  return normalizePresentationTemplate(template) === PRESENTATION_TEMPLATE_OUTCOMES
-    ? "Learning Outcomes"
-    : "Classic Stage";
+  const _t = normalizePresentationTemplate(template);
+  const _labels = {
+    [PRESENTATION_TEMPLATE_OUTCOMES]: "Learning Outcomes",
+    "sunrise-classroom": "Sunrise Classroom",
+    "galaxy-night":      "Galaxy Night",
+    "tropical-green":    "Tropical Garden",
+    "royal-purple":      "Royal Stage",
+    "candy-pink":        "Candy Pop",
+    "neon-cyber":        "Neon City",
+    "golden-hour":       "Golden Hour",
+  };
+  return _labels[_t] || "Classic Stage";
+};
+  return LABELS[t] || "Classic Stage";
 }
 
 function getStoredPresentationTemplate() {
@@ -2575,17 +2601,42 @@ function updatePresentationTemplateUi() {
   presentationTemplateInputs.forEach((input) => {
     input.checked = normalizePresentationTemplate(input.value) === activeTemplate;
   });
-  if (templateCardClassic) {
+  if (typeof EXTRA_PRESENTATION_TEMPLATES !== "undefined") {
+  EXTRA_PRESENTATION_TEMPLATES.forEach((tplId) => {
+    const _extraCard = document.getElementById("templateCard_" + tplId);
+    if (_extraCard) _extraCard.addEventListener("click", () => setPresentationTemplate(tplId));
+  });
+}
+if (templateCardClassic) {
     templateCardClassic.classList.toggle("is-active", activeTemplate === PRESENTATION_TEMPLATE_CLASSIC);
   }
   if (templateCardOutcomes) {
     templateCardOutcomes.classList.toggle("is-active", activeTemplate === PRESENTATION_TEMPLATE_OUTCOMES);
   }
 
+  // Extra template cards
+  EXTRA_PRESENTATION_TEMPLATES.forEach((tplId) => {
+    const card = document.getElementById(`templateCard_${tplId}`);
+    if (card) card.classList.toggle("is-active", activeTemplate === tplId);
+  });
+
+  // Sync Stage Panel select dropdown
+  const stageTemplateSelect = document.getElementById("stageTemplateSelect");
+  if (stageTemplateSelect && stageTemplateSelect.value !== activeTemplate) {
+    stageTemplateSelect.value = activeTemplate;
+  }
+  const stageTemplateStatus = document.getElementById("stageTemplateStatus");
+  if (stageTemplateStatus) {
+    stageTemplateStatus.textContent = `${getPresentationTemplateLabel(activeTemplate)} background is active.`;
+  }
+  const stageBgBadge = document.getElementById("stageBgBadge");
+  if (stageBgBadge) stageBgBadge.textContent = getPresentationTemplateLabel(activeTemplate).split(" ")[0].toUpperCase().slice(0,3);
+
   if (presentationTemplateStatus) {
-    presentationTemplateStatus.textContent = activeTemplate === PRESENTATION_TEMPLATE_OUTCOMES
-      ? "Learning Outcomes template is active. Classic is still available any time."
-      : "Classic stage is active by default.";
+    const label = getPresentationTemplateLabel(activeTemplate);
+    presentationTemplateStatus.textContent = activeTemplate === PRESENTATION_TEMPLATE_CLASSIC
+      ? "Classic stage is active by default."
+      : `${label} template is active. Classic is still available any time.`;
   }
   updateOutcomesTitleUi();
 }
@@ -13759,12 +13810,11 @@ function drawClassicTeachingStageBackdrop() {
   }
   ctx.restore();
 }
-
 function drawLearningOutcomesBackdrop(mouthOpen = 0) {
   const W = canvas.width, H = canvas.height;
   const t = performance.now() / 1000;
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 1. Deep cosmic base gradient Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // — 1. Deep cosmic base gradient ——————————————————————————————————————
   const base = ctx.createLinearGradient(0, 0, W, H);
   base.addColorStop(0,    "#06001a");
   base.addColorStop(0.30, "#0d0533");
@@ -13897,14 +13947,19 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
 }
 
 function drawTeachingStageBackdrop(mouthOpen = 0) {
-  if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
-    drawLearningOutcomesBackdrop(mouthOpen);
-    return;
+  const _tpl = normalizePresentationTemplate(state.presentationTemplate);
+  switch (_tpl) {
+    case PRESENTATION_TEMPLATE_OUTCOMES: drawLearningOutcomesBackdrop(mouthOpen); return;
+    case "sunrise-classroom":            drawSunriseClassroomBackdrop(); return;
+    case "galaxy-night":                 drawGalaxyNightBackdrop(); return;
+    case "tropical-green":               drawTropicalGardenBackdrop(); return;
+    case "royal-purple":                 drawRoyalStageBackdrop(); return;
+    case "candy-pink":                   drawCandyPopBackdrop(); return;
+    case "neon-cyber":                   drawNeonCityBackdrop(); return;
+    case "golden-hour":                  drawGoldenHourBackdrop(); return;
+    default:                             drawClassicTeachingStageBackdrop();
   }
-
-  drawClassicTeachingStageBackdrop();
-  // Avatar permanently disabled Ã¢â‚¬â€ drawPresenterFigure is a no-op, skip the call.
-  // drawPresenterFigure(mouthOpen);
+}
 }
 
 function isUsingDefaultStageStyle(style) {
@@ -24887,6 +24942,27 @@ if (templateCardOutcomes) {
     setPresentationTemplate(PRESENTATION_TEMPLATE_OUTCOMES);
   });
 }
+// Extra template card click handlers
+EXTRA_PRESENTATION_TEMPLATES.forEach((tplId) => {
+  const card = document.getElementById(`templateCard_${tplId}`);
+  if (card) {
+    card.addEventListener("click", () => setPresentationTemplate(tplId));
+  }
+});
+// Extra template title inputs (rename)
+EXTRA_PRESENTATION_TEMPLATES.forEach((tplId) => {
+  const inp = document.getElementById(`templateTitle_${tplId}`);
+  const btn = document.getElementById(`templateTitleSave_${tplId}`);
+  if (!inp) return;
+  const save = () => {
+    const val = inp.value.trim();
+    try { val ? localStorage.setItem(`pp_template_title_${tplId}`, val) : localStorage.removeItem(`pp_template_title_${tplId}`); } catch(e) {}
+  };
+  if (btn) btn.addEventListener("click", save);
+  inp.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); save(); } });
+  // Load saved title
+  try { const saved = localStorage.getItem(`pp_template_title_${tplId}`); if (saved) inp.value = saved; } catch(e) {}
+});
 if (saveOutcomesTitleBtn) {
   saveOutcomesTitleBtn.addEventListener("click", () => {
     setOutcomesTitle(outcomesTitleInput?.value || "");

@@ -184,7 +184,37 @@ function StagePanel() {
               </div>
           </div>
         </details>
-<details className="stage-toolbar-group stage-toolbar-card">
+
+        {/* ── BACKGROUND MODULE ─────────────────────────────────────── */}
+        <details className="stage-toolbar-group stage-toolbar-card" id="stageBackgroundCard">
+          <summary className="stage-toolbar-head stage-toolbar-summary">
+            <div>
+              <p className="stage-toolbar-label">Background</p>
+              <p className="stage-toolbar-meta">Change the presentation background instantly</p>
+            </div>
+            <span className="stage-toolbar-badge stage-bg-badge" id="stageBgBadge">BG</span>
+          </summary>
+          <div className="stage-toolbar-body">
+            <label className="stage-speed-field stage-speed-field-inline" htmlFor="stageTemplateSelect">
+              <span className="style-label">Screen Theme</span>
+              <select id="stageTemplateSelect" className="theme-select text-style-select stage-template-select"
+                aria-label="Choose presentation background theme">
+                <option value="classic">🎓 Classic Stage</option>
+                <option value="learning-outcomes">📋 Learning Outcomes</option>
+                <option value="sunrise-classroom">🌅 Sunrise Classroom</option>
+                <option value="galaxy-night">🌌 Galaxy Night</option>
+                <option value="tropical-green">🌴 Tropical Garden</option>
+                <option value="royal-purple">👑 Royal Stage</option>
+                <option value="candy-pink">🍭 Candy Pop</option>
+                <option value="neon-cyber">⚡ Neon City</option>
+                <option value="golden-hour">✨ Golden Hour</option>
+              </select>
+            </label>
+            <p id="stageTemplateStatus" className="stage-speed-copy">Classic Stage active. Select a theme to change the background live.</p>
+          </div>
+        </details>
+
+        <details className="stage-toolbar-group stage-toolbar-card">
           <summary className="stage-toolbar-head stage-toolbar-summary">
             <div>
               <p className="stage-toolbar-label">Media</p>

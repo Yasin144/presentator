@@ -143,6 +143,106 @@ function InputPanel() {
                     teaching board body.</span>
                 </span>
               </div>
+
+              {/* ── 7 New Animated Backgrounds ─────────────────────────── */}
+              <div className="template-card" id="templateCard_sunrise-classroom" data-template="sunrise-classroom">
+                <span className="template-card-preview template-card-preview-sunrise" aria-hidden="true">
+                  <span className="tpl-sun"></span>
+                  <span className="tpl-hills"></span>
+                </span>
+                <span className="template-card-body">
+                  <span className="template-card-title-row">
+                    <strong>Sunrise Classroom</strong>
+                    <span className="template-chip template-chip-optional">New</span>
+                  </span>
+                  <span className="template-card-copy">Warm orange sunrise with rolling hills and soaring birds — uplifting morning energy.</span>
+                </span>
+              </div>
+
+              <div className="template-card" id="templateCard_galaxy-night" data-template="galaxy-night">
+                <span className="template-card-preview template-card-preview-galaxy" aria-hidden="true">
+                  <span className="tpl-planet"></span>
+                  <span className="tpl-stars">✦ · ✦ · ✧</span>
+                </span>
+                <span className="template-card-body">
+                  <span className="template-card-title-row">
+                    <strong>Galaxy Night</strong>
+                    <span className="template-chip template-chip-optional">New</span>
+                  </span>
+                  <span className="template-card-copy">Deep space purple with nebulas, twinkling stars, and a glowing ringed planet.</span>
+                </span>
+              </div>
+
+              <div className="template-card" id="templateCard_tropical-green" data-template="tropical-green">
+                <span className="template-card-preview template-card-preview-tropical" aria-hidden="true">
+                  <span className="tpl-tropical-sky"></span>
+                  <span className="tpl-palm">🌴</span>
+                </span>
+                <span className="template-card-body">
+                  <span className="template-card-title-row">
+                    <strong>Tropical Garden</strong>
+                    <span className="template-chip template-chip-optional">New</span>
+                  </span>
+                  <span className="template-card-copy">Bright tropical sky, swaying palm trees, exotic flowers, and shimmering water.</span>
+                </span>
+              </div>
+
+              <div className="template-card" id="templateCard_royal-purple" data-template="royal-purple">
+                <span className="template-card-preview template-card-preview-royal" aria-hidden="true">
+                  <span className="tpl-crown">👑</span>
+                  <span className="tpl-royal-glow"></span>
+                </span>
+                <span className="template-card-body">
+                  <span className="template-card-title-row">
+                    <strong>Royal Stage</strong>
+                    <span className="template-chip template-chip-optional">New</span>
+                  </span>
+                  <span className="template-card-copy">Majestic deep purple with gold crown, diamond grid, sparkles, and velvet curtains.</span>
+                </span>
+              </div>
+
+              <div className="template-card" id="templateCard_candy-pink" data-template="candy-pink">
+                <span className="template-card-preview template-card-preview-candy" aria-hidden="true">
+                  <span className="tpl-rainbow"></span>
+                  <span className="tpl-candy">🍭</span>
+                </span>
+                <span className="template-card-body">
+                  <span className="template-card-title-row">
+                    <strong>Candy Pop</strong>
+                    <span className="template-chip template-chip-optional">New</span>
+                  </span>
+                  <span className="template-card-copy">Fun pastel pink-purple with rainbow arcs, confetti rain, and floating bubbles.</span>
+                </span>
+              </div>
+
+              <div className="template-card" id="templateCard_neon-cyber" data-template="neon-cyber">
+                <span className="template-card-preview template-card-preview-neon" aria-hidden="true">
+                  <span className="tpl-neon-grid"></span>
+                  <span className="tpl-neon-sign">⚡</span>
+                </span>
+                <span className="template-card-body">
+                  <span className="template-card-title-row">
+                    <strong>Neon City</strong>
+                    <span className="template-chip template-chip-optional">New</span>
+                  </span>
+                  <span className="template-card-copy">Dark cyber night with neon perspective grid, city skyline, and glowing rain.</span>
+                </span>
+              </div>
+
+              <div className="template-card" id="templateCard_golden-hour" data-template="golden-hour">
+                <span className="template-card-preview template-card-preview-golden" aria-hidden="true">
+                  <span className="tpl-golden-sun"></span>
+                  <span className="tpl-golden-hills"></span>
+                </span>
+                <span className="template-card-body">
+                  <span className="template-card-title-row">
+                    <strong>Golden Hour</strong>
+                    <span className="template-chip template-chip-optional">New</span>
+                  </span>
+                  <span className="template-card-copy">Warm amber sunset with layered hills, golden rays, and firefly particles.</span>
+                </span>
+              </div>
+
             </div>
             <div className="outcomes-title-row">
               <label className="field-label" htmlFor="outcomesTitleInput">Learning Outcomes Template Title</label>
