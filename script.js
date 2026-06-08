@@ -13897,27 +13897,26 @@ function paginateLayout(layout, maxHeight) {
 }
 
 function getPresentationTemplateMetrics() {
+  // Check if a title badge is active for any template
+  const hasTitleBadge = !!(normalizeOutcomesTitle(state.outcomesTitle)
+    || normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value));
+  // Badge sits at y=10, tallest size ≈52px → bottom at y≈62.
+  // Reserve y=72 for content start when badge is showing, y=20 otherwise.
+  const dynamicTopInset = hasTitleBadge ? 72 : STAGE_TEXT_TOP_MARGIN_PX;
+
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
     return {
-      contentTopInset: 78,  // leave top row clear for animated title badge
+      contentTopInset: dynamicTopInset,   // 72 with badge, 20 without
       contentLeftInset: 26,
       contentRightInset: 24,
       contentSideInset: 26,
       contentBottomInset: 18 + STAGE_TEXT_BOTTOM_RESERVED_PX,
-      imagePanelTopInset: 148,
+      imagePanelTopInset: hasTitleBadge ? 148 : 80,
       imagePanelBottomInset: 22,
-      pdfStripTopInset: 156,
-      videoTopInset: 138
+      pdfStripTopInset: hasTitleBadge ? 156 : STAGE_TEXT_TOP_MARGIN_PX,
+      videoTopInset: hasTitleBadge ? 138 : 80
     };
   }
-
-  // For all other templates: if the user has typed a title badge text,
-  // reserve the top strip for the badge so content starts below it.
-  const hasTitleBadge = !!(normalizeOutcomesTitle(state.outcomesTitle)
-    || normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value));
-  // Badge is at y=10, height ≈ 52px (largest font 34px + 2×9 padding).
-  // Add 10px gap between badge bottom and first content row.
-  const dynamicTopInset = hasTitleBadge ? 72 : STAGE_TEXT_TOP_MARGIN_PX;
 
   return {
     contentTopInset: dynamicTopInset,
