@@ -96,17 +96,25 @@ def _clean_text(text: str) -> str:
 
 
 async def _synthesize_mp3(text: str, voice: str, rate: str, pitch: str, volume: str) -> bytes:
-    """Call Edge TTS, return MP3 bytes. Plain text only — NeerjaExpressiveNeural
-    pauses naturally at commas; SSML tags get read as literal text."""
-    chunks: list[bytes] = []
-    comm = edge_tts.Communicate(text, voice=voice, rate=rate, pitch=pitch, volume=volume)
-    async for chunk in comm.stream():
-        if chunk["type"] == "audio":
-            chunks.append(chunk["data"])
+    """Call Edge TTS, return MP3 bytes. Retries up to 3 times on transient failures."""
+    last_exc = None
+    for attempt in range(3):
+        try:
+            chunks: list[bytes] = []
+            comm = edge_tts.Communicate(text, voice=voice, rate=rate, pitch=pitch, volume=volume)
+            async for chunk in comm.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+            if chunks:
+                return b"".join(chunks)
+            # No audio received — wait and retry
+            last_exc = RuntimeError(f"Edge TTS voice '{voice}' returned no audio data.")
+        except Exception as exc:
+            last_exc = exc
+        if attempt < 2:
+            await asyncio.sleep(1.5)
+    raise last_exc or RuntimeError(f"Edge TTS failed after 3 attempts.")
 
-    if not chunks:
-        raise RuntimeError(f"Edge TTS voice '{voice}' returned no audio data.")
-    return b"".join(chunks)
 
 
 def _mp3_to_wav(mp3_bytes: bytes) -> bytes:
