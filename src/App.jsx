@@ -41,7 +41,7 @@ function App() {
 
   useEffect(() => {
     // Cache-buster: change this version string any time a legacy JS file changes
-    const _CB = '?v=20260608l';
+    const _CB = '?v=20260608m';
     const scriptSources = [
       "../logo-data.js" + _CB,
       "../script.js" + _CB,

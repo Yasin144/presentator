@@ -13911,8 +13911,16 @@ function getPresentationTemplateMetrics() {
     };
   }
 
+  // For all other templates: if the user has typed a title badge text,
+  // reserve the top strip for the badge so content starts below it.
+  const hasTitleBadge = !!(normalizeOutcomesTitle(state.outcomesTitle)
+    || normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value));
+  // Badge is at y=10, height ≈ 52px (largest font 34px + 2×9 padding).
+  // Add 10px gap between badge bottom and first content row.
+  const dynamicTopInset = hasTitleBadge ? 72 : STAGE_TEXT_TOP_MARGIN_PX;
+
   return {
-    contentTopInset: STAGE_TEXT_TOP_MARGIN_PX,
+    contentTopInset: dynamicTopInset,
     contentSideInset: STAGE_TEXT_SIDE_MARGIN_PX,
     contentLeftInset: STAGE_LEFT_CONTENT_GAP_PX,
     contentRightInset: STAGE_TEXT_SIDE_MARGIN_PX,
@@ -15821,10 +15829,10 @@ function drawInfoKidsLogo() {
   // Ã¢â€â‚¬Ã¢â€â‚¬ Badge layout Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const BADGE_PAD_X  = 22;  // horizontal padding inside pill
   const BADGE_PAD_Y  = 9;   // vertical padding
-  // Dock the badge just above the content area boundary (~y=80)
-  // so it reads as 'the title next to where content starts'
-  const BADGE_TOP_Y  = Math.round(canvas.height * 0.068);  // ≈80px on 1080h canvas
-  const BADGE_RIGHT  = 20;  // gap from right canvas edge when docked
+  // Badge at very top-right corner (y=10). Content area has been pushed
+  // down to y=72 so the first content row starts on the next line below.
+  const BADGE_TOP_Y  = 10;
+  const BADGE_RIGHT  = 16;  // gap from right canvas edge when docked
 
   // Auto-shrink font so badge stays compact (title-like, not huge)
   const fontSizes = [34, 30, 26, 22, 18];
