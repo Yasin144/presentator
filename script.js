@@ -2905,27 +2905,7 @@ function updatePresentationTemplateUi() {
   presentationTemplateInputs.forEach((input) => {
     input.checked = normalizePresentationTemplate(input.value) === activeTemplate;
   });
-  if (typeof EXTRA_PRESENTATION_TEMPLATES !== "undefined") {
-  EXTRA_PRESENTATION_TEMPLATES.forEach((tplId) => {
-    const _extraCard = document.getElementById("templateCard_" + tplId);
-    if (_extraCard) _extraCard.addEventListener("click", () => setPresentationTemplate(tplId));
-  });
-}
-// Wire 3D Select buttons
-  document.querySelectorAll(".tpl3d-select-btn").forEach(function(btn) {
-    btn.addEventListener("click", function(e) {
-      e.stopPropagation();
-      var tplId = btn.getAttribute("data-tpl");
-      if (tplId) setPresentationTemplate(tplId);
-    });
-  });
-  // Also wire clicking the whole card
-  document.querySelectorAll(".tpl3d-card").forEach(function(card) {
-    card.addEventListener("click", function() {
-      var tplId = card.getAttribute("data-template");
-      if (tplId) setPresentationTemplate(tplId);
-    });
-  });
+  // Template card wiring is done once via event delegation below
 if (templateCardClassic) {
     templateCardClassic.classList.toggle("is-active", activeTemplate === PRESENTATION_TEMPLATE_CLASSIC);
   }
@@ -14383,7 +14363,7 @@ function drawTeachingStageBackdrop(mouthOpen = 0) {
   var _tpl = normalizePresentationTemplate(state.presentationTemplate);
   if (_tpl === PRESENTATION_TEMPLATE_OUTCOMES) { drawLearningOutcomesBackdrop(mouthOpen); return; }
   var _fn = _BACKDROP_REGISTRY && _BACKDROP_REGISTRY[_tpl];
-  if (typeof _fn === 'function') { try { _fn(); } catch(e) { console.error('Backdrop error:', _tpl, e); drawClassicTeachingStageBackdrop(); } return; }
+  if (typeof _fn === 'function') { try { _fn(); } catch(e) { console.error('Backdrop error:', _tpl, e); try { drawClassicTeachingStageBackdrop(); } catch(_e2){} } return; }
   drawClassicTeachingStageBackdrop();
 }
 
@@ -28369,6 +28349,36 @@ setPureInputMode(false);
     markSceneDirty && markSceneDirty();
     drawScene(state.mouthOpen);
   });
+}());
+
+
+// ── ONE-TIME template card click delegation ─────────────────────────────────
+// Uses event delegation so clicks always work with zero listener accumulation.
+(function initTemplateCardDelegation() {
+  // Guard so this only runs once even if script is somehow re-executed
+  if (window.__tplDelegationWired) return;
+  window.__tplDelegationWired = true;
+
+  document.addEventListener('click', function(e) {
+    // Check if user clicked a Select button
+    var btn = e.target.closest && e.target.closest('.tpl3d-select-btn');
+    if (btn) {
+      e.stopPropagation();
+      var tplId = btn.getAttribute('data-tpl');
+      if (tplId && typeof setPresentationTemplate === 'function') {
+        setPresentationTemplate(tplId);
+      }
+      return;
+    }
+    // Check if user clicked anywhere on the card itself
+    var card = e.target.closest && e.target.closest('.tpl3d-card');
+    if (card) {
+      var tplId2 = card.getAttribute('data-template');
+      if (tplId2 && typeof setPresentationTemplate === 'function') {
+        setPresentationTemplate(tplId2);
+      }
+    }
+  }, false);
 }());
 
 // == Chatterbox Voice Loading Banner ==
