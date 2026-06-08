@@ -2968,6 +2968,8 @@ function setPresentationTemplate(template, options = {}) {
 
   return hasChanged;
 }
+window.setPresentationTemplate = setPresentationTemplate;
+
 
 function initializePresentationTemplate() {
   state.presentationTemplate = getStoredPresentationTemplate();
@@ -28355,22 +28357,34 @@ setPureInputMode(false);
 // ── ONE-TIME template card click delegation ─────────────────────────────────
 // Uses event delegation so clicks always work with zero listener accumulation.
 (function initTemplateCardDelegation() {
-  // Guard so this only runs once even if script is somehow re-executed
-  if (window.__tplDelegationWired) return;
-  window.__tplDelegationWired = true;
+  // NO guard - runs exactly once per script load (script is injected once per page load)
 
-  // Wire stageTemplateSelect via document-level change delegation.
-  // Cannot getElementById at script load time (React hasn't rendered yet).
-  // change event bubbles from <select> up to document - always works.
+  // ── 1. stageTemplateSelect dropdown via document change delegation ──────
+  // change event bubbles from <select> to document. Works regardless of when
+  // React renders the element or whether stagePanel is hidden.
   document.addEventListener('change', function(e) {
-    if (e.target && e.target.id === 'stageTemplateSelect') {
+    if (!e.target) return;
+    if (e.target.id === 'stageTemplateSelect') {
       var val = e.target.value;
-      if (val && typeof setPresentationTemplate === 'function') {
-        setPresentationTemplate(val);
+      if (!val) return;
+      // Force state update and redraw unconditionally
+      try {
+        if (typeof setPresentationTemplate === 'function') {
+          setPresentationTemplate(val);
+        } else if (typeof window.setPresentationTemplate === 'function') {
+          window.setPresentationTemplate(val);
+        }
+        // Belt-and-suspenders: force a draw even if hidden check fails
+        try {
+          if (typeof state !== 'undefined') state.presentationTemplate = val;
+          if (typeof updatePresentationTemplateUi === 'function') updatePresentationTemplateUi();
+          if (typeof drawScene === 'function') drawScene(0);
+        } catch (_e2) {}
+      } catch (_e3) {
+        console.error('stageTemplateSelect change error:', _e3);
       }
     }
   });
-
   document.addEventListener('click', function(e) {
     // Check if user clicked a Select button
     var btn = e.target.closest && e.target.closest('.tpl3d-select-btn');
@@ -28392,6 +28406,24 @@ setPureInputMode(false);
     }
   }, false);
 }());
+
+
+// ── TOP-LEVEL stageTemplateSelect change listener (safety net) ──────────────
+// This fires even if the initTemplateCardDelegation IIFE fails for any reason.
+document.addEventListener('change', function _topLevelTplChange(e) {
+  if (e && e.target && e.target.id === 'stageTemplateSelect') {
+    var _v = e.target.value;
+    if (!_v) return;
+    try {
+      if (typeof setPresentationTemplate === 'function') setPresentationTemplate(_v);
+    } catch (_ex) {}
+    try {
+      if (typeof state !== 'undefined') state.presentationTemplate = _v;
+      if (typeof updatePresentationTemplateUi === 'function') updatePresentationTemplateUi();
+      if (typeof drawScene === 'function') drawScene(0);
+    } catch (_ex2) {}
+  }
+});
 
 // == Chatterbox Voice Loading Banner ==
 (function initChatterboxBanner() {
