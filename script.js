@@ -4156,9 +4156,9 @@ const NARRATION_SHORTCUT_MAP = [
   [/\bfig\.?\s*(\d+)/gi,   'figure $1'],
   [/\bfigs\.?\b/gi,        'figures'],
   [/\btbl\.?\b/gi,         'table'],
-  [/\bno\.\s*(\d)/gi,      'number $1'],
-  [/\bnos?\.?\b/gi,        'numbers'],
-  [/\bqns?\.?\b/gi,        'questions'],
+  [/\bno\.\s*(\d)/gi,      'number $1'],  // "no. 5"  → "number 5"  (needs the dot)
+  [/\bnos\.?\b/gi,          'numbers'],    // "nos" / "nos." → "numbers"  (NOT bare "no")
+  [/\bqns\.?\b/gi,          'questions'],  // "qns" / "qns." → "questions" (NOT bare "qn")
   [/\bstd\.?\b/gi,         'standard'],
   [/\bst\.?\b/gi,          'standard'],
   [/\bwks\.?\b/gi,         'weeks'],
