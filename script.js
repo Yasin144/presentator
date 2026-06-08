@@ -2535,8 +2535,6 @@ function getPresentationTemplateLabel(template = state.presentationTemplate) {
     "golden-hour":       "Golden Hour",
   };
   return _labels[_t] || "Classic Stage";
-};
-  return LABELS[t] || "Classic Stage";
 }
 
 function getStoredPresentationTemplate() {
@@ -13959,7 +13957,6 @@ function drawTeachingStageBackdrop(mouthOpen = 0) {
     case "golden-hour":                  drawGoldenHourBackdrop(); return;
     default:                             drawClassicTeachingStageBackdrop();
   }
-}
 }
 
 function isUsingDefaultStageStyle(style) {
