@@ -13964,7 +13964,7 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
 }
 
 
-function drawSunriseClassroomBackdrop() {
+window.drawSunriseClassroomBackdrop = function() {
   var W=canvas.width,H=canvas.height,t=performance.now()/1000;
   var sky=ctx.createLinearGradient(0,0,0,H);
   sky.addColorStop(0,'#1a0533');sky.addColorStop(0.25,'#6b1a3a');sky.addColorStop(0.55,'#d4572a');
@@ -13986,7 +13986,7 @@ function drawSunriseClassroomBackdrop() {
   for(var x2=0;x2<=W;x2+=4)ctx.lineTo(x2,H*0.90+15*Math.sin(x2/120+2.3));
   ctx.lineTo(W,H);ctx.closePath();ctx.fill();
 }
-function drawGalaxyNightBackdrop() {
+window.drawGalaxyNightBackdrop = function() {
   var W=canvas.width,H=canvas.height,t=performance.now()/1000;
   var base=ctx.createLinearGradient(0,0,W,H);
   base.addColorStop(0,'#020010');base.addColorStop(0.3,'#08004a');base.addColorStop(0.65,'#12006a');base.addColorStop(1,'#01001e');
@@ -14002,7 +14002,7 @@ function drawGalaxyNightBackdrop() {
   ctx.fillStyle=pGrad;ctx.beginPath();ctx.arc(px,py,pr,0,Math.PI*2);ctx.fill();
   ctx.strokeStyle='rgba(160,140,255,0.5)';ctx.lineWidth=8;ctx.beginPath();ctx.ellipse(px,py,pr*1.8,pr*0.35,-0.25,0,Math.PI*2);ctx.stroke();
 }
-function drawTropicalGardenBackdrop() {
+window.drawTropicalGardenBackdrop = function() {
   var W=canvas.width,H=canvas.height,t=performance.now()/1000;
   var sky=ctx.createLinearGradient(0,0,0,H*0.6);sky.addColorStop(0,'#0077cc');sky.addColorStop(0.5,'#00aaee');sky.addColorStop(1,'#55ddff');
   ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
@@ -14011,7 +14011,7 @@ function drawTropicalGardenBackdrop() {
   var drawPalm=function(tx,ty,lean){ctx.save();ctx.strokeStyle='#5a3010';ctx.lineWidth=18;ctx.beginPath();ctx.moveTo(tx,ty);ctx.bezierCurveTo(tx+lean*20,ty-H*0.18,tx+lean*35,ty-H*0.30,tx+lean*45,ty-H*0.38);ctx.stroke();var lx=tx+lean*45,ly=ty-H*0.38;var leafAngles=[-0.6,-0.2,0.2,0.6,1.0,-1.0];for(var la=0;la<leafAngles.length;la++){var a=leafAngles[la],sway=0.05*Math.sin(t*0.8+la);ctx.strokeStyle=la%2===0?'#1a8a20':'#26aa28';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(lx,ly);var ex=lx+Math.cos(a+sway-0.3)*110,ey=ly+Math.sin(a+sway-0.3)*80;ctx.bezierCurveTo(lx+Math.cos(a)*60,ly+Math.sin(a)*40,ex-10,ey-20,ex,ey);ctx.stroke();}ctx.restore();};
   drawPalm(W*0.08,H,-1);drawPalm(W*0.92,H,1);drawPalm(W*0.18,H,-0.5);drawPalm(W*0.82,H,0.5);
 }
-function drawRoyalStageBackdrop() {
+window.drawRoyalStageBackdrop = function() {
   var W=canvas.width,H=canvas.height,t=performance.now()/1000;
   var base=ctx.createLinearGradient(0,0,W,H);base.addColorStop(0,'#1a0038');base.addColorStop(0.35,'#2d006e');base.addColorStop(0.65,'#1e0055');base.addColorStop(1,'#0d001e');
   ctx.fillStyle=base;ctx.fillRect(0,0,W,H);
@@ -14029,7 +14029,7 @@ function drawRoyalStageBackdrop() {
   for(var spi=0;spi<spPos.length;spi++){ctx.globalAlpha=0.5+0.5*Math.abs(Math.sin(t*1.5+spi*1.1));ctx.fillStyle='#ffd700';var stx=spPos[spi][0]*W,sty=spPos[spi][1]*H,sr=4+2*Math.sin(t+spi);ctx.beginPath();for(var p2=0;p2<8;p2++){var a2=p2*Math.PI/4+t*0.4,rad2=p2%2===0?sr:sr*0.4;if(p2===0)ctx.moveTo(stx+Math.cos(a2)*rad2,sty+Math.sin(a2)*rad2);else ctx.lineTo(stx+Math.cos(a2)*rad2,sty+Math.sin(a2)*rad2);}ctx.closePath();ctx.fill();}
   ctx.globalAlpha=1;ctx.restore();
 }
-function drawCandyPopBackdrop() {
+window.drawCandyPopBackdrop = function() {
   var W=canvas.width,H=canvas.height,t=performance.now()/1000;
   var base=ctx.createLinearGradient(0,0,W,H);base.addColorStop(0,'#2d0045');base.addColorStop(0.35,'#5a0072');base.addColorStop(0.65,'#7b0099');base.addColorStop(1,'#220035');ctx.fillStyle=base;ctx.fillRect(0,0,W,H);
   var blobs=[{x:0.10,y:0.20,r:80,c:'rgba(255,100,180,0.20)',s:0.7},{x:0.30,y:0.60,r:110,c:'rgba(180,0,255,0.18)',s:0.5},{x:0.72,y:0.55,r:130,c:'rgba(100,200,255,0.18)',s:0.6},{x:0.88,y:0.25,r:70,c:'rgba(255,100,220,0.22)',s:0.9}];
@@ -14042,7 +14042,7 @@ function drawCandyPopBackdrop() {
   for(var ri=0;ri<rainbowColors.length;ri++){ctx.strokeStyle=rainbowColors[ri];ctx.lineWidth=16;ctx.beginPath();ctx.arc(W*0.5,-H*0.15,W*0.4+ri*28,0,Math.PI);ctx.stroke();}
   ctx.globalAlpha=1;ctx.restore();
 }
-function drawNeonCityBackdrop() {
+window.drawNeonCityBackdrop = function() {
   var W=canvas.width,H=canvas.height,t=performance.now()/1000;
   var base=ctx.createLinearGradient(0,0,0,H);base.addColorStop(0,'#020008');base.addColorStop(0.5,'#060018');base.addColorStop(1,'#0a0020');ctx.fillStyle=base;ctx.fillRect(0,0,W,H);
   ctx.save();ctx.strokeStyle='rgba(0,220,255,0.08)';ctx.lineWidth=1;
@@ -14056,7 +14056,7 @@ function drawNeonCityBackdrop() {
   for(var nl=0;nl<neonLines.length;nl++){ctx.globalAlpha=0.6*(0.7+0.3*Math.abs(Math.sin(t*4+neonLines[nl].y*10)));ctx.strokeStyle=neonLines[nl].c;ctx.lineWidth=neonLines[nl].w;ctx.beginPath();ctx.moveTo(0,neonLines[nl].y*H);ctx.lineTo(W,neonLines[nl].y*H);ctx.stroke();}
   ctx.globalAlpha=1;ctx.restore();
 }
-function drawGoldenHourBackdrop() {
+window.drawGoldenHourBackdrop = function() {
   var W=canvas.width,H=canvas.height,t=performance.now()/1000;
   var sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#1a0510');sky.addColorStop(0.20,'#4a0e00');sky.addColorStop(0.45,'#c44a00');sky.addColorStop(0.70,'#f5a000');sky.addColorStop(0.90,'#ffd040');sky.addColorStop(1,'#ffe880');
   ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
@@ -14077,13 +14077,13 @@ function drawTeachingStageBackdrop(mouthOpen = 0) {
   const _tpl = normalizePresentationTemplate(state.presentationTemplate);
   switch (_tpl) {
     case PRESENTATION_TEMPLATE_OUTCOMES: drawLearningOutcomesBackdrop(mouthOpen); return;
-    case "sunrise-classroom":            drawSunriseClassroomBackdrop(); return;
-    case "galaxy-night":                 drawGalaxyNightBackdrop(); return;
-    case "tropical-green":               drawTropicalGardenBackdrop(); return;
-    case "royal-purple":                 drawRoyalStageBackdrop(); return;
-    case "candy-pink":                   drawCandyPopBackdrop(); return;
-    case "neon-cyber":                   drawNeonCityBackdrop(); return;
-    case "golden-hour":                  drawGoldenHourBackdrop(); return;
+    case "sunrise-classroom":            if(window.drawSunriseClassroomBackdrop)window.drawSunriseClassroomBackdrop(); else drawClassicTeachingStageBackdrop(); return;
+    case "galaxy-night":                 if(window.drawGalaxyNightBackdrop)window.drawGalaxyNightBackdrop(); else drawClassicTeachingStageBackdrop(); return;
+    case "tropical-green":               if(window.drawTropicalGardenBackdrop)window.drawTropicalGardenBackdrop(); else drawClassicTeachingStageBackdrop(); return;
+    case "royal-purple":                 if(window.drawRoyalStageBackdrop)window.drawRoyalStageBackdrop(); else drawClassicTeachingStageBackdrop(); return;
+    case "candy-pink":                   if(window.drawCandyPopBackdrop)window.drawCandyPopBackdrop(); else drawClassicTeachingStageBackdrop(); return;
+    case "neon-cyber":                   if(window.drawNeonCityBackdrop)window.drawNeonCityBackdrop(); else drawClassicTeachingStageBackdrop(); return;
+    case "golden-hour":                  if(window.drawGoldenHourBackdrop)window.drawGoldenHourBackdrop(); else drawClassicTeachingStageBackdrop(); return;
     default:                             drawClassicTeachingStageBackdrop();
   }
 }
