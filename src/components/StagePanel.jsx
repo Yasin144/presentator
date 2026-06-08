@@ -198,8 +198,7 @@ function StagePanel() {
             <label className="stage-speed-field stage-speed-field-inline" htmlFor="stageTemplateSelect">
               <span className="style-label">Screen Theme</span>
               <select id="stageTemplateSelect" className="theme-select text-style-select stage-template-select"
-                aria-label="Choose presentation background theme"
-                onChange={(e) => { if (typeof window.setPresentationTemplate === 'function') window.setPresentationTemplate(e.target.value); }}>
+                aria-label="Choose presentation background theme">
                 <option value="classic">🎓 Classic Stage</option>
                 <option value="learning-outcomes">📋 Learning Outcomes</option>
                 <option value="sunrise-classroom">🌅 Sunrise Classroom</option>
