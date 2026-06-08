@@ -15888,11 +15888,6 @@ function drawInfoKidsLogo() {
   bg.addColorStop(0.45, "#E8460A");  // burnt-orange mid
   bg.addColorStop(1,    "#7B10C8");  // electric indigo-violet
 
-  // Subtle outer glow
-  ctx.shadowColor   = "rgba(255,140,0,0.55)";
-  ctx.shadowBlur    = 22;
-  ctx.shadowOffsetY = 4;
-
   // Pill shape
   ctx.beginPath();
   ctx.moveTo(bx + br, by);
@@ -15905,20 +15900,17 @@ function drawInfoKidsLogo() {
   ctx.fill();
 
   // Thin frosted-glass border
-  ctx.shadowColor = "transparent";
-  ctx.shadowBlur  = 0;
   ctx.strokeStyle = "rgba(255,255,255,0.28)";
   ctx.lineWidth   = 1.5;
   ctx.stroke();
 
   // Badge text
-  ctx.font          = `800 ${titleFontSize}px "League Spartan", sans-serif`;
-  ctx.textAlign     = "center";
-  ctx.textBaseline  = "middle";
-  ctx.fillStyle     = "#ffffff";
-  ctx.shadowColor   = "rgba(0,0,0,0.40)";
-  ctx.shadowBlur    = 5;
-  ctx.shadowOffsetY = 1;
+  ctx.font         = `800 ${titleFontSize}px "League Spartan", sans-serif`;
+  ctx.textAlign    = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle    = "#ffffff";
+  ctx.shadowColor  = "transparent";
+  ctx.shadowBlur   = 0;
   ctx.fillText(titleText, bx + bw / 2, by + bh / 2);
 
   ctx.restore();
