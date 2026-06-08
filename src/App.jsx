@@ -40,14 +40,16 @@ function App() {
   const reset = useCallback(() => { setStyle(DEFAULTS); }, []);
 
   useEffect(() => {
+    // Cache-buster: change this version string any time a legacy JS file changes
+    const _CB = '?v=20260608b';
     const scriptSources = [
-      "../logo-data.js",
-      "../script.js",
-      "../caption-script.js",
+      "../logo-data.js" + _CB,
+      "../script.js" + _CB,
+      "../caption-script.js" + _CB,
       "app://voice/vendor/three.min.js",
       "app://voice/vendor/GLTFLoader.js",
-      "../3d-engine.js",
-      "../dubbing-studio.js",
+      "../3d-engine.js" + _CB,
+      "../dubbing-studio.js" + _CB,
     ];
 
     const loadScript = (src) =>
