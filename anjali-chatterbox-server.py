@@ -678,47 +678,244 @@ def _trim_silence(wav: bytes, threshold_db: float = -42.0, tail_ms: int = 80) ->
 # â”€â”€ Text cleaner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _clean_indian_slang(text: str) -> str:
+    """
+    Convert text to authentic Indian English for Chatterbox TTS.
+    Three-pass pipeline:
+      1. Indian contextual phrases → natural Indian English equivalents
+      2. Western/American slang → Indian English equivalents
+      3. Phonetic respelling → how Indians actually pronounce English words
+    """
     import re
     t = str(text or "").strip()
-    replacements = {
-        r'\b(gonna)\b': 'going to',
-        r'\b(wanna)\b': 'want to',
-        r'\b(gotta)\b': 'have to',
-        r'\b(lemme)\b': 'let me',
-        r'\b(gimme)\b': 'give me',
-        r'\b(kinda)\b': 'kind of',
-        r'\b(sorta)\b': 'sort of',
-        r'\b(dunno)\b': 'do not know',
-        r'\b(y\'all|yall)\b': 'all of you',
-        r'\b(ain\'t)\b': 'is not',
-        r'\b(can\'t)\b': 'cannot',
-        r'\b(won\'t)\b': 'will not',
-        r'\b(don\'t)\b': 'do not',
-        r'\b(doesn\'t)\b': 'does not',
-        r'\b(didn\'t)\b': 'did not',
-        r'\b(isn\'t)\b': 'is not',
-        r'\b(wasn\'t)\b': 'was not',
-        r'\b(weren\'t)\b': 'were not',
-        r'\b(haven\'t)\b': 'have not',
-        r'\b(hasn\'t)\b': 'has not',
-        r'\b(hadn\'t)\b': 'had not',
-        r'\b(wouldn\'t)\b': 'would not',
-        r'\b(shouldn\'t)\b': 'should not',
-        r'\b(couldn\'t)\b': 'could not',
-        r'\b(it\'s)\b': 'it is',
-        r'\b(that\'s)\b': 'that is',
-        r'\b(there\'s)\b': 'there is',
-        r'\b(they\'re)\b': 'they are',
-        r'\b(we\'re)\b': 'we are',
-        r'\b(you\'re)\b': 'you are',
-        r'\b(I\'m)\b': 'I am',
-        r'\b(I\'ve)\b': 'I have',
-        r'\b(I\'ll)\b': 'I will',
-        r'\b(I\'d)\b': 'I would',
+
+    # ── Pass 1: Western contractions → full Indian English forms ──────────────
+    # Indians rarely use contractions in formal/educational speech
+    contractions = {
+        r"\b(gonna)\b":       "going to",
+        r"\b(wanna)\b":       "want to",
+        r"\b(gotta)\b":       "have to",
+        r"\b(lemme)\b":       "let me",
+        r"\b(gimme)\b":       "give me",
+        r"\b(kinda)\b":       "kind of",
+        r"\b(sorta)\b":       "sort of",
+        r"\b(dunno)\b":       "do not know",
+        r"\b(y'all|yall)\b":  "all of you",
+        r"\b(ain't)\b":       "is not",
+        r"\b(can't)\b":       "cannot",
+        r"\b(won't)\b":       "will not",
+        r"\b(don't)\b":       "do not",
+        r"\b(doesn't)\b":     "does not",
+        r"\b(didn't)\b":      "did not",
+        r"\b(isn't)\b":       "is not",
+        r"\b(wasn't)\b":      "was not",
+        r"\b(weren't)\b":     "were not",
+        r"\b(haven't)\b":     "have not",
+        r"\b(hasn't)\b":      "has not",
+        r"\b(hadn't)\b":      "had not",
+        r"\b(wouldn't)\b":    "would not",
+        r"\b(shouldn't)\b":   "should not",
+        r"\b(couldn't)\b":    "could not",
+        r"\b(it's)\b":        "it is",
+        r"\b(that's)\b":      "that is",
+        r"\b(there's)\b":     "there is",
+        r"\b(they're)\b":     "they are",
+        r"\b(we're)\b":       "we are",
+        r"\b(you're)\b":      "you are",
+        r"\b(I'm)\b":         "I am",
+        r"\b(I've)\b":        "I have",
+        r"\b(I'll)\b":        "I will",
+        r"\b(I'd)\b":         "I would",
+        r"\b(he's)\b":        "he is",
+        r"\b(she's)\b":       "she is",
+        r"\b(who's)\b":       "who is",
+        r"\b(what's)\b":      "what is",
+        r"\b(where's)\b":     "where is",
+        r"\b(how's)\b":       "how is",
+        r"\b(let's)\b":       "let us",
+        r"\b(we've)\b":       "we have",
+        r"\b(they've)\b":     "they have",
+        r"\b(you've)\b":      "you have",
+        r"\b(we'd)\b":        "we would",
+        r"\b(they'd)\b":      "they would",
+        r"\b(he'd)\b":        "he would",
+        r"\b(she'd)\b":       "she would",
+        r"\b(won't)\b":       "will not",
+        r"\b(shan't)\b":      "shall not",
+        r"\b(mustn't)\b":     "must not",
+        r"\b(needn't)\b":     "need not",
+        r"\b(daren't)\b":     "dare not",
     }
-    for pattern, repl in replacements.items():
-        t = re.sub(pattern, repl, t, flags=re.I)
-    return t
+    for pat, repl in contractions.items():
+        t = re.sub(pat, repl, t, flags=re.I)
+
+    # ── Pass 2: Western/American slang → Indian English equivalents ───────────
+    # These are phrases Indians would naturally say differently
+    american_to_indian = {
+        # American idioms → Indian equivalents
+        r"\b(awesome)\b":                   "very good",
+        r"\b(cool)\b":                      "very nice",
+        r"\b(guys)\b":                      "everyone",
+        r"\b(dude)\b":                      "friend",
+        r"\b(buddy)\b":                     "friend",
+        r"\b(bro)\b":                       "friend",
+        r"\b(pal)\b":                       "friend",
+        r"\b(check out)\b":                 "have a look at",
+        r"\b(hang out)\b":                  "spend time",
+        r"\b(freak out)\b":                 "get worried",
+        r"\b(chill out)\b":                 "relax",
+        r"\b(no worries)\b":               "do not worry",
+        r"\b(heads up)\b":                  "please note",
+        r"\b(wrap up)\b":                   "finish",
+        r"\b(kickstart)\b":                 "start",
+        r"\b(kick off)\b":                  "begin",
+        r"\b(touch base)\b":                "discuss",
+        r"\b(ballpark)\b":                  "approximate",
+        r"\b(bandwidth)\b":                 "capacity",
+        r"\b(leverage)\b":                  "use",
+        r"\b(gonna get)\b":                 "will get",
+        r"\b(nope)\b":                      "no",
+        r"\b(yep|yup)\b":                   "yes",
+        r"\b(huh)\b":                       "what",
+        r"\b(oops)\b":                      "sorry",
+        r"\b(okey dokey|okey-dokey)\b":     "okay",
+        r"\b(pretty much)\b":               "mostly",
+        r"\b(kind of|kinda)\b":             "somewhat",
+        r"\b(sort of|sorta)\b":             "somewhat",
+        r"\b(a lot of)\b":                  "many",
+        r"\b(lots of)\b":                   "many",
+        r"\b(tons of)\b":                   "many",
+        r"\b(bunch of)\b":                  "many",
+        r"\b(way too)\b":                   "very much too",
+        r"\b(super)\b":                     "very",
+        r"\b(totally)\b":                   "completely",
+        r"\b(absolutely)\b":                "certainly",
+        r"\b(definitely)\b":                "certainly",
+        r"\b(basically)\b":                 "essentially",
+        r"\b(literally)\b":                 "actually",
+        r"\b(like)\b(?=\s+\w)":             "",   # filler "like" removed
+        r"\b(you know)\b":                  "",   # filler removed
+        r"\b(I mean)\b":                    "",   # filler removed
+        r"\b(right\?)\b":                   "is it not?",
+        r"\b(okay\?)\b":                    "is it clear?",
+        r"\b(got it\?)\b":                  "is it understood?",
+        r"\b(make sense\?)\b":              "is it clear?",
+        r"\b(makes sense)\b":               "is clear",
+        r"\b(no brainer)\b":                "very simple thing",
+        r"\b(bottom line)\b":               "in short",
+        r"\b(at the end of the day)\b":     "ultimately",
+        r"\b(moving forward)\b":            "going forward",
+        r"\b(going forward)\b":             "in future",
+        r"\b(touch and go)\b":              "uncertain",
+        r"\b(up to speed)\b":               "fully informed",
+        r"\b(out of the box)\b":            "ready to use",
+        r"\b(think outside the box)\b":     "think creatively",
+        r"\b(on the same page)\b":          "in agreement",
+        r"\b(synergy)\b":                   "combined effort",
+        r"\b(proactive)\b":                 "taking initiative",
+        r"\b(deliverable)\b":               "output",
+        r"\b(takeaway)\b":                  "key point",
+        r"\b(deep dive)\b":                 "detailed study",
+        r"\b(pain point)\b":                "problem area",
+        r"\b(game changer)\b":              "major change",
+        r"\b(paradigm shift)\b":            "major change in thinking",
+        r"\b(disruptive)\b":                "revolutionary",
+        r"\b(cutting edge)\b":              "latest",
+        r"\b(state of the art)\b":          "most advanced",
+        r"\b(robust)\b":                    "strong",
+        r"\b(seamless)\b":                  "smooth",
+        r"\b(scalable)\b":                  "can be expanded",
+        r"\b(holistic)\b":                  "complete",
+        r"\b(pivot)\b":                     "change direction",
+        r"\b(agile)\b":                     "flexible",
+        r"\b(iterate)\b":                   "repeat and improve",
+    }
+    for pat, repl in american_to_indian.items():
+        if repl:
+            t = re.sub(pat, repl, t, flags=re.I)
+        else:
+            t = re.sub(pat, "", t, flags=re.I)
+
+    # ── Pass 3: Phonetic respelling for Indian pronunciation ──────────────────
+    # These respellings guide Chatterbox to produce authentic Indian-accented
+    # pronunciation. Indians stress syllables differently and use British-Indian
+    # vowel patterns.
+    phonetic = {
+        # Vowel differences: Indian English uses short vowels more
+        r"\b(schedule)\b":      "skedule",
+        r"\b(vitamin)\b":       "vitamine",        # Indians: vit-ah-min (long a)
+        r"\b(leisure)\b":       "lezhure",
+        r"\b(either)\b":        "ee-ther",
+        r"\b(neither)\b":       "nee-ther",
+        r"\b(again)\b":         "again",           # already natural
+        r"\b(process)\b":       "proe-cess",       # Indians use long o
+        r"\b(progress)\b":      "proe-gress",
+        r"\b(project)\b":       "pro-ject",
+        r"\b(data)\b":          "day-ta",          # Indian standard
+        r"\b(privacy)\b":       "priv-acy",        # Indian: short i
+        r"\b(advertisement)\b": "add-ver-tise-ment",
+        r"\b(controversy)\b":   "con-troversy",    # Indian stress pattern
+        r"\b(laboratory)\b":    "la-bor-atory",
+        r"\b(secretary)\b":     "sec-re-terry",
+        r"\b(dictionary)\b":    "dic-tion-erry",
+        r"\b(necessary)\b":     "nec-es-serry",
+        r"\b(library)\b":       "lie-brer-ry",
+        r"\b(February)\b":      "Feb-roo-ary",
+        r"\b(January)\b":       "Jan-yoo-ary",
+        r"\b(actually)\b":      "actually",        # keep, Indians say this naturally
+        r"\b(basically)\b":     "basically",
+        r"\b(especially)\b":    "especially",
+        r"\b(particularly)\b":  "particularly",
+        r"\b(formula)\b":       "form-yoo-la",
+        r"\b(vehicle)\b":       "vee-hi-kul",
+        r"\b(technology)\b":    "tek-nol-o-jee",
+        r"\b(geography)\b":     "jee-og-ra-fee",
+        r"\b(biography)\b":     "bye-og-ra-fee",
+        r"\b(democracy)\b":     "de-mock-ra-see",
+        r"\b(bureaucracy)\b":   "byoo-rock-ra-see",
+        r"\b(hierarchy)\b":     "high-er-ar-kee",
+        r"\b(entrepreneur)\b":  "on-tre-pre-neur",
+        r"\b(queue)\b":         "kyoo",
+        r"\b(quiz)\b":          "kwiz",
+        r"\b(zero)\b":          "zee-ro",
+        r"\b(zebra)\b":         "zeb-ra",          # Indian: short e not ee
+        r"\b(pizza)\b":         "peet-za",
+        r"\b(cafe)\b":          "ka-fay",
+        # Indian English specific expressions preserved
+        r"\b(prepone)\b":       "prepone",         # pure Indian English word
+        r"\b(do the needful)\b": "do what is needed",
+        r"\b(revert back)\b":   "reply",
+        r"\b(revert)\b":        "reply",
+        r"\b(doubt)\b":         "question",        # Indians say "I have a doubt" = I have a question
+        r"\b(passed out)\b":    "graduated",       # Indian usage
+        r"\b(out of station)\b": "out of town",
+        r"\b(good name)\b":     "name",
+        r"\b(co-brother)\b":    "brother in law",
+        r"\b(cousin brother)\b": "cousin",
+        r"\b(cousin sister)\b": "cousin",
+        r"\b(lakh)\b":          "lakh",
+        r"\b(lakhs)\b":         "lakhs",
+        r"\b(crore)\b":         "crore",
+        r"\b(crores)\b":        "crores",
+        r"\b(paise)\b":         "paise",
+        r"\b(rupee)\b":         "rupee",
+        r"\b(rupees)\b":        "rupees",
+        r"\b(ji)\b":            "jee",
+        r"\b(sahib)\b":         "saa-hib",
+        r"\b(madam)\b":         "madam",
+        r"\b(sir)\b":           "sir",
+        r"\b(anna)\b":          "anna",
+        r"\b(akka)\b":          "akka",
+        r"\b(bhai)\b":          "bhai",
+        r"\b(didi)\b":          "didi",
+    }
+    for pat, repl in phonetic.items():
+        t = re.sub(pat, repl, t, flags=re.I)
+
+    # ── Clean up extra spaces left by removed fillers ─────────────────────────
+    t = re.sub(r'[ \t]{2,}', ' ', t)
+    t = re.sub(r'\s+([,.!?])', r'\1', t)
+    return t.strip()
+
 
 def _clean(text: str) -> str:
     import re
