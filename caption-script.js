@@ -872,11 +872,27 @@ function bootCaptionStudio() {
                 if (ipc && ipc.ok) {
                     if (pBar) pBar.style.width = '100%';
 
-                    // No speech detected (music/animation video)
+                    // No speech detected — auto-use lesson/narration text from app state
                     if (!ipc.text || ipc.text.trim().length < 3) {
+                        const lessonText = (
+                            (window.state && Array.isArray(window.state.allNarrationTexts) && window.state.allNarrationTexts.length
+                                ? window.state.allNarrationTexts.join(' ')
+                                : window.state && window.state.lastNarrationText) ||
+                            localStorage.getItem('pp_last_narration_text') ||
+                            (document.querySelector('#lessonText, #narrationText, textarea[data-lesson], .lesson-input') || {}).value ||
+                            ''
+                        ).trim();
+                        const vidDur = sourceVideo ? (sourceVideo.duration || 60) : 60;
+                        if (lessonText && lessonText.length > 5) {
+                            // Auto-generate captions from lesson text spread across video duration
+                            generatedCaptions = buildLinearCaptionChunks(lessonText, vidDur, { narrationDurationSec: vidDur });
+                            statusText.innerHTML = '\u2705 ' + generatedCaptions.length + ' captions auto-generated from lesson text (no speech in video audio)';
+                            finaliseCaptions(); return;
+                        }
+                        // No lesson text either — show manual input as last resort
                         isExtractingText = false;
                         actionBtn.disabled = false;
-                        statusText.innerHTML = '\ud83c\udfb5 No speech found in this video \u2014 type your caption text below:';
+                        statusText.innerHTML = '\ud83c\udfb5 No speech found in this video — type your caption text below:';
                         showManualCaptionInput();
                         return;
                     }
