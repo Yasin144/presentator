@@ -400,18 +400,20 @@ def _convert_voice_color(wav_bytes: bytes, voice: str) -> bytes:
             # Extract source SE
             source_se = converter.extract_se(str(prepared_path))
             
-            # Convert
+            # tau=0.1 = maximum timbre transfer (0=full target voice, 1=keep source)
             converter.convert(
                 audio_src_path=str(prepared_path),
                 src_se=source_se,
                 tgt_se=target_se,
                 output_path=str(converted_path),
+                tau=0.1,
             )
             
-            # Resample back to 24000Hz mono WAV (PCM s16)
+            # Resample back to 24000Hz mono WAV (soxr high-quality)
             subprocess.run([
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                 "-i", str(converted_path),
+                "-af", "aresample=resampler=soxr:precision=28",
                 "-ac", "1",
                 "-ar", "24000",
                 "-sample_fmt", "s16",
@@ -427,8 +429,10 @@ def _prepare_wav(input_path, output_path):
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
+        "-af", "aresample=resampler=soxr:precision=28,equalizer=f=8000:t=h:w=1:g=1.5",
         "-ar", "44100",
         "-ac", "2",
+        "-sample_fmt", "s16",
         str(output_path),
     ], check=True)
 
@@ -437,8 +441,10 @@ def _write_mp3(input_path, output_path):
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
+        "-af", "loudnorm=I=-16:TP=-1.5:LRA=7",
         "-codec:a", "libmp3lame",
-        "-b:a", "192k",
+        "-b:a", "320k",
+        "-q:a", "0",
         str(output_path),
     ], check=True)
 
@@ -501,11 +507,13 @@ def _run_direct_model(payload):
             print(f"[Voice] converting uploaded audio to {voice}...", flush=True)
             converter, target_se = _ensure_converter(device=device, voice=voice)
             source_se = converter.extract_se(str(prepared_path))
+            # tau=0.1 = maximum timbre transfer (0=full target voice, 1=keep source)
             converter.convert(
                 audio_src_path=str(prepared_path),
                 src_se=source_se,
                 tgt_se=target_se,
                 output_path=str(converted_path),
+                tau=0.1,
             )
             
         print("[Voice] writing mp3 output.", flush=True)

@@ -99,21 +99,35 @@ def _direct_converter_importable():
 
 
 def _prepare_wav(input_path, output_path):
+    """Prepare audio for OpenVoice conversion.
+    High-quality resample to 44100Hz stereo with soxr resampler.
+    Gentle high-shelf boost (+1.5dB above 8kHz) restores presence lost
+    in MP3 encoding so OpenVoice extracts a richer source embedding.
+    """
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
+        # High-quality resampling + subtle presence boost for richer SE extraction
+        "-af", "aresample=resampler=soxr:precision=28,equalizer=f=8000:t=h:w=1:g=1.5",
         "-ar", "44100",
         "-ac", "2",
+        "-sample_fmt", "s16",
         str(output_path),
     ], cwd=str(ROOT), check=True)
 
 
 def _write_mp3(input_path, output_path):
+    """Write maximum-quality MP3.
+    320kbps + loudness normalisation to -16 LUFS (broadcast standard).
+    -16 LUFS keeps the voice loud and present without clipping.
+    """
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
+        "-af", "loudnorm=I=-16:TP=-1.5:LRA=7",
         "-codec:a", "libmp3lame",
-        "-b:a", "192k",
+        "-b:a", "320k",
+        "-q:a", "0",
         str(output_path),
     ], cwd=str(ROOT), check=True)
 
@@ -216,11 +230,14 @@ def _run_direct_model(payload):
             print(f"[sc3-singing] converting uploaded audio to {voice}.", flush=True)
             converter, target_se = _ensure_converter("cpu", voice)
             source_se = converter.extract_se(str(prepared_path))
+            # tau=0.1 → maximum timbre transfer strength (0=full target, 1=full source).
+            # At 0.1 the output voice identity locks to sc3 reference as closely as possible.
             converter.convert(
                 audio_src_path=str(prepared_path),
                 src_se=source_se,
                 tgt_se=target_se,
                 output_path=str(converted_path),
+                tau=0.1,
             )
         print("[sc3-singing] writing mp3 output.", flush=True)
         _write_mp3(converted_path, output_path)
