@@ -15943,8 +15943,8 @@ async function recordTitleIntroForExport(titleDurationMs = 0, captureRate = 30) 
     state.speaking = false;
     state.displayedText = "";
     state.exactCharCountFloat = 0;
-    if (state.titleAnim?.startedAt) {
-      state.titleAnim.exitStartedAt = null;
+    if (state.titleAnim?.startedAt && !state.titleAnim.exitStartedAt && !state.titleAnim.exitDone) {
+      // Hold badge visible until narration speaking begins — only if exit not already armed
       state.titleAnim.holdUntilSpeaking = true;
     }
 
@@ -16012,9 +16012,12 @@ async function recordEndingTitleOutro(durationMs = EXPORT_TITLE_OUTRO_MS, captur
   state.exactCharCountFloat = String(state.text || "").length;
   state.contentScrollOffset = 0;
   syncLessonPlaybackProgressUi(1, true);
-  if (state.titleAnim?.startedAt) {
-    state.titleAnim.exitStartedAt = null;
+  // Allow badge to exit naturally — do NOT reset exitStartedAt.
+  // If exit already started or done, leave it. Only clear holdUntilSpeaking
+  // so the draw loop can arm the exit if it hasn't started yet.
+  if (state.titleAnim?.startedAt && !state.titleAnim.exitDone) {
     state.titleAnim.holdUntilSpeaking = false;
+    // Do NOT touch exitStartedAt here — it may already be running
   }
 
   const startedAt = performance.now();
