@@ -788,204 +788,153 @@ function bootCaptionStudio() {
         });
     }
 
-    actionBtn.addEventListener('click', async () => {
+﻿    actionBtn.addEventListener('click', async () => {
         if (isExtractingText) return;
-        isExtractingText = true; actionBtn.disabled = true;
-        
+        isExtractingText = true;
+        actionBtn.disabled = true;
+
+        // Clear old captions so wrong content never shows
+        generatedCaptions = [];
+
+        const pBar = document.getElementById('captionProgressBarValue');
+        const captionProgress = document.getElementById('captionProgress');
+        if (captionProgress) captionProgress.classList.remove('hidden');
+
+        function finaliseCaptions() {
+            for (let i = 0; i < generatedCaptions.length - 1; i++) {
+                if (generatedCaptions[i].timestamp[1] < generatedCaptions[i+1].timestamp[0])
+                    generatedCaptions[i].timestamp[1] = generatedCaptions[i+1].timestamp[0];
+            }
+            if (generatedCaptions.length > 0)
+                generatedCaptions[generatedCaptions.length-1].timestamp[1] = sourceVideo.duration || generatedCaptions[generatedCaptions.length-1].timestamp[1] + 5;
+            editorPanel.classList.remove('hidden');
+            populateEditor();
+            actionBtn.classList.add('hidden');
+            exportBtn.classList.remove('hidden');
+            sourceVideo.pause(); sourceVideo.currentTime = 0;
+            clearPreviewFrameHandle(); renderPreviewNow(0); updatePlayPauseLabel();
+        }
+
         try {
-            const pBar = document.getElementById('captionProgressBarValue');
-            if (pBar) pBar.style.width = "5%";
-            statusText.innerHTML = "⏳ Step 1: Extracting raw audio data (Please wait...)";
+            // PATH 1: Electron IPC — FFmpeg extracts audio, Whisper returns real word timestamps
+            const hasIpc = window.electronAPI && typeof window.electronAPI.transcribeVideo === 'function';
+            const videoPath = activeFile
+                ? ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+                    ? window.electronAPI.getPathForFile(activeFile)
+                    : (activeFile.path || ''))
+                : '';
+
+            if (hasIpc && videoPath) {
+                statusText.innerHTML = '⏳ Transcribing video audio via Whisper (30–90s)...';
+                if (pBar) pBar.style.width = '10%';
+                const ipc = await window.electronAPI.transcribeVideo({ videoPath });
+                if (ipc && ipc.ok && ipc.text) {
+                    if (pBar) pBar.style.width = '100%';
+                    const words    = Array.isArray(ipc.words)    ? ipc.words    : [];
+                    const segments = Array.isArray(ipc.segments) ? ipc.segments : [];
+                    if (words.length > 0) {
+                        for (let i = 0; i < words.length; i += 7) {
+                            const sl = words.slice(i, i+7);
+                            const txt = sl.map(w => w.word).join(' ').trim();
+                            if (txt) generatedCaptions.push({ text: txt, timestamp: [sl[0].start, sl[sl.length-1].end], words: sl.map(w => ({ text: w.word, timestamp: [w.start, w.end] })) });
+                        }
+                    } else if (segments.length > 0) {
+                        generatedCaptions = segments.filter(s => s.text && s.text.trim()).map(s => ({
+                            text: s.text.trim(), timestamp: [s.start, s.end],
+                            words: s.text.trim().split(/\s+/).map((w,i,a) => ({ text: w, timestamp: [s.start+(i/a.length)*(s.end-s.start), s.start+((i+1)/a.length)*(s.end-s.start)] }))
+                        }));
+                    } else {
+                        const dur = sourceVideo.duration || 60;
+                        generatedCaptions = buildLinearCaptionChunks(ipc.text, dur, { narrationDurationSec: dur });
+                    }
+                    statusText.innerHTML = '✅ ' + generatedCaptions.length + ' captions from video audio (Whisper)';
+                    finaliseCaptions(); return;
+                }
+                console.warn('[Caption] IPC failed:', ipc && ipc.error);
+                statusText.innerHTML = '⚠️ IPC failed — trying HTTP server...';
+            }
+
+            // PATH 2: HTTP transcription server (port 8428)
+            statusText.innerHTML = '⏳ Extracting audio from video...';
+            if (pBar) pBar.style.width = '5%';
             audioDataArray = await extractAudio(activeFile);
-            
-            if (pBar) pBar.style.width = "15%";
-            let result = null;
+            if (pBar) pBar.style.width = '15%';
             try {
-                statusText.innerHTML = "⏳ Step 2: Sending audio to local transcription server...";
-                result = await transcribeWithLocalServer(audioDataArray);
-                if (pBar) pBar.style.width = "100%";
-            } catch (localError) {
-                console.warn("Local caption transcription failed, trying browser worker:", localError);
-                statusText.innerHTML = "Local transcription failed. Trying browser caption engine...";
+                statusText.innerHTML = '⏳ Sending to Whisper server (port 8428)...';
+                const svr = await transcribeWithLocalServer(audioDataArray);
+                if (pBar) pBar.style.width = '100%';
+                if (svr && svr.chunks && svr.chunks.length > 0) {
+                    generatedCaptions = svr.chunks;
+                    statusText.innerHTML = '✅ ' + generatedCaptions.length + ' captions from video audio';
+                    finaliseCaptions(); return;
+                }
+            } catch (svrErr) {
+                console.warn('[Caption] HTTP server failed:', svrErr.message);
+                statusText.innerHTML = '⚠️ Server unavailable — using browser AI...';
             }
 
-            if (!result) {
+            // PATH 3: Browser Whisper worker (offline fallback)
             if (!captionWorker) {
-                statusText.innerHTML = "⏳ Step 2: Initializing AI Engine...";
-                
-                const workerString = `
-                let pipeline, env;
-                let transcriber = null;
-
-                function extractSafeData(data) {
-                    if (!data) return null;
-                    try { return JSON.parse(JSON.stringify(data)); } catch(e) {
-                        return { status: data.status, name: data.name, file: data.file, progress: data.progress, timestamp: data.timestamp ? [data.timestamp[0], data.timestamp[1]] : null, text: data.text || "" };
-                    }
-                }
-
-                self.onmessage = async (e) => {
-                    if (e.data.type === 'init') {
-                        try {
-                            if (!pipeline) {
-                                const transformers = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.1');
-                                pipeline = transformers.pipeline; env = transformers.env;
-                                env.allowLocalModels = true; 
-                                env.allowRemoteModels = false;
-                                env.localModelPath = e.data.modelPath || 'http://127.0.0.1:5173/AI_Models/';
-                                env.useBrowserCache = true;
-                            }
-                            if (!transcriber) {
-                                // Downgraded to 'tiny.en' (quantized ~40MB) for extreme speed improvements on standard CPUs!
-                                transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-                                    quantized: true, // enforce lightweight float representations
-                                    progress_callback: data => self.postMessage({ type: 'progress', data: extractSafeData(data) })
-                                });
-                            }
-                            self.postMessage({ type: 'init_done' });
-                        } catch (err) {
-                            self.postMessage({ type: 'error', error: err.message });
-                        }
-                    } else if (e.data.type === 'transcribe') {
-                        try {
-                            const { audioDataArray, options, duration } = e.data;
-                            const result = await transcriber(audioDataArray, {
-                                ...options, chunk_callback: (chunk) => self.postMessage({ type: 'chunk_progress', chunk: extractSafeData(chunk), duration })
-                            });
-                            self.postMessage({ type: 'result', result: extractSafeData(result) });
-                        } catch (err) {
-                            self.postMessage({ type: 'error', error: err.message });
-                        }
-                    }
-                };
-                `;
-                
-                const blob = new Blob([workerString], { type: 'application/javascript' });
+                statusText.innerHTML = '⏳ Initializing browser AI engine...';
+                const ws = `let p,e,t=null;function s(d){if(!d)return null;try{return JSON.parse(JSON.stringify(d));}catch(x){return{status:d.status,text:d.text||'',timestamp:d.timestamp||null};}}self.onmessage=async(ev)=>{if(ev.data.type==='init'){try{if(!p){const m=await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.1');p=m.pipeline;e=m.env;e.allowLocalModels=true;e.allowRemoteModels=false;e.localModelPath=ev.data.modelPath||'http://127.0.0.1:5173/AI_Models/';e.useBrowserCache=true;}if(!t){t=await p('automatic-speech-recognition','Xenova/whisper-tiny.en',{quantized:true,progress_callback:d=>self.postMessage({type:'progress',data:s(d)})});}self.postMessage({type:'init_done'});}catch(er){self.postMessage({type:'error',error:er.message});}}else if(ev.data.type==='transcribe'){try{const r=await t(ev.data.audioDataArray,{...ev.data.options,chunk_callback:c=>self.postMessage({type:'chunk_progress',chunk:s(c),duration:ev.data.duration})});self.postMessage({type:'result',result:s(r)});}catch(er){self.postMessage({type:'error',error:er.message});}}};`;
+                const blob = new Blob([ws], { type: 'application/javascript' });
                 captionWorker = new Worker(URL.createObjectURL(blob));
-                
-                await new Promise((resolve, reject) => {
-                    captionWorker.onerror = (e) => reject(new Error("Worker failed to load (Check path): " + (e.message || "Unknown error")));
-                    captionWorker.onmessage = (e) => {
-                        if (e.data.type === 'init_done') resolve();
-                        else if (e.data.type === 'progress') {
-                            if (e.data.data.status === 'downloading') {
-                                let dllPct = Math.round(e.data.data.progress || 0);
-                                statusText.innerHTML = `⏳ Downloading AI model: ${dllPct}%`;
-                                if (pBar) pBar.style.width = (15 + (dllPct * 0.15)) + "%"; // Scales up to ~30%
-                            }
-                            else if (e.data.data.status === 'ready') statusText.innerHTML = "⏳ AI engine initialized. Starting transcription...";
-                        } else if (e.data.type === 'error') reject(new Error(e.data.error || "Model initialization failed"));
+                await new Promise((res, rej) => {
+                    captionWorker.onerror = ev => rej(new Error('Worker: ' + (ev.message || 'fail')));
+                    captionWorker.onmessage = ev => {
+                        if (ev.data.type === 'init_done') res();
+                        else if (ev.data.type === 'progress' && ev.data.data && ev.data.data.status === 'downloading') {
+                            const pct = Math.round(ev.data.data.progress || 0);
+                            statusText.innerHTML = '⏳ Downloading AI model: ' + pct + '%';
+                            if (pBar) pBar.style.width = (15 + pct * 0.15) + '%';
+                        } else if (ev.data.type === 'error') rej(new Error(ev.data.error || 'init failed'));
                     };
-                    captionWorker.postMessage({ type: 'init', modelPath: `${window.location.origin}/AI_Models/` });
+                    captionWorker.postMessage({ type: 'init', modelPath: window.location.origin + '/AI_Models/' });
                 });
             }
-            if (pBar) pBar.style.width = "30%";
-
-            let transcribeOptions = { 
-                chunk_length_s: 30, 
-                stride_length_s: 5, 
-                return_timestamps: 'word'
-            };
-            
-            if (translateCheck && translateCheck.checked) {
-                transcribeOptions.task = 'translate';
-                statusText.innerHTML = "Auto-Translating any detected language directly to English...";
-            }
-
-            result = await new Promise((resolve, reject) => {
-                captionWorker.onerror = (e) => reject(new Error("Worker runtime crash: " + (e.message || "Unknown error")));
-                captionWorker.onmessage = (e) => {
-                    if (e.data.type === 'chunk_progress') {
-                        if (e.data.duration && e.data.chunk && e.data.chunk.timestamp && e.data.chunk.timestamp[1] !== null) {
-                            let pct = Math.min(Math.round((e.data.chunk.timestamp[1] / e.data.duration) * 100), 100);
-                            statusText.innerHTML = `Transcribing Audio to Text... ${pct}%`;
-                            const pBar = document.getElementById('captionProgressBarValue');
-                            if(pBar) pBar.style.width = pct + "%";
-                        }
-                    } else if (e.data.type === 'result') {
-                        const pBar = document.getElementById('captionProgressBarValue');
-                        if(pBar) pBar.style.width = "100%";
-                        resolve(e.data.result);
-                    }
-                    else if (e.data.type === 'error') reject(new Error(e.data.error || "Transcription failed"));
+            if (pBar) pBar.style.width = '30%';
+            const opts = { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' };
+            const translateCheck = document.getElementById('captionTranslateCheck');
+            if (translateCheck && translateCheck.checked) opts.task = 'translate';
+            const workerResult = await new Promise((res, rej) => {
+                captionWorker.onerror = ev => rej(new Error('Worker crash: ' + (ev.message || 'unknown')));
+                captionWorker.onmessage = ev => {
+                    if (ev.data.type === 'chunk_progress' && ev.data.chunk && ev.data.chunk.timestamp && ev.data.chunk.timestamp[1] !== null) {
+                        const pct = Math.min(Math.round((ev.data.chunk.timestamp[1] / (ev.data.duration || 60)) * 100), 100);
+                        statusText.innerHTML = 'Transcribing... ' + pct + '%';
+                        if (pBar) pBar.style.width = pct + '%';
+                    } else if (ev.data.type === 'result') { if (pBar) pBar.style.width = '100%'; res(ev.data.result); }
+                    else if (ev.data.type === 'error') rej(new Error(ev.data.error || 'failed'));
                 };
-                captionWorker.postMessage({ 
-                    type: 'transcribe', 
-                    audioDataArray: audioDataArray.buffer, 
-                    options: transcribeOptions,
-                    duration: audioDataArray.duration || sourceVideo.duration || 60
-                });
+                captionWorker.postMessage({ type: 'transcribe', audioDataArray: audioDataArray.buffer, options: opts, duration: sourceVideo.duration || 60 });
             });
-            }
-
-            let rawChunks = result.chunks || [];
-            let cleanCaptions = [];
-            
-            // Reconstruct semantic sentences with perfect word-level internal timestamps
-            let currentSentence = null;
-            rawChunks.forEach(c => {
-                let strippedText = c.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g, '').trim();
-                if (strippedText.length === 0) return;
-                
-                let wordTimestamp = Array.isArray(c.timestamp) ? c.timestamp : [0, 0];
-                if (wordTimestamp[0] === null) wordTimestamp[0] = currentSentence ? currentSentence.timestamp[1] : 0;
-                if (wordTimestamp[1] === null) wordTimestamp[1] = wordTimestamp[0] + 0.5;
-
-                if (!currentSentence) {
-                    currentSentence = { text: strippedText, timestamp: [...wordTimestamp], words: [{ text: strippedText, timestamp: [...wordTimestamp] }] };
-                } else {
-                    currentSentence.text += ' ' + strippedText;
-                    currentSentence.timestamp[1] = wordTimestamp[1];
-                    currentSentence.words.push({ text: strippedText, timestamp: [...wordTimestamp] });
-                }
-                
-                const isPunctuation = /[.!?]$/.test(strippedText);
-                if (isPunctuation || currentSentence.words.length >= 12 || (wordTimestamp[1] - wordTimestamp[0] > 1.5)) {
-                    cleanCaptions.push(currentSentence);
-                    currentSentence = null;
-                }
+            let cur = null;
+            (workerResult.chunks || []).forEach(c => {
+                const txt = c.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim();
+                if (!txt) return;
+                let ts = Array.isArray(c.timestamp) ? c.timestamp : [0,0];
+                if (ts[0]===null) ts[0]=cur?cur.timestamp[1]:0;
+                if (ts[1]===null) ts[1]=ts[0]+0.5;
+                if (!cur) { cur={text:txt,timestamp:[...ts],words:[{text:txt,timestamp:[...ts]}]}; }
+                else { cur.text+=' '+txt; cur.timestamp[1]=ts[1]; cur.words.push({text:txt,timestamp:[...ts]}); }
+                if (/[.!?]$/.test(txt)||cur.words.length>=12){generatedCaptions.push(cur);cur=null;}
             });
-            if (currentSentence) cleanCaptions.push(currentSentence);
-
-            generatedCaptions = cleanCaptions;
-            
-            // Gapless closure algorithm: guarantee no caption disappears randomly
-            for (let i = 0; i < generatedCaptions.length; i++) {
-                 if (i < generatedCaptions.length - 1) {
-                      const current = generatedCaptions[i];
-                      const next = generatedCaptions[i + 1];
-                      // Extend current chunk seamlessly to the precise start of the next chunk
-                      if (current.timestamp[1] < next.timestamp[0]) {
-                          current.timestamp[1] = next.timestamp[0];
-                      }
-                 } else {
-                      // Final chunk rides out the duration
-                      generatedCaptions[i].timestamp[1] = sourceVideo.duration || generatedCaptions[i].timestamp[1] + 5;
-                 }
+            if (cur) generatedCaptions.push(cur);
+            if (generatedCaptions.length === 0 && workerResult.text) {
+                const dur = sourceVideo.duration || 60;
+                generatedCaptions = buildLinearCaptionChunks(workerResult.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim(), dur, { narrationDurationSec: dur });
             }
-            
-            if(generatedCaptions.length === 0 && result.text) {
-                let strippedText = result.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g, '').trim();
-                if (strippedText.length > 0) generatedCaptions = buildLinearCaptionChunks(strippedText, sourceVideo.duration);
-            }
-            
-            editorPanel.classList.remove('hidden'); populateEditor();
-            statusText.innerHTML = "✅ Captions Generated successfully!";
-            actionBtn.classList.add('hidden'); exportBtn.classList.remove('hidden');
-            
-            sourceVideo.pause();
-            sourceVideo.currentTime = 0;
-            clearPreviewFrameHandle();
-            renderPreviewNow(0);
-            updatePlayPauseLabel();
+            statusText.innerHTML = '✅ ' + generatedCaptions.length + ' captions from video audio';
+            finaliseCaptions();
 
-        } catch (error) { 
-            statusText.innerHTML = "❌ Error: " + (error.message || "Unknown execution crash");
-            alert("CAPTION PIPELINE CRASH: " + (error.message || "Worker failed."));
+        } catch (error) {
+            statusText.innerHTML = '❌ ' + (error.message || 'Unknown error');
+            console.error('[Caption]', error);
         } finally { isExtractingText = false; actionBtn.disabled = false; }
     });
-    
-    function drawWrappedText(ctx, fullText, x, y, maxWidth, lineHeight, elapsedTime, styleType, activeWordIndex = -1, targetEmoji = null, fontSize = 50, colorOverride = null) {
+
+
+        function drawWrappedText(ctx, fullText, x, y, maxWidth, lineHeight, elapsedTime, styleType, activeWordIndex = -1, targetEmoji = null, fontSize = 50, colorOverride = null) {
         let text = fullText;
 
 
