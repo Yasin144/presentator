@@ -602,21 +602,41 @@ try:
     print(f"[Voice] Loading Chatterbox model on {device}...", flush=True)
     MODEL = ChatterboxTTS.from_pretrained(device=device)
 
-    # Cap max_new_tokens inside t3.inference() — this is where the sampling loop runs.
-    # 350 tokens = fast generation. Cache handles repeated sentences — no regeneration needed.
+    # ── Pre-upsample reference WAV to 24kHz (soxr) for cleanest voice embedding ──
+    # Model uses S3GEN_SR=24000Hz. Reference is 22050Hz. Pre-upsampling with
+    # soxr precision=28 gives a cleaner embedding than librosa's internal resample.
+    import subprocess as _ffsp
+    _ref_24k_path = str(PROJECT_ROOT / "voice-reference-sc3-24k.wav")
+    try:
+        _ffsp.run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", VOICE_REF_WAV,
+            "-af", "aresample=resampler=soxr:precision=28",
+            "-ar", "24000", "-ac", "1", "-sample_fmt", "s16",
+            _ref_24k_path,
+        ], check=True)
+        VOICE_REF_WAV_24K = _ref_24k_path
+        print(f"[Voice] Reference upsampled to 24kHz (soxr): {_ref_24k_path}", flush=True)
+    except Exception as _upe:
+        VOICE_REF_WAV_24K = VOICE_REF_WAV
+        print(f"[Voice] soxr upsample failed ({_upe}), using original reference.", flush=True)
+
+    # ── Raise max_new_tokens: 350 was cutting off sentences mid-word ──
+    # 900 tokens = ~35+ words → full paragraphs complete without truncation.
     _orig_t3_inf = MODEL.t3.inference
     def _capped_t3_inference(*args, **kwargs):
-        kwargs['max_new_tokens'] = min(kwargs.get('max_new_tokens', 350), 350)
+        kwargs['max_new_tokens'] = min(kwargs.get('max_new_tokens', 900), 900)
         return _orig_t3_inf(*args, **kwargs)
     MODEL.t3.inference = _capped_t3_inference
-    print(f"[Voice] max_new_tokens = 350 (fast). Cache handles repeated phrases.", flush=True)
+    print(f"[Voice] max_new_tokens = 900 (HD quality, full sentence completion).", flush=True)
 
-    print(f"[Voice] Pre-computing sc3 voice embeddings...", flush=True)
-    MODEL.prepare_conditionals(VOICE_REF_WAV, exaggeration=0.45)
+    print(f"[Voice] Pre-computing sc3 voice embeddings (24kHz soxr reference)...", flush=True)
+    MODEL.prepare_conditionals(VOICE_REF_WAV_24K, exaggeration=0.5)
 
     SAMPLE_RATE = getattr(MODEL, "sr", 24000)
     print(f"[Voice] ✔ Ready! sr={SAMPLE_RATE}, device={device}", flush=True)
     print(f"[Voice] sc3 voice locked. Starting server on port {PORT}...", flush=True)
+
 
 except Exception as e:
     print(f"[FATAL] Chatterbox failed to load: {e}", flush=True)
@@ -698,10 +718,10 @@ def _add_pad(wav: bytes, ms: int = 40) -> bytes:
     return buf.getvalue()
 
 
-def _trim_silence(wav: bytes, threshold_db: float = -42.0, tail_ms: int = 80) -> bytes:
+def _trim_silence(wav: bytes, threshold_db: float = -45.0, tail_ms: int = 60) -> bytes:
     """Strip leading/trailing silence from a WAV clip.
-    Chatterbox fills unused max_new_tokens with silence, creating gaps
-    of 1-5 seconds between narration sentences. This removes that silence.
+    Tighter threshold (-45dB) and shorter tail (60ms) for cleaner word boundaries.
+    Chatterbox fills unused max_new_tokens with silence — this removes it.
     """
     import numpy as np
     with wave.open(io.BytesIO(wav), "rb") as r:
@@ -1225,9 +1245,26 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
                 print(f"[ERROR] Voice reference WAV for {voice} not found: {ref_wav}. Keeping {CURRENT_VOICE}.", flush=True)
             else:
                 try:
-                    # Re-prepare conditionals
-                    MODEL.prepare_conditionals(ref_wav, exaggeration=0.45)
+                    # Pre-upsample to 24kHz with soxr for cleanest embedding
+                    import tempfile as _tf, subprocess as _subp
+                    _tmp24k = _tf.NamedTemporaryFile(suffix="-24k.wav", delete=False)
+                    _tmp24k.close()
+                    try:
+                        _subp.run([
+                            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                            "-i", ref_wav,
+                            "-af", "aresample=resampler=soxr:precision=28",
+                            "-ar", "24000", "-ac", "1", "-sample_fmt", "s16",
+                            _tmp24k.name,
+                        ], check=True)
+                        ref_to_use = _tmp24k.name
+                    except Exception:
+                        ref_to_use = ref_wav
+                    MODEL.prepare_conditionals(ref_to_use, exaggeration=0.5)
+                    try: os.unlink(_tmp24k.name)
+                    except OSError: pass
                     CURRENT_VOICE = voice
+                    VOICE_REF_WAV_24K_CURRENT = ref_to_use
                     print(f"[Voice] Switched voice successfully to {voice}!", flush=True)
                 except Exception as e:
                     print(f"[ERROR] Failed to switch voice embeddings to {voice}: {e}", flush=True)
@@ -1368,16 +1405,27 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
                 # MAX FIDELITY: audio_prompt_path feeds the reference wav directly
                 # into the generation loop — Chatterbox hears the voice and clones it
                 current_ref = VOICE_MAP.get(CURRENT_VOICE, VOICE_MAP["sc3"])
-                wav_t = MODEL.generate(
-                    clean,
-                    audio_prompt_path=current_ref,
-                    exaggeration=exaggeration,
-                    cfg_weight=cfg_weight,
-                    temperature=temperature,
-                    repetition_penalty=repetition_penalty,
-                    min_p=min_p,
-                    top_p=top_p,
-                )
+
+                def _do_generate():
+                    return MODEL.generate(
+                        clean,
+                        audio_prompt_path=current_ref,
+                        exaggeration=exaggeration,
+                        cfg_weight=cfg_weight,
+                        temperature=temperature,
+                        repetition_penalty=repetition_penalty,
+                        min_p=min_p,
+                        top_p=top_p,
+                    )
+
+                # Best-of-2: generate twice, keep the longer (more complete) result.
+                # Rejects garbled/silent first attempts that Chatterbox occasionally produces.
+                wav_t1 = _do_generate()
+                len1   = wav_t1.shape[-1]
+                wav_t2 = _do_generate()
+                len2   = wav_t2.shape[-1]
+                wav_t  = wav_t1 if len1 >= len2 else wav_t2
+                print(f"[Voice] Best-of-2: attempt1={len1} attempt2={len2} → kept {'1' if len1>=len2 else '2'}", flush=True)
             finally:
                 progress_stop.set()
             _set_progress(STAGES[3][0], STAGES[3][1], active=True, text=text)
