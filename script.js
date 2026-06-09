@@ -27053,17 +27053,16 @@ function downloadSrtFile(srtContent, fileName = "captions.srt") {
 // ── AI Caption module: Text to Speech + Speech to Text buttons ───────────────
 (function wireAiCapVoiceButtons() {
   let _audio = null, _playing = false;
-  let _rec = null, _recActive = false;
   const status = () => document.getElementById("aiCapVoiceStatus");
 
-  // TTS
+  // ── TTS: reads lesson text via Chatterbox narration server ──────────────────
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest("#aiCapTtsBtn");
     if (!btn) return;
     if (_playing && _audio) {
       _audio.pause(); _audio = null; _playing = false;
       btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
-      btn.childNodes[btn.childNodes.length - 1].textContent = " Text to Speech";
+      btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> 🔊 Text to Speech`;
       if (status()) status().textContent = "";
       return;
     }
@@ -27071,7 +27070,8 @@ function downloadSrtFile(srtContent, fileName = "captions.srt") {
     if (!text) { if (status()) status().textContent = "⚠ No lesson text to read."; return; }
     btn.disabled = true;
     btn.style.background = "linear-gradient(135deg,#f57c00,#e65100)";
-    if (status()) status().textContent = "⏳ Generating...";
+    btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg> ⏳ Generating...`;
+    if (status()) status().textContent = "⏳ Generating voice...";
     try {
       const voice = window.state?.preferredNarrationVoice || "sc3";
       const resp = await fetch("http://127.0.0.1:5111/api/narrate", {
@@ -27082,51 +27082,68 @@ function downloadSrtFile(srtContent, fileName = "captions.srt") {
       _audio = new Audio(URL.createObjectURL(await resp.blob()));
       _playing = true; btn.disabled = false;
       btn.style.background = "linear-gradient(135deg,#c62828,#b71c1c)";
+      btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> ⏹ Stop`;
       if (status()) status().textContent = "🔊 Playing — click to stop";
       _audio.onended = () => {
         _playing = false; _audio = null;
         btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
+        btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> 🔊 Text to Speech`;
         if (status()) status().textContent = "✔ Done.";
       };
       _audio.play();
     } catch(err) {
       btn.disabled = false;
       btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
+      btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> 🔊 Text to Speech`;
       if (status()) status().textContent = "❌ " + err.message;
     }
   });
 
-  // STT
+  // ── STT: takes the UPLOADED VIDEO AUDIO → Whisper transcription → timed captions ──
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("#aiCapSttBtn");
     if (!btn) return;
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { if (status()) status().textContent = "❌ Use Chrome or Edge for mic."; return; }
-    if (_recActive && _rec) { _rec.stop(); return; }
-    _rec = new SR();
-    _rec.lang = "en-IN"; _rec.continuous = true; _rec.interimResults = true;
-    _recActive = true;
-    btn.style.background = "linear-gradient(135deg,#c62828,#b71c1c)";
-    if (status()) status().textContent = "🎙 Listening... click to stop.";
-    _rec.onresult = (ev) => {
-      let final = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++)
-        if (ev.results[i].isFinal) final += ev.results[i][0].transcript + " ";
-      if (final && lessonInput) {
-        lessonInput.value = mergeSpeechText(lessonInput.value, final.trim());
-        scheduleLessonInputChange(0);
-        if (status()) status().textContent = "🎙 " + final.trim().slice(0, 60);
-      }
-    };
-    _rec.onerror = (ev) => { if (status()) status().textContent = "⚠ " + ev.error; };
-    _rec.onend = () => {
-      _recActive = false; _rec = null;
-      btn.style.background = "linear-gradient(135deg,#2e7d32,#1b5e20)";
-      if (status()) status().textContent = "✔ Stopped.";
-    };
-    _rec.start();
+
+    // Check a video file is loaded in the caption module
+    const videoInput = document.getElementById("captionVideoInput");
+    const sourceVideo = document.getElementById("captionSourceVideo");
+    const actionBtn  = document.getElementById("captionActionBtn");
+
+    const hasFile = videoInput && videoInput.files && videoInput.files.length > 0;
+    const hasLoadedSrc = sourceVideo && sourceVideo.src && sourceVideo.src !== window.location.href;
+
+    if (!hasFile && !hasLoadedSrc) {
+      if (status()) status().textContent = "⚠ Upload a video first in the Source Video field above, then click.";
+      return;
+    }
+
+    if (actionBtn && !actionBtn.disabled) {
+      // Trigger the existing Generate Captions pipeline which:
+      //  1. Extracts audio from the video via FFmpeg server (port 8430)
+      //  2. Sends to local Whisper transcription server (port 8428)
+      //  3. Builds word-level timed caption segments
+      if (status()) status().textContent = "🎙 Starting video transcription → timed captions...";
+      btn.style.background = "linear-gradient(135deg,#f57c00,#e65100)";
+      btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg> ⏳ Transcribing...`;
+
+      // Observe the actionBtn being re-enabled to know when done
+      const observer = new MutationObserver(() => {
+        if (!actionBtn.disabled) {
+          observer.disconnect();
+          btn.style.background = "linear-gradient(135deg,#2e7d32,#1b5e20)";
+          btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg> 🎙 Speech to Text`;
+          if (status()) status().textContent = "✔ Captions generated! Edit below if needed.";
+        }
+      });
+      observer.observe(actionBtn, { attributes: true, attributeFilter: ["disabled"] });
+
+      actionBtn.click();
+    } else {
+      if (status()) status().textContent = "⚠ Caption engine is busy. Wait for it to finish.";
+    }
   });
 })();
+
 
 // Use event delegation so the handler works even if React hasn't rendered StagePanel yet
 // ── Caption panel: Text to Speech button ────────────────────────────────────
