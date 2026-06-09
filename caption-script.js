@@ -545,10 +545,47 @@ function bootCaptionStudio() {
         if (!text) {
             throw new Error('No speech was recognized from the video audio.');
         }
-        return {
-            text,
-            chunks: buildLinearCaptionChunks(text, extractedAudio.duration)
-        };
+
+        // ── Use REAL word-level timestamps from Whisper ──────────────────────
+        const words    = Array.isArray(payload.words)    ? payload.words    : [];
+        const segments = Array.isArray(payload.segments) ? payload.segments : [];
+        let chunks = [];
+
+        if (words.length > 0) {
+            // Build caption chunks from actual per-word timestamps (7 words each)
+            const CHUNK_SIZE = 7;
+            for (let i = 0; i < words.length; i += CHUNK_SIZE) {
+                const slice = words.slice(i, i + CHUNK_SIZE);
+                const chunkText = slice.map(w => w.word).join(' ').trim();
+                if (!chunkText) continue;
+                chunks.push({
+                    text: chunkText,
+                    timestamp: [slice[0].start, slice[slice.length - 1].end],
+                    words: slice.map(w => ({ text: w.word, timestamp: [w.start, w.end] }))
+                });
+            }
+        } else if (segments.length > 0) {
+            // Fall back to segment-level timestamps
+            chunks = segments
+                .filter(s => s.text && s.text.trim())
+                .map(s => ({
+                    text: s.text.trim(),
+                    timestamp: [s.start, s.end],
+                    words: s.text.trim().split(/\s+/).map((w, i, arr) => ({
+                        text: w,
+                        timestamp: [
+                            s.start + (i / arr.length) * (s.end - s.start),
+                            s.start + ((i + 1) / arr.length) * (s.end - s.start)
+                        ]
+                    }))
+                }));
+        } else {
+            // Last resort: linear spread using video duration (NOT narration duration)
+            const vidDur = (sourceVideo && sourceVideo.duration) || extractedAudio.duration || 60;
+            chunks = buildLinearCaptionChunks(text, vidDur, { narrationDurationSec: vidDur });
+        }
+
+        return { text, chunks };
     }
     
     function populateEditor() {
