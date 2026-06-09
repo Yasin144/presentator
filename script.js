@@ -28025,11 +28025,22 @@ if (autoExplainBtn) {
 // UI FLOW & ORGANIZATION: Exclusive Accordion
 document.addEventListener("DOMContentLoaded", () => {
   const sections = Array.from(document.querySelectorAll('.section-card'));
+
+  // Auto-open the AI Caption section on load and scroll to it
+  const capSection = document.getElementById('aiCaptionSection');
+  if (capSection) {
+    capSection.setAttribute('open', '');
+    setTimeout(() => {
+      capSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
+  }
+
   sections.forEach((section) => {
     section.addEventListener('toggle', (e) => {
       if (section.open) {
         sections.forEach((other) => {
-          if (other !== section && other.open) {
+          // Never force-close the AI Caption section
+          if (other !== section && other.open && other.id !== 'aiCaptionSection') {
             other.removeAttribute('open');
           }
         });
