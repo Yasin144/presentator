@@ -27099,51 +27099,68 @@ function downloadSrtFile(srtContent, fileName = "captions.srt") {
     }
   });
 
-  // ── STT: takes the UPLOADED VIDEO AUDIO → Whisper transcription → timed captions ──
+  // ── 🎥 Transcribe Video → Captions (STT button = video audio transcription) ─
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("#aiCapSttBtn");
     if (!btn) return;
 
-    // Check a video file is loaded in the caption module
-    const videoInput = document.getElementById("captionVideoInput");
+    const videoInput  = document.getElementById("captionVideoInput");
     const sourceVideo = document.getElementById("captionSourceVideo");
-    const actionBtn  = document.getElementById("captionActionBtn");
+    const actionBtn   = document.getElementById("captionActionBtn");
+    const statusText  = document.getElementById("captionStatusText");
+    const progressBlock = document.getElementById("captionProgress");
 
+    // Check video is loaded
     const hasFile = videoInput && videoInput.files && videoInput.files.length > 0;
-    const hasLoadedSrc = sourceVideo && sourceVideo.src && sourceVideo.src !== window.location.href;
+    const hasVideoSrc = sourceVideo && sourceVideo.src && !sourceVideo.src.endsWith(window.location.href);
 
-    if (!hasFile && !hasLoadedSrc) {
-      if (status()) status().textContent = "⚠ Upload a video first in the Source Video field above, then click.";
+    if (!hasFile && !hasVideoSrc) {
+      if (status()) status().textContent = "⚠️ Upload a video in the Source Video field first!";
+      // Flash the upload input to draw attention
+      const uploadInput = document.getElementById("captionVideoInput");
+      if (uploadInput) {
+        uploadInput.style.outline = "3px solid #f44336";
+        setTimeout(() => { uploadInput.style.outline = ""; }, 2000);
+      }
       return;
     }
 
-    if (actionBtn && !actionBtn.disabled) {
-      // Trigger the existing Generate Captions pipeline which:
-      //  1. Extracts audio from the video via FFmpeg server (port 8430)
-      //  2. Sends to local Whisper transcription server (port 8428)
-      //  3. Builds word-level timed caption segments
-      if (status()) status().textContent = "🎙 Starting video transcription → timed captions...";
-      btn.style.background = "linear-gradient(135deg,#f57c00,#e65100)";
-      btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg> ⏳ Transcribing...`;
-
-      // Observe the actionBtn being re-enabled to know when done
-      const observer = new MutationObserver(() => {
-        if (!actionBtn.disabled) {
-          observer.disconnect();
-          btn.style.background = "linear-gradient(135deg,#2e7d32,#1b5e20)";
-          btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg> 🎙 Speech to Text`;
-          if (status()) status().textContent = "✔ Captions generated! Edit below if needed.";
-        }
-      });
-      observer.observe(actionBtn, { attributes: true, attributeFilter: ["disabled"] });
-
-      actionBtn.click();
-    } else {
-      if (status()) status().textContent = "⚠ Caption engine is busy. Wait for it to finish.";
+    // If actionBtn is disabled but a video IS loaded — re-enable it
+    if (actionBtn && actionBtn.disabled && hasFile) {
+      actionBtn.disabled = false;
+      actionBtn.textContent = "Generate Captions";
     }
+
+    if (!actionBtn || actionBtn.disabled) {
+      if (status()) status().textContent = "⚠️ Caption engine busy — wait a moment and try again.";
+      return;
+    }
+
+    // Clear old status + show progress
+    if (status()) status().textContent = "🎥 Extracting video audio → Whisper transcription...";
+    if (statusText) statusText.innerHTML = "⏳ Starting transcription from video audio...";
+    if (progressBlock) progressBlock.classList.remove("hidden");
+
+    btn.disabled = true;
+    btn.style.background = "linear-gradient(135deg,#f57c00,#e65100)";
+    btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg> ⏳ Transcribing video...`;
+
+    // Watch for actionBtn to be re-enabled (means transcription done or failed)
+    const observer = new MutationObserver(() => {
+      if (!actionBtn.disabled) {
+        observer.disconnect();
+        btn.disabled = false;
+        btn.style.background = "linear-gradient(135deg,#e53935,#b71c1c)";
+        btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg> 🎥 Transcribe Video → Captions`;
+        if (status()) status().textContent = "✅ Done! Timed captions generated from video audio.";
+      }
+    });
+    observer.observe(actionBtn, { attributes: true, attributeFilter: ["disabled"] });
+
+    // Trigger the real pipeline: extractAudio → Whisper → timed segments
+    actionBtn.click();
   });
 })();
-
 
 // Use event delegation so the handler works even if React hasn't rendered StagePanel yet
 // ── Caption panel: Text to Speech button ────────────────────────────────────
