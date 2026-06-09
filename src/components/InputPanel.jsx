@@ -1366,7 +1366,38 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
-      <details className="section-card" id="aiCaptionSection">
+      {/* ═══ AI Caption Action Buttons — always visible ═══ */}
+      <div style={{display:'flex',gap:'10px',flexWrap:'wrap',alignItems:'center',
+        padding:'14px 16px',background:'linear-gradient(135deg,rgba(20,20,40,0.98),rgba(10,10,30,0.98))',
+        borderRadius:'14px',marginBottom:'8px',border:'2px solid rgba(255,255,255,0.18)',
+        boxShadow:'0 4px 24px rgba(0,0,0,0.5)'}}>
+        <span style={{fontSize:'11px',fontWeight:'800',color:'rgba(255,255,255,0.45)',
+          textTransform:'uppercase',letterSpacing:'0.1em',marginRight:'4px'}}>AI Caption:</span>
+        <button id="aiCapSttBtn" type="button"
+          style={{display:'inline-flex',alignItems:'center',gap:'9px',padding:'12px 22px',
+            borderRadius:'10px',border:'none',cursor:'pointer',
+            background:'linear-gradient(135deg,#e53935,#b71c1c)',color:'#fff',
+            fontSize:'14px',fontWeight:'800',boxShadow:'0 3px 14px rgba(229,57,53,0.55)'}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/>
+          </svg>
+          🎥 Transcribe Video Audio → Captions
+        </button>
+        <button id="aiCapTtsBtn" type="button"
+          style={{display:'inline-flex',alignItems:'center',gap:'9px',padding:'12px 22px',
+            borderRadius:'10px',border:'none',cursor:'pointer',
+            background:'linear-gradient(135deg,#1565c0,#0d47a1)',color:'#fff',
+            fontSize:'14px',fontWeight:'800',boxShadow:'0 3px 14px rgba(21,101,192,0.55)'}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+          </svg>
+          🔊 Read Lesson (Pattan TTS)
+        </button>
+        <span id="aiCapVoiceStatus" style={{fontSize:'12px',color:'rgba(255,200,100,0.95)',
+          fontWeight:'700',alignSelf:'center'}}></span>
+      </div>
+
+      <details className="section-card" id="aiCaptionSection" open>
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">CAP</span>
