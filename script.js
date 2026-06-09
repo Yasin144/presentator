@@ -27050,6 +27050,84 @@ function downloadSrtFile(srtContent, fileName = "captions.srt") {
   URL.revokeObjectURL(url);
 }
 
+// ── AI Caption module: Text to Speech + Speech to Text buttons ───────────────
+(function wireAiCapVoiceButtons() {
+  let _audio = null, _playing = false;
+  let _rec = null, _recActive = false;
+  const status = () => document.getElementById("aiCapVoiceStatus");
+
+  // TTS
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest("#aiCapTtsBtn");
+    if (!btn) return;
+    if (_playing && _audio) {
+      _audio.pause(); _audio = null; _playing = false;
+      btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
+      btn.childNodes[btn.childNodes.length - 1].textContent = " Text to Speech";
+      if (status()) status().textContent = "";
+      return;
+    }
+    const text = (getEffectiveLessonText() || "").trim();
+    if (!text) { if (status()) status().textContent = "⚠ No lesson text to read."; return; }
+    btn.disabled = true;
+    btn.style.background = "linear-gradient(135deg,#f57c00,#e65100)";
+    if (status()) status().textContent = "⏳ Generating...";
+    try {
+      const voice = window.state?.preferredNarrationVoice || "sc3";
+      const resp = await fetch("http://127.0.0.1:5111/api/narrate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, generationOptions: { voice } })
+      });
+      if (!resp.ok) throw new Error("Server " + resp.status);
+      _audio = new Audio(URL.createObjectURL(await resp.blob()));
+      _playing = true; btn.disabled = false;
+      btn.style.background = "linear-gradient(135deg,#c62828,#b71c1c)";
+      if (status()) status().textContent = "🔊 Playing — click to stop";
+      _audio.onended = () => {
+        _playing = false; _audio = null;
+        btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
+        if (status()) status().textContent = "✔ Done.";
+      };
+      _audio.play();
+    } catch(err) {
+      btn.disabled = false;
+      btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
+      if (status()) status().textContent = "❌ " + err.message;
+    }
+  });
+
+  // STT
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("#aiCapSttBtn");
+    if (!btn) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { if (status()) status().textContent = "❌ Use Chrome or Edge for mic."; return; }
+    if (_recActive && _rec) { _rec.stop(); return; }
+    _rec = new SR();
+    _rec.lang = "en-IN"; _rec.continuous = true; _rec.interimResults = true;
+    _recActive = true;
+    btn.style.background = "linear-gradient(135deg,#c62828,#b71c1c)";
+    if (status()) status().textContent = "🎙 Listening... click to stop.";
+    _rec.onresult = (ev) => {
+      let final = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++)
+        if (ev.results[i].isFinal) final += ev.results[i][0].transcript + " ";
+      if (final && lessonInput) {
+        lessonInput.value = mergeSpeechText(lessonInput.value, final.trim());
+        scheduleLessonInputChange(0);
+        if (status()) status().textContent = "🎙 " + final.trim().slice(0, 60);
+      }
+    };
+    _rec.onerror = (ev) => { if (status()) status().textContent = "⚠ " + ev.error; };
+    _rec.onend = () => {
+      _recActive = false; _rec = null;
+      btn.style.background = "linear-gradient(135deg,#2e7d32,#1b5e20)";
+      if (status()) status().textContent = "✔ Stopped.";
+    };
+    _rec.start();
+  });
+})();
+
 // Use event delegation so the handler works even if React hasn't rendered StagePanel yet
 // ── Caption panel: Text to Speech button ────────────────────────────────────
 (function wireCaptionVoiceButtons() {
