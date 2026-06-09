@@ -1244,6 +1244,39 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
   }
 });
 
+
+// IPC: Merge Narration Audio into Video
+// Mixes a narration WAV/MP3 into a video so Whisper can transcribe the real voice
+ipcMain.handle('merge-audio-into-video', async (event, opts) => {
+  const { videoPath, audioPath, outputName } = opts || {};
+  if (!videoPath) return { ok: false, error: 'No video path.' };
+  if (!audioPath) return { ok: false, error: 'No audio path.' };
+  function findFF() {
+    try { const r = require('child_process').execSync('where ffmpeg',{encoding:'utf8',timeout:3000}).trim().split('\n')[0].trim(); if(r&&fs.existsSync(r))return r; } catch(_){}
+    const wp='C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+    return fs.existsSync(wp)?wp:'ffmpeg';
+  }
+  const FFMPEG = findFF();
+  const outFile = path.join(os.homedir(), 'Downloads', outputName || ('merged_' + Date.now() + '.mp4'));
+  try {
+    await new Promise((resolve, reject) => {
+      const proc = spawn(FFMPEG, [
+        '-y', '-i', videoPath, '-i', audioPath,
+        '-filter_complex', '[0:a?][1:a]amix=inputs=2:duration=first:dropout_transition=0[aout]',
+        '-map', '0:v:0', '-map', '[aout]',
+        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', outFile
+      ], { stdio: 'pipe', windowsHide: true });
+      let stderr = '';
+      proc.stderr && proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('error', e => reject(new Error('FFmpeg: ' + e.message)));
+      proc.on('exit', code => code===0 ? resolve() : reject(new Error('FFmpeg exit '+code+': '+stderr.slice(-200))));
+    });
+    return { ok: true, outputPath: outFile, fileName: path.basename(outFile) };
+  } catch(err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 
 // ————————————— IPC: Burn Captions via FFmpeg (Express Export) ———————————————————
 // Uses FFmpeg to burn subtitle text directly onto video frames.

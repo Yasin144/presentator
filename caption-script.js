@@ -836,6 +836,61 @@ function bootCaptionStudio() {
             const burnBtn = document.createElement('button');
             burnBtn.textContent = 'Burn Captions on Video';
             burnBtn.style.cssText = 'margin-top:10px;padding:11px 24px;border:none;border-radius:10px;background:linear-gradient(135deg,#e53935,#b71c1c);color:#fff;font-size:14px;font-weight:800;cursor:pointer';
+                        burnBtn.style.cssText = 'margin-top:10px;padding:11px 24px;border:none;border-radius:10px;background:linear-gradient(135deg,#e53935,#b71c1c);color:#fff;font-size:14px;font-weight:800;cursor:pointer';
+                        // Audio file picker button
+                        const audioPickBtn = document.createElement('button');
+                        audioPickBtn.textContent = 'Pick Narration Audio File & Auto-Caption';
+                        audioPickBtn.title = 'Pick a WAV/MP3 narration file — it will be merged into the video and Whisper will transcribe the real voice';
+                        audioPickBtn.style.cssText = 'margin-top:10px;padding:11px 22px;border:1px solid rgba(99,179,237,0.7);border-radius:10px;background:rgba(49,130,206,0.25);color:#90cdf4;font-size:13px;font-weight:700;cursor:pointer;display:block';
+                        const audioFileInput = document.createElement('input');
+                        audioFileInput.type = 'file';
+                        audioFileInput.accept = '.wav,.mp3,.ogg,.aac,.m4a';
+                        audioFileInput.style.display = 'none';
+                        audioPickBtn.onclick = () => audioFileInput.click();
+                        audioFileInput.onchange = async () => {
+                            const f = audioFileInput.files[0];
+                            if (!f) return;
+                            const audioPath = window.electronAPI && typeof window.electronAPI.getPathForFile === 'function' ? window.electronAPI.getPathForFile(f) : (f.path || '');
+                            if (!audioPath) { alert('Cannot get file path — please use a local file'); return; }
+                            if (!videoPath) { alert('Load a video first'); return; }
+                            box.remove();
+                            statusText.innerHTML = 'Merging narration audio into video...';
+                            if (pBar) pBar.style.width = '30%';
+                            try {
+                                const mergeResult = await window.electronAPI.mergeAudioIntoVideo({ videoPath, audioPath });
+                                if (!mergeResult || !mergeResult.ok) throw new Error(mergeResult && mergeResult.error || 'Merge failed');
+                                if (pBar) pBar.style.width = '50%';
+                                statusText.innerHTML = 'Merged! Transcribing with Whisper...';
+                                const ipc2 = await window.electronAPI.transcribeVideo({ videoPath: mergeResult.outputPath });
+                                if (pBar) pBar.style.width = '100%';
+                                if (ipc2 && ipc2.ok && ipc2.text && ipc2.text.trim().length > 3) {
+                                    const words2 = Array.isArray(ipc2.words) ? ipc2.words : [];
+                                    const segs2 = Array.isArray(ipc2.segments) ? ipc2.segments : [];
+                                    if (words2.length > 0) {
+                                        generatedCaptions = [];
+                                        for (let i = 0; i < words2.length; i += 7) {
+                                            const sl = words2.slice(i, i+7);
+                                            const txt = sl.map(w => w.word).join(' ').trim();
+                                            if (txt) generatedCaptions.push({ text: txt, timestamp: [sl[0].start, sl[sl.length-1].end], words: sl.map(w => ({ text: w.word, timestamp: [w.start, w.end] })) });
+                                        }
+                                    } else if (segs2.length > 0) {
+                                        generatedCaptions = segs2.map(s => ({ text: s.text.trim(), timestamp: [s.start, s.end], words: [] }));
+                                    } else {
+                                        generatedCaptions = buildLinearCaptionChunks(ipc2.text, sourceVideo.duration || 60, { narrationDurationSec: sourceVideo.duration || 60 });
+                                    }
+                                    statusText.innerHTML = generatedCaptions.length + ' captions from narration audio (Whisper)';
+                                    finaliseCaptions();
+                                } else {
+                                    statusText.innerHTML = 'Transcription returned no speech — type captions manually';
+                                    showManualCaptionInput();
+                                }
+                            } catch(mergeErr) {
+                                statusText.innerHTML = 'Error: ' + mergeErr.message;
+                                console.error(mergeErr);
+                            }
+                        };
+                        box.appendChild(audioFileInput);
+                        box.appendChild(audioPickBtn);
             box.appendChild(lbl); box.appendChild(ta); box.appendChild(burnBtn);
             statusText.parentElement.insertBefore(box, statusText.nextSibling);
             burnBtn.onclick = () => {

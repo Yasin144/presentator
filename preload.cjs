@@ -83,6 +83,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   burnCaptions: (opts) =>
     ipcRenderer.invoke('burn-captions', opts),
 
+  // Merge narration audio into video (for animation/no-speech videos)
+  mergeAudioIntoVideo: (opts) =>
+    ipcRenderer.invoke('merge-audio-into-video', opts),
+
   // Desktop notification — alerts user when a task completes
   showNotification: (title, body, opts) =>
     ipcRenderer.invoke('show-notification', { title, body, ...opts }),
