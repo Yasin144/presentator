@@ -746,26 +746,32 @@ const EDGE_TTS_VOICE_STORAGE_KEY = "pp_preferred_voice";
 const EXPORT_TITLE_PREROLL_MS = 500;
 const TITLE_TO_CONTEXT_GAP_MS = 300;
 const EXPORT_TITLE_OUTRO_MS = 2400;
+// ANJALI / SC3 generation options — Chatterbox model sweet spot for human-realistic speech.
+// Based on model training defaults: temp=0.8, exag=0.5, cfg=0.5, min_p=0.05
+// temperature=0.8 → natural rhythmic variation (too low = robotic monotone)
+// exaggeration=0.5 → natural prosody, stress, intonation (model sweet spot)
+// cfgWeight=0.5 → balanced guidance — allows natural breathing, not over-constrained
+// repetitionPenalty=1.1 → prevents stuck loops without killing fluency
 const ANJALI_GENERATION_OPTIONS = Object.freeze({
-  repetitionPenalty: 1.02,
-  topP: 0.85,               // tighter = more consistent with reference
-  temperature: 0.75,        // lower = more deterministic = closer to reference voice
-  topK: 60,                 // narrower token selection = more like reference
-  cfgWeight: 0.85,          // HIGH = locks onto reference voice characteristics strongly
-  exaggeration: 0.35,       // LOW = minimal deviation from reference style/prosody
-  minP: 0,
+  repetitionPenalty: 1.1,
+  topP: 1.0,
+  temperature: 0.8,
+  topK: 0,
+  cfgWeight: 0.5,
+  exaggeration: 0.5,
+  minP: 0.05,
   normLoudness: true
 });
 // Pattan voice — same Chatterbox engine, different reference WAV (voice-reference-pattan.wav).
-// Params tuned to lock onto pattan's voice characteristics as tightly as possible.
+// Identical human-realism params — both voices benefit from the same naturalness tuning.
 const PATTAN_GENERATION_OPTIONS = Object.freeze({
-  repetitionPenalty: 1.02,
-  topP: 0.80,               // tighter than sc3 — pattan reference is shorter, needs more guidance
-  temperature: 0.45,        // very low — maximises similarity to pattan reference
-  topK: 50,
-  cfgWeight: 0.95,          // maximum guidance weight — stay locked to pattan voice
-  exaggeration: 0.3,        // minimal — match pattan's natural speech style
-  minP: 0,
+  repetitionPenalty: 1.1,
+  topP: 1.0,
+  temperature: 0.8,
+  topK: 0,
+  cfgWeight: 0.5,
+  exaggeration: 0.5,
+  minP: 0.05,
   normLoudness: true
 });
 const STAGE_LEFT_CONTENT_GAP_PX = 24; // Keep lesson context close to the frame edge.

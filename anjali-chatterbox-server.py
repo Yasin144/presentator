@@ -898,11 +898,18 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
     if voice not in VOICE_MAP:
         voice = "sc3"
     
-    # Voice-specific generation defaults for maximum reference fidelity
+    # Voice-specific generation defaults for MAXIMUM HUMAN REALISM
+    # Based on Chatterbox model's training defaults (tts.py: temp=0.8, exag=0.5, cfg=0.5)
+    # exaggeration=0.5  → natural prosody variation (model sweet spot)
+    # temperature=0.8   → natural rhythmic variation, stress, pauses — NOT robotic
+    # cfg_weight=0.5    → balanced guidance — model breathes naturally
+    # min_p=0.05        → filters low-quality tokens without killing naturalness
+    # cfg_weight too HIGH (0.9+) = voice locked so tight it sounds forced/robotic
+    # temperature too LOW (0.45) = monotone flat speech = robotic
     if voice == "pattan":
-        _default_opts = dict(exaggeration=0.3, cfg_weight=0.95, temperature=0.45, repetition_penalty=1.02)
+        _default_opts = dict(exaggeration=0.5, cfg_weight=0.5, temperature=0.8, repetition_penalty=1.1, min_p=0.05, top_p=1.0)
     else:  # sc3 / anjali
-        _default_opts = dict(exaggeration=0.3, cfg_weight=0.9,  temperature=0.45, repetition_penalty=1.2)
+        _default_opts = dict(exaggeration=0.5, cfg_weight=0.5, temperature=0.8, repetition_penalty=1.1, min_p=0.05, top_p=1.0)
     
     # Merge caller-supplied options on top of defaults
     opts = {**_default_opts, **(gen_opts or {})}
@@ -910,6 +917,8 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
     cfg_weight        = float(opts.get("cfg_weight",        opts.get("cfgWeight",   _default_opts["cfg_weight"])))
     temperature       = float(opts.get("temperature",       _default_opts["temperature"]))
     repetition_penalty= float(opts.get("repetition_penalty",opts.get("repetitionPenalty", _default_opts["repetition_penalty"])))
+    min_p             = float(opts.get("min_p",  opts.get("minP",  _default_opts.get("min_p",  0.05))))
+    top_p             = float(opts.get("top_p",  opts.get("topP",  _default_opts.get("top_p",  1.0))))
 
     with _synth_lock:
         _set_progress(STAGES[0][0], STAGES[0][1], active=True, text=text)
@@ -1110,6 +1119,8 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
                     cfg_weight=cfg_weight,
                     temperature=temperature,
                     repetition_penalty=repetition_penalty,
+                    min_p=min_p,
+                    top_p=top_p,
                 )
             finally:
                 progress_stop.set()
