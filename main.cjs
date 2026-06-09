@@ -674,21 +674,30 @@ async function createWindow() {
   });
 
 // ————————————— Crash-free Video Transcription (IPC) ————————————————————————————
-// Renderer passes only the file PATH. Main process:
-//   1. FFmpeg extracts 16kHz mono WAV (speech-optimised, ~9 MB for 5-min video)
-//   2. Sends base64 WAV to transcription server (port 8428)
-//   3. Returns {text, segments} to renderer
-// Fixes renderer OOM crash when "Generate Captions" is clicked on large videos.
+// Calls Whisper Python directly — works on ANY video type (speech, music, animation)
+// Pipeline:
+//   1. FFmpeg extracts 16kHz mono WAV from video
+//   2. whisper-transcribe-caption.py — faster-whisper, VAD OFF, real word timestamps
+//   3. Falls back to HTTP server (port 8428) if Python unavailable
+//   4. Returns { ok, text, segments, words } to renderer
 ipcMain.handle('transcribe-video', async (event, opts) => {
   const { videoPath } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
 
-  const FFMPEG = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
-  const tmpWav = path.join(os.tmpdir(), 'caption-audio-' + Date.now() + '.wav');
+  // Find FFmpeg
+  function findFFmpeg() {
+    try { const r = require('child_process').execSync('where ffmpeg', {encoding:'utf8',timeout:3000}).trim().split('\n')[0].trim(); if (r && fs.existsSync(r)) return r; } catch(_){}
+    const wp = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+    return fs.existsSync(wp) ? wp : 'ffmpeg';
+  }
+
+  const FFMPEG = findFFmpeg();
+  const stamp  = Date.now();
+  const tmpWav = path.join(os.tmpdir(), 'caption-' + stamp + '.wav');
 
   try {
-    // Extract 16kHz mono WAV — perfect for Whisper, ~9 MB per 5 minutes
-    console.log('[PP] Transcribe: extracting audio from', path.basename(videoPath));
+    // Step 1: Extract audio from video as 16kHz mono WAV
+    console.log('[Caption] Extracting audio from:', path.basename(videoPath));
     await new Promise((resolve, reject) => {
       const proc = spawn(FFMPEG, [
         '-y', '-i', videoPath,
@@ -698,30 +707,65 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       let stderr = '';
       proc.stderr && proc.stderr.on('data', d => { stderr += d.toString(); });
       proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
-      proc.on('exit', code => code === 0 ? resolve() : reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-200))));
+      proc.on('exit', code => code === 0 ? resolve() : reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300))));
+    });
+    console.log('[Caption] Audio extracted:', Math.round(fs.statSync(tmpWav).size / 1024), 'KB');
+
+    // Step 2: Run Whisper directly via Python (no HTTP server needed)
+    const venvPy     = path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe');
+    const captionScript = path.join(ROOT, 'whisper-transcribe-caption.py');
+    const whisperScript = path.join(ROOT, 'whisper-transcribe.py');
+    const pyExe      = fs.existsSync(venvPy) ? venvPy : 'python';
+    const scriptPath = fs.existsSync(captionScript) ? captionScript : whisperScript;
+
+    console.log('[Caption] Running Whisper:', path.basename(scriptPath), 'via', path.basename(pyExe));
+
+    const whisperResult = await new Promise((resolve, reject) => {
+      const proc = spawn(pyExe, [scriptPath, tmpWav, 'en'], {
+        stdio: 'pipe',
+        windowsHide: true,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      });
+      let stdout = '', stderr = '';
+      proc.stdout && proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
+      proc.stderr && proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
+      const timer = setTimeout(() => { proc.kill(); reject(new Error('Whisper timeout (5min)')); }, 300000);
+      proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
+      proc.on('exit', code => {
+        clearTimeout(timer);
+        try {
+          const lastLine = stdout.trim().split('\n').pop() || '{}';
+          const json = JSON.parse(lastLine);
+          if (json.error) reject(new Error('Whisper: ' + json.error));
+          else resolve(json);
+        } catch(e) {
+          reject(new Error('Whisper parse failed. stderr: ' + stderr.slice(0, 200)));
+        }
+      });
     });
 
-    const wavBase64 = fs.readFileSync(tmpWav).toString('base64');
-    console.log('[PP] Transcribe: audio', Math.round(fs.statSync(tmpWav).size / 1024), 'KB — sending to transcription server');
-
-    // POST to transcription server
-    const result = await postJsonForBuffer(8428, '/api/transcribe', {
-      fileName: path.basename(videoPath),
-      audioBase64: wavBase64,
-      wordTimestamps: true
-    }, 300000);
-
-    if (!result || result.statusCode !== 200) {
-      const errText = result && result.buffer ? result.buffer.toString('utf8').slice(0, 200) : 'no response';
-      throw new Error('Transcription server error: ' + errText);
-    }
-
-    const payload = JSON.parse(result.buffer.toString('utf8'));
-    console.log('[PP] Transcribe: done. Text length:', (payload.text || '').length);
-    return { ok: true, text: payload.text || '', segments: payload.segments || null, words: payload.words || null };
+    console.log('[Caption] Whisper done. Text:', (whisperResult.text || '').length, 'chars,', (whisperResult.words || []).length, 'words');
+    return {
+      ok:       true,
+      text:     whisperResult.text     || '',
+      segments: whisperResult.segments || [],
+      words:    whisperResult.words    || [],
+      language: whisperResult.language || 'en'
+    };
 
   } catch (err) {
-    console.error('[PP] Transcribe error:', err.message);
+    // Fallback: HTTP transcription server (port 8428)
+    console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
+    try {
+      const wavBase64 = fs.readFileSync(tmpWav).toString('base64');
+      const result = await postJsonForBuffer(8428, '/api/transcribe', { audioBase64: wavBase64, wordTimestamps: true }, 300000);
+      if (result && result.statusCode === 200) {
+        const p = JSON.parse(result.buffer.toString('utf8'));
+        return { ok: true, text: p.text || '', segments: p.segments || [], words: p.words || [] };
+      }
+    } catch(e2) {
+      console.error('[Caption] HTTP fallback also failed:', e2.message);
+    }
     return { ok: false, error: err.message };
   } finally {
     try { fs.unlinkSync(tmpWav); } catch (_) {}
