@@ -413,7 +413,6 @@ def _convert_voice_color(wav_bytes: bytes, voice: str) -> bytes:
             subprocess.run([
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                 "-i", str(converted_path),
-                "-af", "aresample=resampler=soxr:precision=28",
                 "-ac", "1",
                 "-ar", "24000",
                 "-sample_fmt", "s16",
@@ -429,7 +428,7 @@ def _prepare_wav(input_path, output_path):
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
-        "-af", "aresample=resampler=soxr:precision=28,equalizer=f=8000:t=h:w=1:g=1.5",
+        "-af", "equalizer=f=8000:t=h:w=1:g=1.5",
         "-ar", "44100",
         "-ac", "2",
         "-sample_fmt", "s16",
@@ -611,7 +610,6 @@ try:
         _ffsp.run([
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", VOICE_REF_WAV,
-            "-af", "aresample=resampler=soxr:precision=28",
             "-ar", "24000", "-ac", "1", "-sample_fmt", "s16",
             _ref_24k_path,
         ], check=True)
@@ -1253,7 +1251,6 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
                         _subp.run([
                             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                             "-i", ref_wav,
-                            "-af", "aresample=resampler=soxr:precision=28",
                             "-ar", "24000", "-ac", "1", "-sample_fmt", "s16",
                             _tmp24k.name,
                         ], check=True)

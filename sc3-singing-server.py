@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 import json
 import os
 import subprocess
@@ -108,7 +108,7 @@ def _prepare_wav(input_path, output_path):
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
         # High-quality resampling + subtle presence boost for richer SE extraction
-        "-af", "aresample=resampler=soxr:precision=28,equalizer=f=8000:t=h:w=1:g=1.5",
+        "-af", "equalizer=f=8000:t=h:w=1:g=1.5",
         "-ar", "44100",
         "-ac", "2",
         "-sample_fmt", "s16",
