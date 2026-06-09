@@ -637,6 +637,57 @@ def _to_wav(tensor) -> bytes:
     return buf.getvalue()
 
 
+def _enhance_voice_wav(wav: bytes) -> bytes:
+    """
+    Audio clarity pipeline — applied to every Chatterbox output before caching.
+    Goal: match the clear, clean quality of the Pattan reference WAV.
+
+    Chain:
+      1. DC offset removal          → removes low-frequency hum/drift
+      2. Noise gate (-55 dB)        → silences breath/room noise between words
+      3. Presence boost @ 3 kHz    → +2 dB shelf adds voice clarity & intelligibility
+      4. Loudness match (-25 LUFS)  → matches reference WAV volume level exactly
+      5. True-peak limiter (-1 dBTP)→ prevents any clipping
+      6. Fade-in 8ms, fade-out 20ms → natural smooth edges
+    """
+    import tempfile, subprocess as _sp
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_in:
+        tmp_in.write(wav)
+        tmp_in_path = tmp_in.name
+    tmp_out_path = tmp_in_path.replace(".wav", "_enhanced.wav")
+    try:
+        _sp.run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", tmp_in_path,
+            "-af",
+            # 1. Remove DC offset
+            "highpass=f=80,"
+            # 2. Noise gate: close gate below -55dB, open above -45dB, fast attack
+            "agate=threshold=-55dB:ratio=10:attack=2:release=100:makeup=1,"
+            # 3. Presence/clarity boost: +2dB shelving at 3kHz — voice intelligibility
+            "equalizer=f=3000:t=h:w=1:g=2,"
+            # 4. Loudness normalise to match Pattan reference (-25 LUFS, LRA=7)
+            "loudnorm=I=-25:TP=-1.0:LRA=7,"
+            # 5. Smooth fade-in 8ms + fade-out 20ms
+            "afade=t=in:st=0:d=0.008,afade=t=out:st=-0.02:d=0.02",
+            "-ar", str(SAMPLE_RATE),
+            "-ac", "1",
+            "-sample_fmt", "s16",
+            tmp_out_path,
+        ], check=True)
+        with open(tmp_out_path, "rb") as f:
+            return f.read()
+    except Exception as exc:
+        print(f"[Voice] Audio enhancement failed ({exc}), using raw wav.", flush=True)
+        return wav
+    finally:
+        for p in (tmp_in_path, tmp_out_path):
+            try:
+                import os as _os; _os.unlink(p)
+            except OSError:
+                pass
+
+
 def _add_pad(wav: bytes, ms: int = 40) -> bytes:
     with wave.open(io.BytesIO(wav), "rb") as r:
         p = r.getparams(); f = r.readframes(r.getnframes())
@@ -1335,7 +1386,10 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
             raise
 
         _set_progress(STAGES[4][0], STAGES[4][1], active=True, text=text)
-        wav = _trim_silence(_add_pad(_to_wav(wav_t)))  # strip Chatterbox trailing silence
+        # Full audio clarity pipeline: silence trim → enhance (DC remove, noise gate,
+        # presence boost, loudness match to reference, limiter, fade edges)
+        raw_wav = _trim_silence(_add_pad(_to_wav(wav_t)))
+        wav     = _enhance_voice_wav(raw_wav)
 
         with _cache_lock:
             _cache[cache_key] = wav
