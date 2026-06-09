@@ -1606,7 +1606,7 @@ class Handler(BaseHTTPRequestHandler):
                 if voice != CURRENT_VOICE:
                     ref_wav = VOICE_MAP[voice]
                     if os.path.exists(ref_wav):
-                        MODEL.prepare_conditionals(ref_wav, exaggeration=0.45)
+                        MODEL.prepare_conditionals(ref_wav, exaggeration=0.5)
                         CURRENT_VOICE = voice
                 self._json({"ok": True, "voice": CURRENT_VOICE, "locked": False,
                             "message": f"Active voice is set to {CURRENT_VOICE}."})
