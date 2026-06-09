@@ -815,6 +815,46 @@ function bootCaptionStudio() {
             clearPreviewFrameHandle(); renderPreviewNow(0); updatePlayPauseLabel();
         }
 
+        function showManualCaptionInput() {
+            const existing = document.getElementById('manualCaptionBox');
+            if (existing) existing.remove();
+            const dur = sourceVideo ? (sourceVideo.duration || 60) : 60;
+            const box = document.createElement('div');
+            box.id = 'manualCaptionBox';
+            box.style.margin = '16px 0';
+            box.style.padding = '18px';
+            box.style.background = 'rgba(20,20,50,0.97)';
+            box.style.border = '2px solid rgba(255,200,0,0.6)';
+            box.style.borderRadius = '14px';
+            const lbl = document.createElement('div');
+            lbl.style.cssText = 'font-size:13px;font-weight:800;color:#fde047;margin-bottom:10px';
+            lbl.innerHTML = 'No speech found — type captions below (each line = one card):';
+            const ta = document.createElement('textarea');
+            ta.id = 'manualCaptionText';
+            ta.placeholder = 'Welcome!\nLesson starts here.\nThank you.';
+            ta.style.cssText = 'width:100%;min-height:120px;box-sizing:border-box;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;font-size:14px;padding:12px;font-family:inherit;resize:vertical;display:block;margin-top:8px';
+            const burnBtn = document.createElement('button');
+            burnBtn.textContent = 'Burn Captions on Video';
+            burnBtn.style.cssText = 'margin-top:10px;padding:11px 24px;border:none;border-radius:10px;background:linear-gradient(135deg,#e53935,#b71c1c);color:#fff;font-size:14px;font-weight:800;cursor:pointer';
+            box.appendChild(lbl); box.appendChild(ta); box.appendChild(burnBtn);
+            statusText.parentElement.insertBefore(box, statusText.nextSibling);
+            burnBtn.onclick = () => {
+                const rawText = (ta.value || '').trim();
+                if (!rawText) { alert('Please type some caption text first.'); return; }
+                const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+                const vidDur = sourceVideo ? (sourceVideo.duration || 60) : 60;
+                generatedCaptions = lines.map((line, i) => {
+                    const start = (i / lines.length) * vidDur;
+                    const end = ((i + 1) / lines.length) * vidDur;
+                    const wds = line.split(/\s+/);
+                    return { text: line, timestamp: [start, end], words: wds.map((w, wi) => ({ text: w, timestamp: [start + (wi/wds.length)*(end-start), start + ((wi+1)/wds.length)*(end-start)] })) };
+                });
+                box.remove();
+                statusText.innerHTML = generatedCaptions.length + ' captions ready';
+                finaliseCaptions();
+            };
+        }
+
         try {
             // PATH 1: Electron IPC — FFmpeg extracts audio, Whisper returns real word timestamps
             const hasIpc = window.electronAPI && typeof window.electronAPI.transcribeVideo === 'function';
@@ -825,11 +865,23 @@ function bootCaptionStudio() {
                 : '';
 
             if (hasIpc && videoPath) {
-                statusText.innerHTML = '⏳ Transcribing video audio via Whisper (30–90s)...';
+                statusText.innerHTML = '\u23f3 Analysing video audio with Whisper AI (30\u201390s)...';
                 if (pBar) pBar.style.width = '10%';
                 const ipc = await window.electronAPI.transcribeVideo({ videoPath });
-                if (ipc && ipc.ok && ipc.text) {
+
+                if (ipc && ipc.ok) {
                     if (pBar) pBar.style.width = '100%';
+
+                    // No speech detected (music/animation video)
+                    if (!ipc.text || ipc.text.trim().length < 3) {
+                        isExtractingText = false;
+                        actionBtn.disabled = false;
+                        statusText.innerHTML = '\ud83c\udfb5 No speech found in this video \u2014 type your caption text below:';
+                        showManualCaptionInput();
+                        return;
+                    }
+
+                    // Real speech found
                     const words    = Array.isArray(ipc.words)    ? ipc.words    : [];
                     const segments = Array.isArray(ipc.segments) ? ipc.segments : [];
                     if (words.length > 0) {
@@ -847,11 +899,11 @@ function bootCaptionStudio() {
                         const dur = sourceVideo.duration || 60;
                         generatedCaptions = buildLinearCaptionChunks(ipc.text, dur, { narrationDurationSec: dur });
                     }
-                    statusText.innerHTML = '✅ ' + generatedCaptions.length + ' captions from video audio (Whisper)';
+                    statusText.innerHTML = '\u2705 ' + generatedCaptions.length + ' captions from video audio (Whisper)';
                     finaliseCaptions(); return;
                 }
                 console.warn('[Caption] IPC failed:', ipc && ipc.error);
-                statusText.innerHTML = '⚠️ IPC failed — trying HTTP server...';
+                statusText.innerHTML = '\u26a0\ufe0f IPC failed \u2014 trying HTTP server...';
             }
 
             // PATH 2: HTTP transcription server (port 8428)

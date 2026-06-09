@@ -178,9 +178,47 @@ function Read-JsonBody {
   return $json | ConvertFrom-Json
 }
 
-function Invoke-Transcription {
+# ── Whisper-based transcription (faster-whisper, word timestamps, VAD ON) ──────
+# Falls back to Windows Speech Recognition if Python/Whisper not available.
+function Invoke-WhisperTranscription {
   param([string]$WavePath)
 
+  # Find Python in .singing-venv or system
+  $root = Split-Path $PSScriptRoot -Parent
+  if (-not $root) { $root = "D:\voice" }
+  $venvPy  = Join-Path $root ".singing-venv\Scripts\python.exe"
+  $script  = Join-Path $root "whisper-transcribe-caption.py"
+  $py      = if (Test-Path $venvPy) { $venvPy } else { "python" }
+
+  # Use caption-specific script (VAD ON, stricter anti-hallucination)
+  if (-not (Test-Path $script)) { $script = Join-Path $root "whisper-transcribe.py" }
+
+  try {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $py
+    $psi.Arguments = """$script"" ""$WavePath"" en"
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow  = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8"
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $proc.WaitForExit(300000)  # 5 min timeout
+
+    # Parse JSON output
+    $lastLine = ($stdout.Trim() -split "`n")[-1].Trim()
+    return ($lastLine | ConvertFrom-Json)
+  } catch {
+    Write-Host "[transcribe] Whisper failed: $($_.Exception.Message) - falling back to Windows SR"
+    return $null
+  }
+}
+
+function Invoke-WindowsSR {
+  param([string]$WavePath)
   $safePath = $WavePath.Replace("'", "''")
   $command = @'
 Add-Type -AssemblyName System.Speech
@@ -191,18 +229,13 @@ $engine.LoadGrammar($grammar)
 $engine.SetInputToWaveFile('__WAVE_PATH__')
 $engine.InitialSilenceTimeout = [TimeSpan]::FromSeconds(8)
 $engine.EndSilenceTimeout = [TimeSpan]::FromSeconds(0.8)
-$engine.EndSilenceTimeoutAmbiguous = [TimeSpan]::FromSeconds(1.2)
 $result = $engine.Recognize()
 $engine.Dispose()
-$text = ''
-if ($result) {
-  $text = $result.Text.Trim()
-}
+$text = if ($result) { $result.Text.Trim() } else { '' }
 [Console]::Out.Write($text)
 '@.Replace('__WAVE_PATH__', $safePath)
-
-  $resultText = & powershell -NoProfile -ExecutionPolicy Bypass -Command $command
-  return ($resultText -join "").Trim()
+  $t = & powershell -NoProfile -ExecutionPolicy Bypass -Command $command
+  return ($t -join "").Trim()
 }
 
 function Handle-Request {
@@ -237,12 +270,31 @@ function Handle-Request {
     [System.IO.File]::WriteAllBytes($tempWave, [System.Convert]::FromBase64String($audioBase64))
 
     try {
-      $text = Invoke-Transcription -WavePath $tempWave
-      Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{ text = $text }
-    } finally {
-      if (Test-Path $tempWave) {
-        Remove-Item $tempWave -Force
+      # Try Whisper first (real word timestamps, works on any audio)
+      Write-Host "[transcribe] Running Whisper on $([System.IO.Path]::GetFileName($tempWave))..."
+      $whisperResult = Invoke-WhisperTranscription -WavePath $tempWave
+
+      if ($whisperResult -and $whisperResult.text -and $whisperResult.text.Trim().Length -gt 2) {
+        Write-Host "[transcribe] Whisper OK: $($whisperResult.text.Length) chars, $($whisperResult.words.Count) words"
+        Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
+          text     = [string]$whisperResult.text
+          segments = $whisperResult.segments
+          words    = $whisperResult.words
+          engine   = "whisper"
+        }
+      } else {
+        # No speech detected by Whisper - return empty so frontend shows manual input
+        Write-Host "[transcribe] No speech detected - returning empty"
+        Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{
+          text     = ""
+          segments = @()
+          words    = @()
+          engine   = "whisper"
+          noSpeech = $true
+        }
       }
+    } finally {
+      if (Test-Path $tempWave) { Remove-Item $tempWave -Force }
     }
 
     return
