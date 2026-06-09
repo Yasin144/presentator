@@ -27175,6 +27175,91 @@ function downloadSrtFile(srtContent, fileName = "captions.srt") {
 }
 
 // Use event delegation so the handler works even if React hasn't rendered StagePanel yet
+// ── Caption panel: Text to Speech button ────────────────────────────────────
+(function wireCaptionVoiceButtons() {
+  let _ttsAudio = null, _ttsPlaying = false;
+  let _sttRec = null, _sttActive = false;
+  const statusEl = () => document.getElementById("captionVoiceBtnStatus");
+
+  // TTS — reads lesson text via Chatterbox narration server
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest("#captionTtsBtn");
+    if (!btn) return;
+    if (_ttsPlaying && _ttsAudio) {
+      _ttsAudio.pause(); _ttsAudio = null; _ttsPlaying = false;
+      btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
+      btn.querySelector("span:last-child") && (btn.lastChild.textContent = " Text to Speech");
+      if (statusEl()) statusEl().textContent = "Stopped.";
+      return;
+    }
+    const text = (getEffectiveLessonText() || "").trim();
+    if (!text) { if (statusEl()) statusEl().textContent = "⚠ No lesson text to read."; return; }
+    btn.disabled = true;
+    btn.style.background = "linear-gradient(135deg,#f57c00,#e65100)";
+    if (statusEl()) statusEl().textContent = "⏳ Generating voice...";
+    try {
+      const voice = window.state?.preferredNarrationVoice || "sc3";
+      const resp = await fetch("http://127.0.0.1:5111/api/narrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, generationOptions: { voice } })
+      });
+      if (!resp.ok) throw new Error(`Server ${resp.status}`);
+      const blob = await resp.blob();
+      _ttsAudio = new Audio(URL.createObjectURL(blob));
+      _ttsPlaying = true;
+      btn.disabled = false;
+      btn.style.background = "linear-gradient(135deg,#c62828,#b71c1c)";
+      if (statusEl()) statusEl().textContent = "🔊 Playing... click to stop.";
+      _ttsAudio.onended = () => {
+        _ttsPlaying = false; _ttsAudio = null;
+        btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
+        if (statusEl()) statusEl().textContent = "✔ Done.";
+      };
+      _ttsAudio.play();
+    } catch(err) {
+      btn.disabled = false;
+      btn.style.background = "linear-gradient(135deg,#1a73e8,#0d47a1)";
+      if (statusEl()) statusEl().textContent = "❌ " + err.message;
+    }
+  });
+
+  // STT — listens to mic, appends to lesson input in Indian English
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("#captionSttBtn");
+    if (!btn) return;
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) { if (statusEl()) statusEl().textContent = "❌ Use Chrome/Edge for mic input."; return; }
+    if (_sttActive && _sttRec) { _sttRec.stop(); return; }
+    _sttRec = new SpeechRec();
+    _sttRec.lang = "en-IN";
+    _sttRec.continuous = true;
+    _sttRec.interimResults = true;
+    _sttRec.maxAlternatives = 1;
+    _sttActive = true;
+    btn.style.background = "linear-gradient(135deg,#c62828,#b71c1c)";
+    if (statusEl()) statusEl().textContent = "🎙 Listening... click to stop.";
+    _sttRec.onresult = (ev) => {
+      let final = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) final += ev.results[i][0].transcript + " ";
+      }
+      if (final && lessonInput) {
+        lessonInput.value = mergeSpeechText(lessonInput.value, final.trim());
+        scheduleLessonInputChange(0);
+        if (statusEl()) statusEl().textContent = "🎙 Got: " + final.trim().slice(0, 60);
+      }
+    };
+    _sttRec.onerror = (ev) => { if (statusEl()) statusEl().textContent = "⚠ " + ev.error; };
+    _sttRec.onend = () => {
+      _sttActive = false; _sttRec = null;
+      btn.style.background = "linear-gradient(135deg,#2e7d32,#1b5e20)";
+      if (statusEl()) statusEl().textContent = "✔ Recording stopped.";
+    };
+    _sttRec.start();
+  });
+})();
+
 document.addEventListener("click", async (e) => {
   const captionExportBtn = e.target.closest("#stageCaptionExportBtn");
   if (!captionExportBtn) return;
