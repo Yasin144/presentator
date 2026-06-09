@@ -756,6 +756,18 @@ const ANJALI_GENERATION_OPTIONS = Object.freeze({
   minP: 0,
   normLoudness: true
 });
+// Pattan voice — same Chatterbox engine, different reference WAV (voice-reference-pattan.wav).
+// Params tuned to lock onto pattan's voice characteristics as tightly as possible.
+const PATTAN_GENERATION_OPTIONS = Object.freeze({
+  repetitionPenalty: 1.02,
+  topP: 0.80,               // tighter than sc3 — pattan reference is shorter, needs more guidance
+  temperature: 0.45,        // very low — maximises similarity to pattan reference
+  topK: 50,
+  cfgWeight: 0.95,          // maximum guidance weight — stay locked to pattan voice
+  exaggeration: 0.3,        // minimal — match pattan's natural speech style
+  minP: 0,
+  normLoudness: true
+});
 const STAGE_LEFT_CONTENT_GAP_PX = 24; // Keep lesson context close to the frame edge.
 const STAGE_RIGHT_CLEAR_GAP_PX = 380;
 const STAGE_TEXT_SIDE_MARGIN_PX = 24;
@@ -4359,14 +4371,16 @@ function buildNarrationRequestPayload(text) {
   return buildNarrationRequestPayloadFromNarrationText(buildNarrationText(text));
 }
 
-function buildNarrationRequestPayloadFromNarrationText(narrationText = "") {
+function buildNarrationRequestPayloadFromNarrationText(narrationText = "", voice = null) {
+  const activeVoice = voice || state?.preferredNarrationVoice || "anjali";
+  const genOpts = activeVoice === "pattan" ? PATTAN_GENERATION_OPTIONS : ANJALI_GENERATION_OPTIONS;
   return {
     text: String(narrationText || "").trim(),
     voiceProfile: {
       ...ANJALI_TTS_PROFILE,
       ...NARRATION_STYLE_CONFIG
     },
-    generationOptions: ANJALI_GENERATION_OPTIONS,
+    generationOptions: genOpts,
     narrationStylePrompt: NARRATION_STYLE_PROMPT
   };
 }

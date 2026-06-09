@@ -891,13 +891,26 @@ def _start_generate_progress(text: str, start_pct: int = 20, end_pct: int = 81):
     return stop_event
 
 
-def synthesize(text: str, voice: str = "sc3") -> bytes:
+def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
     global CURRENT_VOICE
     # Normalize voice name
     voice = str(voice or "sc3").strip().lower()
     if voice not in VOICE_MAP:
         voice = "sc3"
     
+    # Voice-specific generation defaults for maximum reference fidelity
+    if voice == "pattan":
+        _default_opts = dict(exaggeration=0.3, cfg_weight=0.95, temperature=0.45, repetition_penalty=1.02)
+    else:  # sc3 / anjali
+        _default_opts = dict(exaggeration=0.3, cfg_weight=0.9,  temperature=0.45, repetition_penalty=1.2)
+    
+    # Merge caller-supplied options on top of defaults
+    opts = {**_default_opts, **(gen_opts or {})}
+    exaggeration      = float(opts.get("exaggeration",      _default_opts["exaggeration"]))
+    cfg_weight        = float(opts.get("cfg_weight",        opts.get("cfgWeight",   _default_opts["cfg_weight"])))
+    temperature       = float(opts.get("temperature",       _default_opts["temperature"]))
+    repetition_penalty= float(opts.get("repetition_penalty",opts.get("repetitionPenalty", _default_opts["repetition_penalty"])))
+
     with _synth_lock:
         _set_progress(STAGES[0][0], STAGES[0][1], active=True, text=text)
         clean = _clean(text)
@@ -1093,10 +1106,10 @@ def synthesize(text: str, voice: str = "sc3") -> bytes:
                 wav_t = MODEL.generate(
                     clean,
                     audio_prompt_path=current_ref,
-                    exaggeration=0.3,
-                    cfg_weight=0.9,
-                    temperature=0.45,
-                    repetition_penalty=1.2,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg_weight,
+                    temperature=temperature,
+                    repetition_penalty=repetition_penalty,
                 )
             finally:
                 progress_stop.set()
@@ -1298,7 +1311,9 @@ class Handler(BaseHTTPRequestHandler):
             payload   = self._read_json()
             text      = payload.get("text", "")
             voice     = payload.get("voice") or payload.get("generationOptions", {}).get("voice") or "sc3"
-            wav_bytes = synthesize(text, voice)
+            # Pass through generation options from the JS client (voice-specific tuning)
+            gen_opts  = payload.get("generationOptions") or {}
+            wav_bytes = synthesize(text, voice, gen_opts)
             if self._headers(200, "audio/wav", len(wav_bytes)):
                 self._write(wav_bytes)
         except _DISC:
