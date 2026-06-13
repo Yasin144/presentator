@@ -28142,28 +28142,27 @@ previewCanvas.addEventListener('pointerdown', (e) => {
     }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ Logo: check resize corners first, then drag Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    if (document.getElementById("logoEnableCheck")?.checked && infoKidsLogoImg.complete) {
-        if (normalizePresentationTemplate(state.presentationTemplate) === 'learning-outcomes') {
-            const corner = getResizeCorner(logoConfig, pos);
-            if (corner) {
-                logoConfig.resizing = corner;
-                logoConfig.resizeStartX = pos.x;
-                logoConfig.resizeStartY = pos.y;
-                logoConfig.resizeStartW = logoConfig.w;
-                logoConfig.resizeStartH = logoConfig.h;
-                logoConfig.resizeStartOX = logoConfig.x;
-                logoConfig.resizeStartOY = logoConfig.y;
-                previewCanvas.setPointerCapture(e.pointerId);
-                return;
-            }
-            if (pos.x >= logoConfig.x && pos.x <= logoConfig.x + logoConfig.w &&
-                pos.y >= logoConfig.y && pos.y <= logoConfig.y + logoConfig.h) {
-                logoConfig.dragging = true;
-                logoConfig.dragOffX = pos.x - logoConfig.x;
-                logoConfig.dragOffY = pos.y - logoConfig.y;
-                previewCanvas.setPointerCapture(e.pointerId);
-                return;
-            }
+    if (document.getElementById("logoEnableCheck")?.checked && (infoKidsLogoImg.complete || infoKidsLogoImg._logoReady)) {
+        // Logo drag/resize works on ALL templates
+        const corner = getResizeCorner(logoConfig, pos);
+        if (corner) {
+            logoConfig.resizing = corner;
+            logoConfig.resizeStartX = pos.x;
+            logoConfig.resizeStartY = pos.y;
+            logoConfig.resizeStartW = logoConfig.w;
+            logoConfig.resizeStartH = logoConfig.h;
+            logoConfig.resizeStartOX = logoConfig.x;
+            logoConfig.resizeStartOY = logoConfig.y;
+            previewCanvas.setPointerCapture(e.pointerId);
+            return;
+        }
+        if (pos.x >= logoConfig.x && pos.x <= logoConfig.x + logoConfig.w &&
+            pos.y >= logoConfig.y && pos.y <= logoConfig.y + logoConfig.h) {
+            logoConfig.dragging = true;
+            logoConfig.dragOffX = pos.x - logoConfig.x;
+            logoConfig.dragOffY = pos.y - logoConfig.y;
+            previewCanvas.setPointerCapture(e.pointerId);
+            return;
         }
     }
 
@@ -28222,7 +28221,7 @@ previewCanvas.addEventListener('pointermove', (e) => {
         else if (corner === 'nw') { newW = Math.max(40, logoConfig.resizeStartW - dx); newH = newW / aspect; newX = logoConfig.resizeStartOX + logoConfig.resizeStartW - newW; newY = logoConfig.resizeStartOY + logoConfig.resizeStartH - newH; }
         logoConfig.w = newW; logoConfig.h = newH;
         logoConfig.x = newX; logoConfig.y = newY;
-        logoConfig.scale = newW / (infoKidsLogoImg.naturalWidth || 300);
+        logoConfig.scale = newW / (infoKidsLogoImg.naturalWidth || infoKidsLogoImg.width || 692);
         previewCanvas.style.cursor = 'nwse-resize';
         dirty = true;
     }
@@ -28258,12 +28257,11 @@ previewCanvas.addEventListener('pointermove', (e) => {
         if (hoverAvatar !== avatarConfig.hovered) { avatarConfig.hovered = hoverAvatar; dirty = true; }
 
         let hoverLogo = false;
-        if (document.getElementById("logoEnableCheck")?.checked && infoKidsLogoImg.complete) {
-            if (normalizePresentationTemplate(state.presentationTemplate) === 'learning-outcomes') {
-                if (pos.x >= logoConfig.x && pos.x <= logoConfig.x + logoConfig.w &&
-                    pos.y >= logoConfig.y && pos.y <= logoConfig.y + logoConfig.h) {
-                    hoverLogo = true;
-                }
+        if (document.getElementById("logoEnableCheck")?.checked && (infoKidsLogoImg.complete || infoKidsLogoImg._logoReady)) {
+            // Hover works on ALL templates
+            if (pos.x >= logoConfig.x && pos.x <= logoConfig.x + logoConfig.w &&
+                pos.y >= logoConfig.y && pos.y <= logoConfig.y + logoConfig.h) {
+                hoverLogo = true;
             }
         }
         if (hoverLogo !== logoConfig.hovered) { logoConfig.hovered = hoverLogo; dirty = true; }
