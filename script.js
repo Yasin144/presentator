@@ -15743,36 +15743,36 @@ infoKidsLogoImg.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAArQAAADwCAY
 
 
 function drawInfoKidsLogo() {
-  const _logoTpl = normalizePresentationTemplate(state.presentationTemplate);
-  // InfoKids logo image: outcomes-only (it's positioned for that layout)
-  if (_logoTpl === PRESENTATION_TEMPLATE_OUTCOMES) {
-
+  // InfoKids logo: draw on ALL templates at bottom-right corner
   const enableCheck = document.getElementById("logoEnableCheck");
-  if (enableCheck && !enableCheck.checked) {
-     // logo disabled
-  } else {
-     if(infoKidsLogoImg.complete) {
-       logoConfig.w = infoKidsLogoImg.width * logoConfig.scale;
-       logoConfig.h = infoKidsLogoImg.height * logoConfig.scale;
-       
-       if (!logoConfig.initialized) {
-           logoConfig.x = canvas.width - logoConfig.w - 50; 
-           logoConfig.y = canvas.height - logoConfig.h - 30;
-           logoConfig.initialized = true;
-       }
-       ctx.save();
-       if (logoConfig.hovered) {
-          ctx.strokeStyle = "rgba(42, 133, 255, 0.8)";
-          ctx.lineWidth = 4;
-          ctx.strokeRect(logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
-       }
-       if (isImageReady(infoKidsLogoImg)) { ctx.drawImage(infoKidsLogoImg, logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h); }
-       ctx.restore();
-     }
+  if (!enableCheck || enableCheck.checked) {
+    // Use naturalWidth/naturalHeight (reliable in Electron); fall back to .width/.height
+    const imgW = infoKidsLogoImg.naturalWidth || infoKidsLogoImg.width;
+    const imgH = infoKidsLogoImg.naturalHeight || infoKidsLogoImg.height;
+    if (infoKidsLogoImg.complete && imgW > 0 && imgH > 0) {
+      logoConfig.w = imgW * logoConfig.scale;
+      logoConfig.h = imgH * logoConfig.scale;
+      if (!logoConfig.initialized) {
+          logoConfig.x = canvas.width - logoConfig.w - 50;
+          logoConfig.y = canvas.height - logoConfig.h - 30;
+          logoConfig.initialized = true;
+      }
+      ctx.save();
+      if (logoConfig.hovered) {
+         ctx.strokeStyle = "rgba(42, 133, 255, 0.8)";
+         ctx.lineWidth = 4;
+         ctx.strokeRect(logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
+      }
+      // Draw directly - .complete + size check already guards broken-state crash
+      ctx.drawImage(infoKidsLogoImg, logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
+      ctx.restore();
+    }
   }
 
   // Ã¢â€â‚¬Ã¢â€â‚¬ Animated title badge Ã¢â‚¬â€ slides in from right at playback start, out at end Ã¢â€â‚¬Ã¢â€â‚¬
-    }
+  // Badge only shows on Learning Outcomes template
+  const _logoTpl = normalizePresentationTemplate(state.presentationTemplate);
+  if (_logoTpl !== PRESENTATION_TEMPLATE_OUTCOMES) return;
 
   const titleText = getPresentationTitleText();
   // If no title has been typed in the title input, skip the badge entirely
