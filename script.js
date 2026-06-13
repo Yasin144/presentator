@@ -1,3 +1,19 @@
+/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
+function isImageReady(img) {
+    if (!img) return false;
+    // HTMLVideoElement / HTMLCanvasElement / ImageBitmap are always drawable
+    if (img instanceof HTMLVideoElement || img instanceof HTMLCanvasElement) return true;
+    if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) return true;
+    // OffscreenCanvas
+    if (typeof OffscreenCanvas !== "undefined" && img instanceof OffscreenCanvas) return true;
+    // HTMLImageElement — must be complete AND have natural size
+    if (img instanceof HTMLImageElement) {
+        return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+    }
+    // Assume anything else (e.g. ImageData) is drawable
+    return true;
+}
+
 var avatarConfig = {x: 35, y: 35, w: 0, h: 0, scale: 0.85, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 var logoConfig = {x: 1620, y: 920, w: 0, h: 0, scale: 0.54, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 
@@ -15739,7 +15755,7 @@ function drawInfoKidsLogo() {
           ctx.lineWidth = 4;
           ctx.strokeRect(logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
        }
-       ctx.drawImage(infoKidsLogoImg, logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
+       if (isImageReady(infoKidsLogoImg)) { ctx.drawImage(infoKidsLogoImg, logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h); }
        ctx.restore();
      }
   }
@@ -16450,7 +16466,7 @@ function drawOptionalImages(currentPageIndex = 0, totalPageCount = 1) {
     const drawX = innerX + (targetW - drawW) / 2;
     const drawY = innerY + (targetH - drawH) / 2;
     applyHighQualityImageRendering(ctx);
-    ctx.drawImage(item.image, drawX, drawY, drawW, drawH);
+    if (isImageReady(item.image)) { ctx.drawImage(item.image, drawX, drawY, drawW, drawH); }
     if (item.cutoutApplied) {
       applyScreenMatchOverlay(
         {
@@ -16565,7 +16581,7 @@ function drawPdfAutoExampleImages(pageIndex = state.previewPageIndex, autoImages
     ctx.closePath();
     ctx.clip();
     applyHighQualityImageRendering(ctx);
-    ctx.drawImage(image.image, drawX, drawY, drawWidth, drawHeight);
+    if (isImageReady(image.image)) { ctx.drawImage(image.image, drawX, drawY, drawWidth, drawHeight); }
     ctx.restore();
   });
 }
@@ -17449,7 +17465,7 @@ function loadImageFromDataUrl(dataUrl) {
 function drawImageFast(source, ...args) {
   if (source && source._bitmap && source._bitmap.width > 0) {
     ctx.drawImage(source._bitmap, ...args);
-  } else {
+  } else if (isImageReady(source)) {
     ctx.drawImage(source, ...args);
   }
 }
@@ -19248,7 +19264,7 @@ function drawVideoCover(source, area, options = {}) {
   ctx.rect(area.x, area.y, area.width, area.height);
   ctx.clip();
   ctx.globalAlpha = Number.isFinite(options.opacity) ? options.opacity : 1;
-  ctx.drawImage(source, drawX, drawY, drawWidth, drawHeight);
+  if (isImageReady(source)) { ctx.drawImage(source, drawX, drawY, drawWidth, drawHeight); }
   ctx.globalAlpha = 1;
   ctx.restore();
 }
@@ -19440,7 +19456,7 @@ function drawPosterScene() {
     ctx.beginPath();
     ctx.rect(0, 0, canvas.width, canvas.height);
     ctx.clip();
-    ctx.drawImage(posterImage, imgX, imgY, drawW, drawH);
+    if (isImageReady(posterImage)) { ctx.drawImage(posterImage, imgX, imgY, drawW, drawH); }
     ctx.restore();
   } else {
     // No poster uploaded Ã¢â‚¬â€ solid dark fallback

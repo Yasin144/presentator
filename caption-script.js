@@ -1,3 +1,19 @@
+/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
+function isImageReady(img) {
+    if (!img) return false;
+    // HTMLVideoElement / HTMLCanvasElement / ImageBitmap are always drawable
+    if (img instanceof HTMLVideoElement || img instanceof HTMLCanvasElement) return true;
+    if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) return true;
+    // OffscreenCanvas
+    if (typeof OffscreenCanvas !== "undefined" && img instanceof OffscreenCanvas) return true;
+    // HTMLImageElement — must be complete AND have natural size
+    if (img instanceof HTMLImageElement) {
+        return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+    }
+    // Assume anything else (e.g. ImageData) is drawable
+    return true;
+}
+
 let captionWorker = null;
 let transcriber = null; // Keeping as a placeholder for any lingering references
 
@@ -1305,7 +1321,7 @@ function bootCaptionStudio() {
                  const scale = Math.max(wr, hr);
                  const ix = (targetWidth / 2) - (brollImage.width / 2) * scale;
                  const iy = (targetHeight / 2) - (brollImage.height / 2) * scale;
-                 ctx.drawImage(brollImage, ix, iy, brollImage.width * scale, brollImage.height * scale);
+                 if (isImageReady(brollImage)) { ctx.drawImage(brollImage, ix, iy, brollImage.width * scale, brollImage.height * scale); }
                  ctx.restore();
              }
 
@@ -1386,7 +1402,7 @@ function bootCaptionStudio() {
             ctx.globalAlpha = 0.5;
             const wmWidth = targetWidth * 0.15;
             const wmHeight = (wmWidth / sharedWatermarkImage.width) * sharedWatermarkImage.height;
-            ctx.drawImage(sharedWatermarkImage, targetWidth - wmWidth - 40, 40, wmWidth, wmHeight);
+            if (isImageReady(sharedWatermarkImage)) { ctx.drawImage(sharedWatermarkImage, targetWidth - wmWidth - 40, 40, wmWidth, wmHeight); }
             ctx.restore();
         }
 
