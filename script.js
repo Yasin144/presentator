@@ -15728,13 +15728,15 @@ function getLogoDrawRect() {
 }
 
 let infoKidsLogoImg = new Image();
+infoKidsLogoImg._logoReady = false;
 infoKidsLogoImg.onload = function() {
-  if (typeof markSceneDirty === "function") {
-    markSceneDirty();
-  }
-  if (typeof drawScene === "function") {
-    drawScene(typeof state !== "undefined" ? state.mouthOpen : 0.12);
-  }
+  infoKidsLogoImg._logoReady = true;
+  // Use setTimeout so drawScene/markSceneDirty are guaranteed to exist
+  // (base64 data URLs can decode synchronously before rest of script runs)
+  setTimeout(function() {
+    if (typeof markSceneDirty === "function") markSceneDirty();
+    if (typeof drawScene === "function") drawScene(typeof state !== "undefined" ? state.mouthOpen : 0.12);
+  }, 0);
 };
 infoKidsLogoImg.onerror = function() {
   console.warn('[Logo] Failed to load infoKidsLogoImg');
@@ -15746,7 +15748,7 @@ function drawInfoKidsLogo() {
   // InfoKids logo: draw on ALL templates at bottom-right corner
   const enableCheck = document.getElementById("logoEnableCheck");
   if (!enableCheck || enableCheck.checked) {
-    if (infoKidsLogoImg.complete) {
+    if (infoKidsLogoImg.complete || infoKidsLogoImg._logoReady) {
       try {
         // In Electron, naturalWidth can be 0 for data URLs even when decoded.
         // Fall back to .width/.height, then to known logo pixel size (720x240).
