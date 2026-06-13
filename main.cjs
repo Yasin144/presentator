@@ -1435,9 +1435,14 @@ app.whenReady().then(async () => {
       }
       const data = fs.readFileSync(filePath);
       const ext = path.extname(filePath).toLowerCase();
+      // Never cache JS/CSS so code changes are always picked up immediately
+      const noCache = ['.js', '.css', '.html'].includes(ext);
       return new Response(data, {
         status: 200,
-        headers: { 'Content-Type': MIME[ext] || 'application/octet-stream' }
+        headers: {
+          'Content-Type': MIME[ext] || 'application/octet-stream',
+          ...(noCache ? { 'Cache-Control': 'no-cache, no-store, must-revalidate' } : {})
+        }
       });
     } catch (err) {
       return new Response('Error: ' + err.message, { status: 500 });
