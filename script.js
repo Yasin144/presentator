@@ -15701,7 +15701,7 @@ function getLogoDrawRect() {
 
   const canUseImageLogo = stageLogoImage
     && stageLogoImage.complete
-    && stageLogoImage.naturalWidth
+    && (stageLogoImage.naturalWidth || stageLogoImage.width || stageLogoImage._logoReady)
     && isSafeImageSource(stageLogoImage.currentSrc || stageLogoImage.src);
 
   if (!canUseImageLogo) {
@@ -27580,6 +27580,7 @@ window.addEventListener("online", () => {
 });
 
 stageLogoImage.addEventListener("load", () => {
+  stageLogoImage._logoReady = true; // naturalWidth=0 in Electron for data URLs — use this flag instead
   drawScene(state.mouthOpen);
 });
 
