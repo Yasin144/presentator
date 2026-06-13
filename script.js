@@ -15746,26 +15746,30 @@ function drawInfoKidsLogo() {
   // InfoKids logo: draw on ALL templates at bottom-right corner
   const enableCheck = document.getElementById("logoEnableCheck");
   if (!enableCheck || enableCheck.checked) {
-    // Use naturalWidth/naturalHeight (reliable in Electron); fall back to .width/.height
-    const imgW = infoKidsLogoImg.naturalWidth || infoKidsLogoImg.width;
-    const imgH = infoKidsLogoImg.naturalHeight || infoKidsLogoImg.height;
-    if (infoKidsLogoImg.complete && imgW > 0 && imgH > 0) {
-      logoConfig.w = imgW * logoConfig.scale;
-      logoConfig.h = imgH * logoConfig.scale;
-      if (!logoConfig.initialized) {
-          logoConfig.x = canvas.width - logoConfig.w - 50;
-          logoConfig.y = canvas.height - logoConfig.h - 30;
-          logoConfig.initialized = true;
+    if (infoKidsLogoImg.complete) {
+      try {
+        // In Electron, naturalWidth can be 0 for data URLs even when decoded.
+        // Fall back to .width/.height, then to known logo pixel size (720x240).
+        const imgW = infoKidsLogoImg.naturalWidth || infoKidsLogoImg.width || 720;
+        const imgH = infoKidsLogoImg.naturalHeight || infoKidsLogoImg.height || 240;
+        logoConfig.w = imgW * logoConfig.scale;
+        logoConfig.h = imgH * logoConfig.scale;
+        if (!logoConfig.initialized) {
+            logoConfig.x = canvas.width  - logoConfig.w - 50;
+            logoConfig.y = canvas.height - logoConfig.h - 30;
+            logoConfig.initialized = true;
+        }
+        ctx.save();
+        if (logoConfig.hovered) {
+           ctx.strokeStyle = "rgba(42, 133, 255, 0.8)";
+           ctx.lineWidth = 4;
+           ctx.strokeRect(logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
+        }
+        ctx.drawImage(infoKidsLogoImg, logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
+        ctx.restore();
+      } catch(e) {
+        // Silently ignore if image is in broken state
       }
-      ctx.save();
-      if (logoConfig.hovered) {
-         ctx.strokeStyle = "rgba(42, 133, 255, 0.8)";
-         ctx.lineWidth = 4;
-         ctx.strokeRect(logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
-      }
-      // Draw directly - .complete + size check already guards broken-state crash
-      ctx.drawImage(infoKidsLogoImg, logoConfig.x, logoConfig.y, logoConfig.w, logoConfig.h);
-      ctx.restore();
     }
   }
 
