@@ -101,15 +101,15 @@ function App() {
 
   return (
     <>
-      {/* ── Full-screen Caption Burner ── (replaces the whole app when open) */}
+      {/* ── Full-screen Caption Burner ── */}
       {captionOpen && (
-        <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0e0e0e',color:'rgba(255,255,255,0.3)',fontSize:'12px'}}>Loading Caption Burner…</div>}>
+        <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0e0e0e',color:'rgba(255,255,255,0.3)',fontSize:'12px'}}>Loading…</div>}>
           <CaptionBurner onClose={() => setCaptionOpen(false)} />
         </Suspense>
       )}
 
-      {/* ── Normal Presentator UI (hidden while caption burner is open) ── */}
-      <div style={{ display: captionOpen ? 'none' : 'contents' }}>
+      {/* ── Normal Presentator UI ── */}
+      <div style={{ display: captionOpen ? 'none' : 'block', height: '100%' }}>
       <main className="app-shell">
         <InputPanel />
         <StagePanel />
@@ -224,20 +224,19 @@ function App() {
       )}
 
       {/* ── Caption Burner FAB ── */}
-      {!captionOpen && (
-        <button
-          onClick={() => setCaptionOpen(true)}
-          title="Caption Burner (Hugging Face Whisper)"
-          style={{
-            position:'fixed', bottom:'88px', right:'24px', zIndex:9000,
-            width:'52px', height:'52px', borderRadius:'50%',
-            background:'linear-gradient(135deg,#3b82f6,#8b5cf6)',
-            border:'none', color:'#fff', fontSize:'1.4rem', cursor:'pointer',
-            boxShadow:'0 6px 24px rgba(59,130,246,0.5)',
-            display:'flex', alignItems:'center', justifyContent:'center',
-          }}
-        >🎬</button>
-      )}
+      <button
+        onClick={() => setCaptionOpen(true)}
+        title="Caption Burner (Hugging Face Whisper)"
+        style={{
+          position:'fixed', bottom:'88px', right:'24px', zIndex:9000,
+          width:'52px', height:'52px', borderRadius:'50%',
+          background:'linear-gradient(135deg,#3b82f6,#8b5cf6)',
+          border:'none', color:'#fff', fontSize:'1.4rem', cursor:'pointer',
+          boxShadow:'0 6px 24px rgba(59,130,246,0.5)',
+          display: captionOpen ? 'none' : 'flex',
+          alignItems:'center', justifyContent:'center',
+        }}
+      >🎬</button>
 
       {/* Caption Burner Modal removed — now full-screen swap above */}
       </div>
