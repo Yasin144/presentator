@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Timed Voiceover Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0b14;--surface:#111827;--card:#161d2e;--border:#1e2d45;
+  --accent:#7c3aed;--accent2:#4f46e5;--glow:rgba(124,58,237,.35);
+  --success:#10b981;--warn:#f59e0b;--danger:#ef4444;
+  --text:#e2e8f0;--muted:#64748b;--subtle:#1e293b;
+  --radius:14px;--font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;display:flex;flex-direction:column}
+
+/* ── Header ── */
+header{
+  background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);
+  border-bottom:1px solid var(--border);
+  padding:18px 32px;display:flex;align-items:center;gap:14px;
+  box-shadow:0 4px 32px rgba(0,0,0,.5);
+}
+.logo{width:40px;height:40px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:grid;place-items:center;font-size:20px;box-shadow:0 0 20px var(--glow)}
+header h1{font-size:1.4rem;font-weight:700;background:linear-gradient(90deg,#a78bfa,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header p{font-size:.8rem;color:var(--muted);margin-top:2px}
+.server-badge{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:.78rem}
+#serverDot{width:8px;height:8px;border-radius:50%;background:var(--muted);transition:.3s}
+#serverDot.ok{background:var(--success);box-shadow:0 0 8px var(--success)}
+#serverDot.err{background:var(--danger)}
+
+/* ── Layout ── */
+main{flex:1;padding:28px 32px;display:grid;grid-template-columns:1fr 340px;gap:24px;max-width:1280px;width:100%;margin:0 auto}
+@media(max-width:900px){main{grid-template-columns:1fr;padding:16px}}
+
+/* ── Cards ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px;transition:.2s}
+.card-title{font-size:.7rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+/* ── Textarea ── */
+textarea{
+  width:100%;min-height:240px;resize:vertical;background:var(--subtle);
+  border:1px solid var(--border);border-radius:10px;color:var(--text);
+  font-family:var(--font);font-size:.92rem;line-height:1.7;padding:14px;
+  outline:none;transition:.2s;
+}
+textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.char-count{font-size:.72rem;color:var(--muted);text-align:right;margin-top:6px}
+
+/* ── Time controls ── */
+.time-row{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.time-box{flex:1;display:flex;flex-direction:column;gap:5px}
+.time-box label{font-size:.72rem;color:var(--muted);font-weight:500}
+.time-input{
+  background:var(--subtle);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-family:var(--mono);font-size:1.4rem;font-weight:500;
+  text-align:center;padding:10px 8px;outline:none;width:100%;transition:.2s;
+}
+.time-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.time-sep{font-size:2rem;color:var(--muted);padding-top:18px;user-select:none}
+.quick-times{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.qt{background:var(--subtle);border:1px solid var(--border);border-radius:6px;
+  padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--muted);transition:.15s}
+.qt:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* ── Voice settings ── */
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.setting-row:last-child{border-bottom:none}
+.setting-label{font-size:.8rem;color:var(--muted)}
+.setting-val{font-size:.8rem;color:var(--text);font-family:var(--mono)}
+input[type=range]{accent-color:var(--accent);cursor:pointer;width:120px}
+
+/* ── Generate button ── */
+#generateBtn{
+  width:100%;padding:15px;border:none;border-radius:10px;cursor:pointer;
+  font-family:var(--font);font-size:1rem;font-weight:600;letter-spacing:.02em;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#fff;box-shadow:0 4px 20px var(--glow);
+  transition:.2s;margin-top:16px;position:relative;overflow:hidden;
+}
+#generateBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 28px var(--glow)}
+#generateBtn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+#generateBtn .btn-text{position:relative;z-index:1}
+
+/* ── Progress ── */
+.progress-wrap{margin-top:16px;display:none}
+.progress-wrap.visible{display:block}
+.progress-bar-bg{background:var(--subtle);border-radius:6px;height:5px;overflow:hidden}
+.progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:6px;width:0%;transition:width .3s}
+.progress-label{font-size:.75rem;color:var(--muted);margin-top:6px;text-align:center}
+
+/* ── Result ── */
+.result-card{display:none;margin-top:16px}
+.result-card.visible{display:block}
+.result-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.meta-chip{background:var(--subtle);border:1px solid var(--border);border-radius:8px;padding:8px 12px;text-align:center}
+.meta-chip .val{font-size:1rem;font-weight:600;font-family:var(--mono);color:var(--text)}
+.meta-chip .lbl{font-size:.68rem;color:var(--muted);margin-top:2px}
+.accuracy-bar-bg{background:var(--subtle);border-radius:6px;height:6px;overflow:hidden;margin:10px 0 4px}
+.accuracy-bar-fill{height:100%;border-radius:6px;transition:width .6s}
+audio{width:100%;border-radius:8px;margin-top:10px;accent-color:var(--accent)}
+#downloadBtn{
+  width:100%;padding:11px;border:1px solid var(--accent);border-radius:8px;
+  background:transparent;color:var(--accent);font-family:var(--font);
+  font-size:.88rem;font-weight:600;cursor:pointer;margin-top:10px;transition:.2s;
+}
+#downloadBtn:hover{background:var(--accent);color:#fff}
+
+/* ── History ── */
+.hist-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto}
+.hist-item{background:var(--subtle);border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px;cursor:pointer;transition:.15s;display:flex;align-items:center;gap:10px}
+.hist-item:hover{border-color:var(--accent)}
+.hist-icon{font-size:1.1rem}
+.hist-info{flex:1;min-width:0}
+.hist-text{font-size:.78rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-meta{font-size:.68rem;color:var(--muted);margin-top:2px}
+.hist-play{background:var(--accent);border:none;color:#fff;border-radius:6px;
+  padding:4px 10px;font-size:.72rem;cursor:pointer;white-space:nowrap}
+
+/* ── Waveform canvas ── */
+#waveCanvas{width:100%;height:56px;border-radius:8px;background:var(--subtle);display:block;margin-top:10px}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🎙️</div>
+  <div>
+    <h1>Timed Voiceover Studio</h1>
+    <p>Generate speech that fits an exact duration — powered by Anjali (Azure Neural)</p>
+  </div>
+  <div class="server-badge">
+    <div id="serverDot"></div>
+    <span id="serverStatus">Checking server…</span>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT COLUMN -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+
+    <!-- Text Input -->
+    <div class="card">
+      <div class="card-title">📝 Script / Text</div>
+      <textarea id="textInput" placeholder="Type or paste your voiceover script here…
+
+Example:
+Welcome to today's lesson on the water cycle. Water evaporates from oceans and lakes, rises into the atmosphere, and forms clouds before falling back as rain or snow."></textarea>
+      <div class="char-count"><span id="charCount">0</span> characters · <span id="wordCount">0</span> words · ~<span id="estTime">0</span>s natural</div>
+    </div>
+
+    <!-- Result / Player -->
+    <div class="card result-card" id="resultCard">
+      <div class="card-title">🎵 Generated Audio</div>
+      <div class="result-meta">
+        <div class="meta-chip">
+          <div class="val" id="resActual">—</div>
+          <div class="lbl">Actual Duration</div>
+        </div>
+        <div class="meta-chip">
+          <div class="val" id="resTarget">—</div>
+          <div class="lbl">Target Duration</div>
+        </div>
+        <div class="meta-chip">
+          <div class="val" id="resRate">—</div>
+          <div class="lbl">Speech Rate</div>
+        </div>
+        <div class="meta-chip">
+          <div class="val" id="resIter">—</div>
+          <div class="lbl">Iterations</div>
+        </div>
+      </div>
+      <div class="accuracy-bar-bg">
+        <div class="accuracy-bar-fill" id="accuracyBar"></div>
+      </div>
+      <div style="font-size:.7rem;color:var(--muted);text-align:right" id="accuracyLabel"></div>
+      <canvas id="waveCanvas"></canvas>
+      <audio id="audioPlayer" controls></audio>
+      <button id="downloadBtn" onclick="downloadAudio()">⬇ Download WAV</button>
+    </div>
+
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+
+    <!-- Time Target -->
+    <div class="card">
+      <div class="card-title">⏱ Target Duration</div>
+      <div class="time-row">
+        <div class="time-box">
+          <label>MINUTES</label>
+          <input class="time-input" id="timeMins" type="number" min="0" max="59" value="0"/>
+        </div>
+        <div class="time-sep">:</div>
+        <div class="time-box">
+          <label>SECONDS</label>
+          <input class="time-input" id="timeSecs" type="number" min="0" max="59" value="10"/>
+        </div>
+      </div>
+      <div style="font-size:.78rem;color:var(--muted);margin-bottom:12px;text-align:center">
+        Total: <strong id="totalSecLabel" style="color:var(--text)">10.0s</strong>
+      </div>
+      <div class="quick-times" id="quickTimes"></div>
+    </div>
+
+    <!-- Voice Options -->
+    <div class="card">
+      <div class="card-title">🎛 Voice Settings</div>
+      <div class="setting-row">
+        <span class="setting-label">Voice</span>
+        <span class="setting-val">Anjali (Neerja Neural)</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Pitch</span>
+        <input type="range" id="pitchSlider" min="-20" max="20" value="0" oninput="updatePitchLabel()"/>
+        <span class="setting-val" id="pitchLabel">+0Hz</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Volume</span>
+        <input type="range" id="volumeSlider" min="-20" max="20" value="0" oninput="updateVolumeLabel()"/>
+        <span class="setting-val" id="volumeLabel">+0%</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Tolerance</span>
+        <span class="setting-val">±250ms</span>
+      </div>
+    </div>
+
+    <!-- Generate -->
+    <div class="card">
+      <div class="card-title">⚡ Generate</div>
+      <button id="generateBtn" onclick="generate()">
+        <span class="btn-text">🎙️ Generate Timed Voiceover</span>
+      </button>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressBar"></div></div>
+        <div class="progress-label" id="progressLabel">Initialising…</div>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="card" id="historyCard" style="display:none">
+      <div class="card-title">📂 Recent Generations</div>
+      <div class="hist-list" id="histList"></div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+const SERVER = 'http://127.0.0.1:8427';
+const QUICK = [5,10,15,20,30,45,60,90,120];
+
+let lastBlob = null;
+let history  = [];
+
+// ── Quick time buttons ────────────────────────────────────────────────────────
+const qtWrap = document.getElementById('quickTimes');
+QUICK.forEach(s => {
+  const b = document.createElement('button');
+  b.className = 'qt';
+  b.textContent = s >= 60 ? `${Math.floor(s/60)}m${s%60?s%60+'s':''}` : `${s}s`;
+  b.onclick = () => { setTargetSeconds(s); };
+  qtWrap.appendChild(b);
+});
+
+function setTargetSeconds(s) {
+  document.getElementById('timeMins').value = Math.floor(s / 60);
+  document.getElementById('timeSecs').value = s % 60;
+  updateTotalLabel();
+}
+
+function getTargetSeconds() {
+  const m = Math.max(0, parseInt(document.getElementById('timeMins').value) || 0);
+  const s = Math.max(0, parseInt(document.getElementById('timeSecs').value) || 0);
+  return m * 60 + s;
+}
+
+function updateTotalLabel() {
+  const t = getTargetSeconds();
+  document.getElementById('totalSecLabel').textContent = t.toFixed(1) + 's';
+}
+
+['timeMins','timeSecs'].forEach(id =>
+  document.getElementById(id).addEventListener('input', updateTotalLabel)
+);
+
+// ── Text stats ────────────────────────────────────────────────────────────────
+const textInput = document.getElementById('textInput');
+textInput.addEventListener('input', updateStats);
+
+function updateStats() {
+  const t = textInput.value;
+  const words = t.trim() ? t.trim().split(/\s+/).length : 0;
+  document.getElementById('charCount').textContent = t.length;
+  document.getElementById('wordCount').textContent = words;
+  // Average English speaker ~140 wpm
+  document.getElementById('estTime').textContent = (words / 140 * 60).toFixed(1);
+}
+
+// ── Pitch / Volume labels ─────────────────────────────────────────────────────
+function updatePitchLabel() {
+  const v = parseInt(document.getElementById('pitchSlider').value);
+  document.getElementById('pitchLabel').textContent = (v >= 0 ? '+' : '') + v + 'Hz';
+}
+function updateVolumeLabel() {
+  const v = parseInt(document.getElementById('volumeSlider').value);
+  document.getElementById('volumeLabel').textContent = (v >= 0 ? '+' : '') + v + '%';
+}
+
+// ── Server health ─────────────────────────────────────────────────────────────
+async function checkServer() {
+  try {
+    const r = await fetch(`${SERVER}/health`, { signal: AbortSignal.timeout(3000) });
+    const j = await r.json();
+    if (j.ok) {
+      document.getElementById('serverDot').className = 'ok';
+      document.getElementById('serverStatus').textContent = 'Server online';
+      return true;
+    }
+  } catch (_) {}
+  document.getElementById('serverDot').className = 'err';
+  document.getElementById('serverStatus').textContent = 'Server offline';
+  return false;
+}
+
+// ── Progress animation ────────────────────────────────────────────────────────
+let _pTimer = null;
+function startProgress(label) {
+  const wrap  = document.getElementById('progressWrap');
+  const bar   = document.getElementById('progressBar');
+  const lbl   = document.getElementById('progressLabel');
+  wrap.classList.add('visible');
+  bar.style.width = '0%';
+  lbl.textContent = label;
+  let p = 0;
+  _pTimer = setInterval(() => {
+    p = Math.min(p + (Math.random() * 4), 88);
+    bar.style.width = p + '%';
+  }, 300);
+}
+function finishProgress(label) {
+  clearInterval(_pTimer);
+  document.getElementById('progressBar').style.width = '100%';
+  document.getElementById('progressLabel').textContent = label;
+  setTimeout(() => {
+    document.getElementById('progressWrap').classList.remove('visible');
+  }, 1800);
+}
+
+// ── Waveform visualiser ───────────────────────────────────────────────────────
+async function drawWaveform(blob) {
+  const canvas = document.getElementById('waveCanvas');
+  const ctx    = canvas.getContext('2d');
+  const W      = canvas.offsetWidth;
+  const H      = canvas.offsetHeight;
+  canvas.width  = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  try {
+    const ac     = new AudioContext();
+    const buf    = await blob.arrayBuffer();
+    const decoded = await ac.decodeAudioData(buf);
+    const data    = decoded.getChannelData(0);
+    const step    = Math.ceil(data.length / W);
+    const grad    = ctx.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0, '#7c3aed');
+    grad.addColorStop(1, '#4f46e5');
+    ctx.fillStyle = grad;
+    for (let i = 0; i < W; i++) {
+      let max = 0;
+      for (let j = 0; j < step; j++) {
+        const v = Math.abs(data[i * step + j] || 0);
+        if (v > max) max = v;
+      }
+      const h = Math.max(2, max * H * 0.9);
+      ctx.fillRect(i, (H - h) / 2, 1, h);
+    }
+    await ac.close();
+  } catch (_) {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ── Generate ──────────────────────────────────────────────────────────────────
+async function generate() {
+  const text = textInput.value.trim();
+  if (!text) { alert('Please enter some text first.'); return; }
+
+  const targetS = getTargetSeconds();
+  if (targetS <= 0) { alert('Please set a target duration > 0.'); return; }
+
+  const online = await checkServer();
+  if (!online) {
+    alert('Timed Voiceover Server is offline.\n\nStart it with:\n  python timed-voiceover-server.py');
+    return;
+  }
+
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true;
+
+  const pitch  = (parseInt(document.getElementById('pitchSlider').value) >= 0 ? '+' : '')
+               + parseInt(document.getElementById('pitchSlider').value) + 'Hz';
+  const volume = (parseInt(document.getElementById('volumeSlider').value) >= 0 ? '+' : '')
+               + parseInt(document.getElementById('volumeSlider').value) + '%';
+
+  startProgress('Generating voice (fitting to target duration)…');
+
+  try {
+    const res = await fetch(`${SERVER}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, targetSeconds: targetS, pitch, volume }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+
+    const actual   = parseFloat(res.headers.get('X-Actual-Seconds') || '0');
+    const target   = parseFloat(res.headers.get('X-Target-Seconds') || targetS);
+    const rate     = res.headers.get('X-Rate-Used') || '—';
+    const iters    = res.headers.get('X-Iterations') || '—';
+    const padded   = res.headers.get('X-Padded') === 'true';
+
+    lastBlob = await res.blob();
+    const url = URL.createObjectURL(lastBlob);
+
+    // Player
+    const player = document.getElementById('audioPlayer');
+    player.src = url;
+
+    // Metadata chips
+    document.getElementById('resActual').textContent = actual.toFixed(2) + 's';
+    document.getElementById('resTarget').textContent = target.toFixed(2) + 's';
+    document.getElementById('resRate').textContent   = rate;
+    document.getElementById('resIter').textContent   = iters + (padded ? ' + pad' : '');
+
+    // Accuracy bar
+    const pct = Math.max(0, 100 - Math.abs(actual - target) / target * 100);
+    const bar  = document.getElementById('accuracyBar');
+    bar.style.width     = pct.toFixed(1) + '%';
+    bar.style.background = pct > 95 ? 'var(--success)' : pct > 80 ? 'var(--warn)' : 'var(--danger)';
+    document.getElementById('accuracyLabel').textContent = `Accuracy: ${pct.toFixed(1)}%`;
+
+    // Show result card
+    document.getElementById('resultCard').classList.add('visible');
+
+    // Waveform
+    drawWaveform(lastBlob.slice(0));
+
+    // History
+    addHistory({ text, targetS, actual, rate, url, blob: lastBlob });
+
+    finishProgress(`✅ Done! ${actual.toFixed(2)}s (target ${target.toFixed(2)}s)`);
+  } catch (err) {
+    finishProgress('❌ ' + err.message);
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+function addHistory(item) {
+  history.unshift(item);
+  if (history.length > 10) history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const card = document.getElementById('historyCard');
+  const list = document.getElementById('histList');
+  if (!history.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  list.innerHTML = '';
+  history.forEach((h, i) => {
+    const el = document.createElement('div');
+    el.className = 'hist-item';
+    el.innerHTML = `
+      <span class="hist-icon">🎙️</span>
+      <div class="hist-info">
+        <div class="hist-text">${h.text.slice(0, 60)}${h.text.length > 60 ? '…' : ''}</div>
+        <div class="hist-meta">${h.actual.toFixed(2)}s / ${h.targetS}s target · rate ${h.rate}</div>
+      </div>
+      <button class="hist-play" onclick="loadHistory(${i})">▶ Load</button>`;
+    list.appendChild(el);
+  });
+}
+
+function loadHistory(i) {
+  const h = history[i];
+  textInput.value = h.text;
+  setTargetSeconds(h.targetS);
+  updateStats();
+  const player = document.getElementById('audioPlayer');
+  player.src = h.url;
+  lastBlob = h.blob;
+  document.getElementById('resultCard').classList.add('visible');
+  drawWaveform(h.blob.slice(0));
+}
+
+// ── Download ──────────────────────────────────────────────────────────────────
+function downloadAudio() {
+  if (!lastBlob) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(lastBlob);
+  a.download = `voiceover-${getTargetSeconds()}s.wav`;
+  a.click();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+checkServer();
+setInterval(checkServer, 10000);
+updateStats();
+updateTotalLabel();
+</script>
+</body>
+</html>

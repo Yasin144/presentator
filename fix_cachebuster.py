@@ -1,0 +1,8 @@
+f=open(r'D:\voice\src\App.jsx','r',encoding='utf-8')
+c=f.read()
+f.close()
+c=c.replace("'?v=20260608b'","'?v=20260608c'")
+f=open(r'D:\voice\src\App.jsx','w',encoding='utf-8')
+f.write(c)
+f.close()
+print('Cache buster updated')
