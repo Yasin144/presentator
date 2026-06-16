@@ -8,6 +8,28 @@ interface HFResponse {
   estimated_time?: number;
 }
 
+// ── Quick API health check (exported for test button) ─────────────────────
+export async function testHFToken(token: string): Promise<string> {
+  try {
+    const resp = await fetch(
+      'https://api-inference.huggingface.co/models/openai/whisper-large-v3',
+      { method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inputs: '', parameters: { task: 'transcribe' } }),
+      }
+    );
+    if (resp.status === 401) return '❌ Invalid token (401)';
+    if (resp.status === 429) return '⚠️ Rate limited (429)';
+    if (resp.status === 503) return '⏳ Model loading (503) — wait 30s and retry';
+    if (resp.status === 400) return '✅ Token valid — model reachable (400 bad input is normal for empty)';
+    if (resp.status === 200) return '✅ Token valid — model ready';
+    const body = await resp.text().catch(() => '');
+    return `⚠️ Status ${resp.status}: ${body.slice(0, 80)}`;
+  } catch (e: any) {
+    return `❌ Network error: ${e.message}`;
+  }
+}
+
 // ── Group word-chunks into caption segments ───────────────────────────────
 function groupIntoSentences(chunks: HFChunk[], maxWords = 4): CaptionItem[] {
   const caps: CaptionItem[] = [];
@@ -160,8 +182,11 @@ async function callWhisper(
 async function transcribeChunk(
   chunk: Blob, token: string, langCode: string | undefined, timeOffset: number, maxWords: number,
 ): Promise<CaptionItem[]> {
+  console.log(`[CB] transcribeChunk offset=${timeOffset.toFixed(1)}s size=${chunk.size} lang=${langCode}`);
+
   // Try 1: word-level timestamps
   let result = await callWhisper(chunk, token, langCode, 'word');
+  console.log('[CB] word result: chunks=', result.chunks?.length ?? 0, 'text=', result.text?.slice(0,60));
   if (result.chunks && result.chunks.length > 0) {
     const shifted = result.chunks.map(c => ({
       text: c.text,
@@ -173,8 +198,9 @@ async function transcribeChunk(
     return groupIntoSentences(shifted, maxWords);
   }
 
-  // Try 2: segment-level timestamps (often works when word-level fails for non-English)
+  // Try 2: segment-level timestamps
   result = await callWhisper(chunk, token, langCode, 'segment');
+  console.log('[CB] segment result: chunks=', result.chunks?.length ?? 0, 'text=', result.text?.slice(0,60));
   if (result.chunks && result.chunks.length > 0) {
     const shifted = result.chunks.map(c => ({
       text: c.text,
@@ -183,12 +209,12 @@ async function transcribeChunk(
         ((c.timestamp[1] ?? (c.timestamp[0] ?? 0) + 2)) + timeOffset,
       ] as [number, number],
     }));
-    // Build word items from each segment's text split
     return groupIntoSentences(shifted, maxWords);
   }
 
   // Try 3: no timestamps — plain text
   result = await callWhisper(chunk, token, langCode, 'none');
+  console.log('[CB] none result: text=', result.text?.slice(0,60));
   const txt = result.text?.trim() ?? '';
   if (txt) {
     return buildFromText(txt, maxWords).map(cap => ({
@@ -197,7 +223,8 @@ async function transcribeChunk(
     }));
   }
 
-  return []; // truly empty
+  console.warn('[CB] All 3 modes returned empty for this chunk');
+  return [];
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────

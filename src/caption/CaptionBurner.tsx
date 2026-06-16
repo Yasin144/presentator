@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import {
   QueueItem, CaptionItem, CaptionSettings, WordItem, Language,
 } from './types';
-import { transcribeWithHuggingFace } from './transcribe';
+import { transcribeWithHuggingFace, testHFToken } from './transcribe';
 import { burnCaptions } from './burn';
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -91,6 +91,8 @@ export default function CaptionBurner({ onClose }: Props) {
   const [batchOn, setBatch]       = useState(false);
   const [isZipping, setZipping]   = useState(false);
   const [errorMsg, setError]      = useState<string|null>(null);
+  const [testResult, setTestResult] = useState<string|null>(null);
+  const [testing, setTesting]     = useState(false);
 
   const [S, setS] = useState<CaptionSettings>({
     fontSize:52, fontColor:'White', bgColor:'Black (70%)',
@@ -239,6 +241,24 @@ export default function CaptionBurner({ onClose }: Props) {
             <p className="text-[7px] text-green-400/60 font-mono truncate">hf_jveRDA…permanently saved</p>
           </div>
           <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+        </div>
+
+        {/* Test API button */}
+        <div className="flex flex-col gap-1">
+          <Btn onClick={async () => {
+            setTesting(true); setTestResult(null);
+            const r = await testHFToken(HF_TOKEN);
+            setTestResult(r); setTesting(false);
+          }} className="w-full justify-center" disabled={testing}>
+            {testing ? '🔄 Testing…' : '🧪 Test API Connection'}
+          </Btn>
+          {testResult && (
+            <p className={`text-[8px] px-2 py-1 rounded-lg leading-snug ${
+              testResult.startsWith('✅') ? 'bg-green-500/10 text-green-300' :
+              testResult.startsWith('⏳') ? 'bg-amber-500/10 text-amber-300' :
+              'bg-red-500/10 text-red-300'
+            }`}>{testResult}</p>
+          )}
         </div>
 
         {/* Error banner */}
