@@ -442,6 +442,24 @@ plz open ur books!"></textarea>
             <label className="field-label english-label" htmlFor="lessonInput">English Lesson Content</label>
           </div>
           <textarea id="lessonInput" className="lesson-input" placeholder="Type or paste your lesson here"></textarea>
+          <div id="lineBreakCard" className="display-style-card">
+            <p className="field-label">Screen Line Breaks</p>
+            <p className="upload-copy">Choose how the Voice Presentator screen should split the lesson text into lines.</p>
+            <div className="display-style-grid">
+              <label className="style-field" htmlFor="lineBreakModeSelect">
+                <span className="style-label">Mode</span>
+                <select id="lineBreakModeSelect" className="theme-select text-style-select" aria-label="Choose line break mode" defaultValue="sentences">
+                  <option value="sentences">Sentences</option>
+                  <option value="words">Para</option>
+                </select>
+              </label>
+              <label className="style-field" htmlFor="lineBreakWordCountInput">
+                <span className="style-label">Words Per Line</span>
+                <input id="lineBreakWordCountInput" className="text-field-input" type="number" min="2" max="40" step="1" defaultValue="10" />
+              </label>
+            </div>
+            <p className="upload-copy" id="lineBreakStatus">Sentences mode starts a new line after each sentence. Para mode starts a new line after the selected word count.</p>
+          </div>
           {/* ── FEATURE ROW: Duration + Highlight + Draft + Shortcuts ── */}
           <div className="lesson-meta-bar" id="lessonMetaBar">
             <span className="lesson-duration-badge" id="lessonDurationBadge" title="Estimated video length based on Anjali speaking rate">
@@ -1169,12 +1187,16 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <label className="style-field" htmlFor="slideVoiceSelect">
                 <span className="style-label">Saved Slide Voice</span>
                 <select id="slideVoiceSelect" className="theme-select text-style-select"
-                  aria-label="Choose saved slide voice" defaultValue="anjali">
+                  aria-label="Choose saved slide voice" defaultValue="google-kore">
                   <option value="anjali">Anjali Narration</option>
                   <option value="pattan">Pattan Narration</option>
+                  <option value="google-kore">Google AI — Indian Teacher (Kore)</option>
+                  <option value="google-aoede">Google AI — Indian Warm Female (Aoede)</option>
+                  <option value="google-charon">Google AI — Indian Male Teacher (Charon)</option>
+                  <option value="google-puck">Google AI — Indian Energetic Male (Puck)</option>
                 </select>
               </label>
-              <p className="upload-copy">Play Slide and Export Video use the saved slide voice.</p>
+              <p className="upload-copy">Play Slide and Export Video use the saved slide voice. Google AI Studio voices require a key in <code>D:\voice\.gemini_api_key</code>.</p>
             </div>
           </div>
 

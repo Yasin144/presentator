@@ -12,7 +12,7 @@ API:
 Ports: 8434
 """
 
-import sys, json, re, os, time
+import sys, json, re, os, time, urllib.parse, urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -26,9 +26,19 @@ LANG_CODES = {
     "en": "en", "english": "en",
     "hi": "hi", "hindi": "hi", "hin": "hi",
     "te": "te", "telugu": "te", "tel": "te",
+    "ta": "ta", "tamil": "ta", "tam": "ta",
+    "ur": "ur", "urdu": "ur",
+    "ar": "ar", "arabic": "ar",
     "auto": "auto"
 }
-LANG_LABELS = {"en": "English", "hi": "हिंदी", "te": "తెలుగు"}
+LANG_LABELS = {
+    "en": "English",
+    "hi": "हिंदी",
+    "te": "తెలుగు",
+    "ta": "தமிழ்",
+    "ur": "اردو",
+    "ar": "العربية",
+}
 
 def normalize_lang(lang):
     return LANG_CODES.get(str(lang or "en").lower().strip(), "en")
@@ -36,6 +46,24 @@ def normalize_lang(lang):
 
 # ── Translation cache (avoids re-translating the same text) ──────────────────
 _cache = {}
+
+def google_translate_direct(text, target, source="auto"):
+    query = urllib.parse.urlencode({
+        "client": "gtx",
+        "sl": source,
+        "tl": target,
+        "dt": "t",
+        "q": text,
+    })
+    url = "https://translate.googleapis.com/translate_a/single?" + query
+    with urllib.request.urlopen(url, timeout=20) as resp:
+        data = json.loads(resp.read().decode("utf-8", "ignore"))
+    return "".join(part[0] or "" for part in data[0])
+
+def deep_translate(text, target, source="auto"):
+    from deep_translator import GoogleTranslator
+    translator = GoogleTranslator(source=source, target=target)
+    return translator.translate(text) or text
 
 def translate_text(text, target, source="auto"):
     text = str(text or "").strip()
@@ -46,15 +74,27 @@ def translate_text(text, target, source="auto"):
     cache_key = f"{source}→{target}:{text[:120]}"
     if cache_key in _cache:
         return _cache[cache_key]
-    try:
-        from deep_translator import GoogleTranslator
-        translator = GoogleTranslator(source=source, target=target)
-        result = translator.translate(text) or text
-        _cache[cache_key] = result
-        return result
-    except Exception as e:
-        print(f"[Translate] Error: {e}", flush=True)
-        return text   # Return original on failure
+
+    engines = (
+        (google_translate_direct, deep_translate)
+        if target == "te"
+        else (deep_translate, google_translate_direct)
+    )
+
+    last_error = None
+    for engine in engines:
+        try:
+            result = engine(text, target, source) or text
+            _cache[cache_key] = result
+            if target == "te":
+                print(f"[Translate] Telugu via {engine.__name__}: {text[:40]} -> {result[:40]}", flush=True)
+            return result
+        except Exception as e:
+            last_error = e
+            print(f"[Translate] {engine.__name__} error: {e}", flush=True)
+
+    print(f"[Translate] All engines failed: {last_error}", flush=True)
+    return text
 
 
 def translate_batch(texts, target, source="auto"):
@@ -132,7 +172,7 @@ if __name__ == "__main__":
     print("=" * 55, flush=True)
     print("  Caption Translation Server", flush=True)
     print(f"  Port  : {PORT}", flush=True)
-    print("  Langs : English | हिंदी | తెలుగు", flush=True)
+    print("  Langs : English | हिंदी | తెలుగు | தமிழ் | اردو | العربية", flush=True)
     print("  Engine: Google Translate (deep-translator)", flush=True)
     print("=" * 55, flush=True)
 

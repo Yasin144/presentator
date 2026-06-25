@@ -249,6 +249,30 @@ function bootCaptionStudio() {
         return `${m}:${s}`;
     }
 
+    function speakCaptionStudio(message) {
+        try {
+            if (!('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(String(message || ''));
+            utterance.rate = 0.95;
+            utterance.pitch = 1;
+            utterance.volume = 1;
+            window.speechSynthesis.speak(utterance);
+        } catch (error) {
+            console.warn('[Caption Studio] Spoken alert failed:', error);
+        }
+    }
+
+    function notifyCaptionStudio(title, body) {
+        try {
+            if (window.electronAPI && typeof window.electronAPI.showNotification === 'function') {
+                window.electronAPI.showNotification(title, body);
+            }
+        } catch (error) {
+            console.warn('[Caption Studio] Notification failed:', error);
+        }
+    }
+
     function updatePlayPauseLabel() {
         playPauseBtn.textContent = sourceVideo.paused ? '▶️ Play' : '⏸️ Pause';
     }
@@ -829,6 +853,9 @@ function bootCaptionStudio() {
             exportBtn.classList.remove('hidden');
             sourceVideo.pause(); sourceVideo.currentTime = 0;
             clearPreviewFrameHandle(); renderPreviewNow(0); updatePlayPauseLabel();
+            const sourceName = activeFile && activeFile.name ? activeFile.name : 'video';
+            speakCaptionStudio(`Captioning complete. ${sourceName}`);
+            notifyCaptionStudio('Captioning complete', sourceName);
         }
 
         function showManualCaptionInput() {
@@ -1466,6 +1493,101 @@ function bootCaptionStudio() {
         return sorted;
     }
 
+    function toAssTimestamp(seconds) {
+        const value = Math.max(0, Number(seconds) || 0);
+        const hours = Math.floor(value / 3600);
+        const minutes = Math.floor((value % 3600) / 60);
+        const secs = Math.floor(value % 60);
+        const centis = Math.min(99, Math.floor((value - Math.floor(value)) * 100));
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}`;
+    }
+
+    function escapeAssCaptionText(value) {
+        return String(value || '')
+            .replace(/\\/g, '\\\\')
+            .replace(/\{/g, '\\{')
+            .replace(/\}/g, '\\}')
+            .replace(/\r?\n/g, '\\N');
+    }
+
+    function hexToAss(value, fallback) {
+        const hex = /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value) : fallback;
+        return `&H00${hex.slice(5, 7)}${hex.slice(3, 5)}${hex.slice(1, 3).toUpperCase()}&`;
+    }
+
+    function buildPreviewMatchedAss() {
+        const width = sourceVideo.videoWidth || renderCanvas.width || 1920;
+        const height = sourceVideo.videoHeight || renderCanvas.height || 1080;
+        const sizeMult = (sizeSlider ? Number(sizeSlider.value) : 80) / 100;
+        const fontSize = Math.max(24, Math.floor(height * 0.08 * sizeMult));
+        const outline = Math.max(0, Math.round(fontSize * 0.12 * ((strokeSlider ? Number(strokeSlider.value) : 80) / 100)));
+        const activeColor = hexToAss(colorPicker ? colorPicker.value : '#fde047', '#fde047');
+        const inactiveColor = '&H00909090&';
+        const x = Math.round(width * captionPosX);
+        const y = Math.round(height * captionPosY);
+        const widthMult = (widthSlider ? Number(widthSlider.value) : 85) / 100;
+        const sideMargin = Math.max(20, Math.round(width * (1 - widthMult) / 2));
+        const syncOffset = getCaptionSyncOffsetSeconds();
+        const selectedFont = String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
+        const isKaraoke = !karaokeCheck || karaokeCheck.checked;
+        const useEmoji = emojiCheck && emojiCheck.checked;
+
+        const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Preview,${selectedFont},${fontSize},${activeColor},${inactiveColor},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,${outline},4,5,${sideMargin},${sideMargin},20,1\nStyle: Progress,Arial,10,${activeColor},${activeColor},${activeColor},${activeColor},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
+        const events = [];
+
+        for (const caption of generatedCaptions || []) {
+            const textTokens = String(caption.text || '').trim().split(/\s+/).filter(Boolean);
+            if (!textTokens.length || !Array.isArray(caption.timestamp)) continue;
+            const capStart = Math.max(0, Number(caption.timestamp[0]) + syncOffset);
+            const capEnd = Math.max(capStart + 0.1, Number(caption.timestamp[1]) + syncOffset);
+            const sourceWords = Array.isArray(caption.words) && caption.words.length === textTokens.length
+                ? caption.words.map((word, index) => {
+                    const stamp = Array.isArray(word.timestamp) ? word.timestamp : [];
+                    return {
+                        text: textTokens[index],
+                        start: Math.max(capStart, Number(stamp[0]) + syncOffset),
+                        end: Math.min(capEnd, Number(stamp[1]) + syncOffset),
+                    };
+                })
+                : textTokens.map((text, index) => ({
+                    text,
+                    start: capStart + (index / textTokens.length) * (capEnd - capStart),
+                    end: capStart + ((index + 1) / textTokens.length) * (capEnd - capStart),
+                }));
+            const emoji = useEmoji ? getEmojiForText(caption.text) : null;
+            const emojiPrefix = emoji
+                ? `{\\fnSegoe UI Emoji\\fs${Math.round(fontSize * 1.5)}\\1c&H00FFFFFF&}${escapeAssCaptionText(emoji)}\\N{\\fn${escapeAssCaptionText(selectedFont)}\\fs${fontSize}}`
+                : '';
+
+            if (!isKaraoke) {
+                const wholeText = textTokens.map(escapeAssCaptionText).join(' ');
+                events.push(`Dialogue: 0,${toAssTimestamp(capStart)},${toAssTimestamp(capEnd)},Preview,,0,0,0,,{\\an5\\pos(${x},${y})\\1c${activeColor}}${emojiPrefix}${wholeText}`);
+                continue;
+            }
+
+            sourceWords.forEach((word, activeIndex) => {
+                if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.end <= word.start) return;
+                const styledText = textTokens.map((token, tokenIndex) => {
+                    const color = tokenIndex === activeIndex ? activeColor : inactiveColor;
+                    return `{\\1c${color}}${escapeAssCaptionText(token)}`;
+                }).join(' ');
+                events.push(`Dialogue: 0,${toAssTimestamp(word.start)},${toAssTimestamp(word.end)},Preview,,0,0,0,,{\\an5\\pos(${x},${y})}${emojiPrefix}${styledText}`);
+            });
+        }
+
+        if (progressCheck && progressCheck.checked) {
+            const duration = Number(sourceVideo.duration) || 0;
+            const slices = Math.max(1, Math.min(120, Math.ceil(duration * 2)));
+            for (let index = 0; index < slices; index += 1) {
+                const start = duration * index / slices;
+                const end = duration * (index + 1) / slices;
+                const barWidth = Math.round(width * (index + 1) / slices);
+                events.push(`Dialogue: 1,${toAssTimestamp(start)},${toAssTimestamp(end)},Progress,,0,0,0,,{\\an7\\pos(0,${height - 14})\\p1}m 0 0 l ${barWidth} 0 ${barWidth} 14 0 14{\\p0}`);
+            }
+        }
+        return [header, ...events].join('\n');
+    }
+
     sourceVideo.addEventListener('loadedmetadata', () => {
         const ctx = renderCanvas.getContext('2d');
         ctx.imageSmoothingEnabled = true;
@@ -1494,31 +1616,47 @@ function bootCaptionStudio() {
 
         // -- FAST PATH: FFmpeg burn-in via IPC (instant - no video playback needed) --
         const _filePath = getCaptionSourcePath();
-        const _hasIpc   = window.electronAPI && typeof window.electronAPI.burnCaptions === 'function';
+        const _hasIpc   = window.electronAPI && (
+            typeof window.electronAPI.fastBurnAss === 'function' ||
+            typeof window.electronAPI.burnCaptions === 'function'
+        );
         const _styleName = styleSelect ? styleSelect.value : 'default';
-        const _needsAnimatedCanvas = (_styleName && _styleName !== 'classic')
-            || (karaokeCheck && karaokeCheck.checked)
-            || (emojiCheck && emojiCheck.checked)
-            || (brollCheck && brollCheck.checked)
-            || (progressCheck && progressCheck.checked);
 
-        if (!_needsAnimatedCanvas && _filePath && _hasIpc && generatedCaptions && generatedCaptions.length > 0) {
+        if (_hasIpc && !_filePath) {
+            statusText.innerHTML = '\u274c Export stopped: the original source file path is unavailable. Re-upload the source video and try again.';
+            exportBtn.textContent = 'Export Result';
+            exportBtn.disabled = false;
+            isRecording = false;
+            return;
+        }
+
+        // Full local-caption exports must use the source file directly. Canvas
+        // MediaRecorder can emit a silent audio track and repeat the opening
+        // frame when Chromium throttles a hidden video. Native FFmpeg preserves
+        // the original frame timestamps and copies the original audio unchanged.
+        if (_filePath && _hasIpc && generatedCaptions && generatedCaptions.length > 0) {
             try {
                 const captionsForBurn = getValidatedCaptionBurnList();
                 if (!captionsForBurn.length) {
                     throw new Error('No valid caption timings are available for export.');
                 }
-                statusText.innerHTML = '\u26a1 Sync export: burning timestamp-locked captions with FFmpeg...';
+                statusText.innerHTML = '\u26a1 Sync export: rendering preview-matched karaoke captions with FFmpeg...';
                 const _fontSize = Math.max(18, Math.round((Number(sizeSlider && sizeSlider.value) || 80) * 0.55));
-                const _result = await window.electronAPI.burnCaptions({
-                    videoPath: _filePath,
-                    captions: captionsForBurn,
-                    style: _styleName,
-                    fontSize: _fontSize,
-                    position: 'bottom'
-                });
+                const _result = typeof window.electronAPI.fastBurnAss === 'function'
+                    ? await window.electronAPI.fastBurnAss({
+                        videoPath: _filePath,
+                        assContent: buildPreviewMatchedAss()
+                    })
+                    : await window.electronAPI.burnCaptions({
+                        videoPath: _filePath,
+                        captions: captionsForBurn,
+                        style: _styleName,
+                        fontSize: _fontSize,
+                        position: 'bottom'
+                    });
                 if (_result && _result.ok) {
-                    statusText.innerHTML = '\u2705 Synced caption export done! Saved to Downloads: <strong>' + (_result.fileName || 'captioned video') + '</strong>.';
+                    const completedFileName = _result.fileName || 'captioned video';
+                    statusText.innerHTML = '\u2705 Synced caption export done! Saved to Downloads: <strong>' + completedFileName + '</strong>.';
                     exportBtn.textContent = 'Export Result';
                     exportBtn.disabled = false;
                     isRecording = false;
@@ -1526,19 +1664,23 @@ function bootCaptionStudio() {
                     if (window.electronAPI && typeof window.electronAPI.showItemInFolder === 'function' && _result.outputPath) {
                         window.electronAPI.showItemInFolder(_result.outputPath);
                     }
-                    if (window.electronAPI && window.electronAPI.showNotification) {
-                        window.electronAPI.showNotification('Caption Export', 'Synced caption export done!');
-                    }
+                    speakCaptionStudio(`Exporting done. ${completedFileName}`);
+                    notifyCaptionStudio('Exporting done', completedFileName);
                     return;
                 }
                 throw new Error((_result && _result.error) || 'FFmpeg caption export failed.');
             } catch (_ffErr) {
-                console.warn('[Caption Export] FFmpeg IPC failed, falling back to recorder:', _ffErr.message);
-                statusText.innerHTML = '\u26a0\ufe0f FFmpeg synced export failed - using recorder fallback. ' + (_ffErr.message || '');
+                console.error('[Caption Export] Native FFmpeg export failed:', _ffErr.message);
+                statusText.innerHTML = '\u274c Export stopped: native FFmpeg could not preserve the source video and audio. ' + (_ffErr.message || '');
+                exportBtn.textContent = 'Export Result';
+                exportBtn.disabled = false;
+                isRecording = false;
+                return;
             }
         }
 
-        // -- FALLBACK: MediaRecorder (all 3 bugs fixed) --
+        // Browser-only fallback. Voice Presentator desktop always uses native
+        // FFmpeg above because it preserves source audio and frame timing.
 
         // FIX 1: Silence to speakers (muted + volume=0)
         const _origMuted  = sourceVideo.muted;
@@ -1636,6 +1778,8 @@ function bootCaptionStudio() {
             exportBtn.textContent = 'Export Result';
             exportBtn.disabled    = false;
             statusText.innerHTML  = '\u2705 Export complete! <strong>captioned_video.' + _ext + '</strong> saved to Downloads.';
+            speakCaptionStudio(`Exporting done. captioned_video.${_ext}`);
+            notifyCaptionStudio('Exporting done', `captioned_video.${_ext}`);
 
             sourceVideo.pause(); sourceVideo.currentTime = 0;
             sourceVideo.muted = _origMuted; sourceVideo.volume = _origVolume;
@@ -1747,6 +1891,8 @@ function bootCaptionStudio() {
                 const a = document.createElement('a'); a.href = url; a.download = `viral_short_clip.${ext}`; a.click(); URL.revokeObjectURL(url);
                 isRecording = false; viralShortBtn.textContent = '✂️ Export 15s Viral Short'; viralShortBtn.disabled = false;
                 statusText.innerHTML = "✅ Viral Short Export completed!";
+                speakCaptionStudio(`Exporting done. viral_short_clip.${ext}`);
+                notifyCaptionStudio('Exporting done', `viral_short_clip.${ext}`);
                 sourceVideo.pause(); playPauseBtn.textContent = '▶️ Play';
                 stream.getTracks().forEach(track => track.stop());
             };

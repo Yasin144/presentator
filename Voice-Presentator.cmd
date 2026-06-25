@@ -7,6 +7,11 @@ set "PYTHON_VENV=%APP_DIR%\.voiceclone-venv\Scripts\python.exe"
 set "SINGING_PYTHON=%APP_DIR%\.singing-venv\Scripts\python.exe"
 set "ELECTRON=%APP_DIR%\node_modules\electron\dist\electron.exe"
 
+REM ---- Load private Groq key (never committed to Git) ----
+if exist "%APP_DIR%\.groq_api_key" (
+  set /p GROQ_API_KEY=<"%APP_DIR%\.groq_api_key"
+)
+
 title Voice Presentator
 cd /d "%APP_DIR%"
 
@@ -21,7 +26,7 @@ REM ---- Start heavy Python servers (only if not already running) ----
 powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
 if errorlevel 1 (
   if exist "%PYTHON_VENV%" (
-    start "Voice Clone" /min "%PYTHON_VENV%" -u "%APP_DIR%\anjali-chatterbox-server.py"
+    start "SC3 Chatterbox Python" "%PYTHON_VENV%" -u "%APP_DIR%\anjali-chatterbox-server.py"
   )
 )
 
@@ -40,6 +45,16 @@ if errorlevel 1 (
     start "SC3 Singing" /min "%SINGING_PYTHON%" -u "%APP_DIR%\sc3-singing-server.py"
   ) else if exist "%PYTHON_VENV%" (
     start "SC3 Singing" /min "%PYTHON_VENV%" -u "%APP_DIR%\sc3-singing-server.py"
+  )
+)
+
+REM ---- Caption translation server (port 8434) ----
+REM Caption Burner requires this before processing so the selected output
+REM language is translated instead of silently retaining the source captions.
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8434/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+if errorlevel 1 (
+  if exist "%PYTHON_VENV%" (
+    start "Caption Translation" /min "%PYTHON_VENV%" -u "%APP_DIR%\translate-server.py"
   )
 )
 

@@ -5,6 +5,12 @@ set "APP_DIR=%APP_DIR:~0,-1%"
 set "PYTHON=%APP_DIR%\.edge-tts-venv\Scripts\python.exe"
 set "SERVER=%APP_DIR%\anjali-chatterbox-server.py"
 
+REM ---- Load private Groq key (never committed to Git) ----
+if exist "%APP_DIR%\.groq_api_key" (
+  set /p GROQ_API_KEY=<"%APP_DIR%\.groq_api_key"
+)
+
+
 title Voice Presentator — Starting...
 cd /d "%APP_DIR%"
 
@@ -40,9 +46,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$root='%APP_DIR%'; Get-N
 powershell -NoProfile -Command "try { $r = Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 3; exit 0 } catch { exit 1 }" >nul 2>&1
 if not errorlevel 1 (
   echo Voice server already running and warm - reusing it.
-  goto 
-
-:launch_electron
+  goto launch_electron
 )
 
 REM ── Start voice server as DETACHED background process ────────────────────

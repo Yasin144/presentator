@@ -2,7 +2,7 @@
 whisper-transcribe-caption.py  —  Transcribes ANY video audio as captions
 Works on: speech videos, animation, music, background noise, any content.
 Strategy:
-  1. VAD OFF — transcribes everything, no speech filtering
+  1. VAD ON — silent/non-speech regions never become invented captions
   2. tiny model first (fast), small model if result is garbage
   3. Returns real word-level timestamps for perfect caption sync
 """
@@ -59,28 +59,37 @@ def clean(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def run_whisper(model_size: str, audio_path: str, lang: str):
-    """Run faster-whisper. VAD OFF = transcribes ALL audio including music/animation."""
-    from faster_whisper import WhisperModel
-    m = WhisperModel(model_size, device="cpu", compute_type="int8")
-
+def run_whisper_with_model(m, audio_path: str, lang: str):
+    """Run faster-whisper with speech and confidence filtering using a preloaded model."""
     segs, info = m.transcribe(
         audio_path,
         language=lang,
         beam_size=5,
         best_of=5,
         temperature=[0.0, 0.2, 0.4, 0.6],         # multiple temps to avoid loops
-        no_speech_threshold=0.3,                   # low = include more content
-        compression_ratio_threshold=2.4,           # allow repetitive content
+        no_speech_threshold=0.6,
+        compression_ratio_threshold=2.4,
         condition_on_previous_text=False,           # prevent runaway loops
         word_timestamps=True,                      # real word-level timestamps
-        vad_filter=False,                          # OFF = transcribe ALL audio
+        vad_filter=True,
+        vad_parameters={
+            "min_silence_duration_ms": 450,
+            "speech_pad_ms": 180,
+        },
     )
 
     parts, seg_list, word_list = [], [], []
     for s in segs:
+        if info.duration > 0:
+            pct = min(99, int((s.end / info.duration) * 100))
+            print(f"PROGRESS:{pct}", flush=True)
+
         t = clean(s.text)
         if not t:
+            continue
+        if getattr(s, "no_speech_prob", 0.0) > 0.60:
+            continue
+        if getattr(s, "avg_logprob", 0.0) < -1.0:
             continue
         if is_repetition_loop(t):
             continue
@@ -100,21 +109,51 @@ def run_whisper(model_size: str, audio_path: str, lang: str):
     return full, info.language, seg_list, word_list
 
 
+def run_whisper(model_size: str, audio_path: str, lang: str):
+    """Run faster-whisper with speech and confidence filtering."""
+    from faster_whisper import WhisperModel
+    m = WhisperModel(model_size, device="cpu", compute_type="int8")
+    return run_whisper_with_model(m, audio_path, lang)
+
+
 # ── Pre-process audio ─────────────────────────────────────────────────────────
 norm_path = preprocess(audio_path)
 
 try:
-    # Pass 1: tiny model (fast, ~39MB)
-    text, lang, segs, words = run_whisper("tiny", norm_path, lang_hint)
-
-    # Pass 2: if tiny gives garbage/empty, try small model (better accuracy)
-    if is_repetition_loop(text) or len(text.strip()) < 3:
-        try:
-            text2, lang2, segs2, words2 = run_whisper("small", norm_path, lang_hint)
-            if not is_repetition_loop(text2) and len(text2.strip()) >= 3:
-                text, lang, segs, words = text2, lang2, segs2, words2
-        except Exception:
-            pass  # stick with tiny result
+    if lang_hint is None or lang_hint == "auto":
+        from faster_whisper import WhisperModel
+        print("[Whisper] Loading 'small' model for language detection...", flush=True)
+        m = WhisperModel("small", device="cpu", compute_type="int8")
+        # Transcribe with duration=30 just to detect language quickly
+        _, info = m.transcribe(norm_path, beam_size=1, duration=30)
+        detected_lang = info.language
+        print(f"[Whisper] Detected language: {detected_lang} (prob: {info.language_probability:.2f})", flush=True)
+        
+        lang_hint = detected_lang
+        if lang_hint in {"te", "hi", "ta", "ur", "ar"}:
+            print(f"[Whisper] Keeping 'small' model for transcription in {lang_hint}...", flush=True)
+            text, lang, segs, words = run_whisper_with_model(m, norm_path, lang_hint)
+        else:
+            print(f"[Whisper] Switching to 'tiny' model for transcription in {lang_hint}...", flush=True)
+            del m
+            import gc
+            gc.collect()
+            text, lang, segs, words = run_whisper("tiny", norm_path, lang_hint)
+    else:
+        primary_model = "small" if lang_hint in {"te", "hi", "ta", "ur", "ar"} else "tiny"
+        fallback_model = "tiny" if primary_model == "small" else "small"
+        
+        # Pass 1: use primary model (small for Indian languages, tiny for English)
+        text, lang, segs, words = run_whisper(primary_model, norm_path, lang_hint)
+        
+        # Pass 2: if it failed/empty, try fallback model
+        if is_repetition_loop(text) or len(text.strip()) < 3:
+            try:
+                text2, lang2, segs2, words2 = run_whisper(fallback_model, norm_path, lang_hint)
+                if not is_repetition_loop(text2) and len(text2.strip()) >= 3:
+                    text, lang, segs, words = text2, lang2, segs2, words2
+            except Exception:
+                pass
 
     # Return result — even empty text is valid (video has no recognisable speech)
     print(json.dumps({

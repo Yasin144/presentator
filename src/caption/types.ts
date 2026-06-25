@@ -1,21 +1,35 @@
 // Caption Burner — Types (v3 — auto-detect language)
 export interface WordItem { text: string; start: number; end: number; }
 export interface CaptionItem { start: number; end: number; text: string; words?: WordItem[]; }
-export type ItemStatus = 'idle'|'transcribing'|'transcribed'|'exporting'|'completed'|'failed';
+export type ItemStatus = 'idle'|'transcribing'|'transcribed'|'exporting'|'completed'|'failed'|'cancelled';
 export interface VideoMeta {
   name: string; mimeType: string; file?: File; base64?: string; duration?: number;
 }
 export interface QueueItem {
   id: string; video: VideoMeta; status: ItemStatus;
   progress: number; message: string; retryCount: number;
+  language?: Language;
   captions?: CaptionItem[]; outputUrl?: string;
+  outputPath?: string; outputFileName?: string;
   detectedLang?: string;   // e.g. "Telugu", "Hindi"
 }
 export type FontColor  = 'White'|'Yellow'|'Cyan'|'Black';
 export type BgColor    = 'Black (70%)'|'White (20%)'|'Black'|'Transparent';
-export type CaptionStyle = 'pill'|'outline'|'minimal';
+export type CaptionStyle = 'pill'|'outline'|'minimal'|'white-yellow';
 export type Position   = 'top'|'bottom'|'custom';
-export type Language   = 'Auto-Detect'|'Telugu'|'English'|'Hindi'|'Tamil'|'Urdu'|'Arabic';
+export const CAPTION_LANGUAGES = [
+  'Auto-Detect',
+  'Telugu',
+  'English',
+  'Hindi',
+  'Tamil',
+  'Urdu',
+  'Arabic',
+] as const;
+
+export type Language = typeof CAPTION_LANGUAGES[number];
+
+export type TranscriptionEngine = 'auto' | 'local' | 'groq';
 
 export interface CaptionSettings {
   fontSize: number;
@@ -29,11 +43,17 @@ export interface CaptionSettings {
   language: Language;
   offset: number;
   maxWordsPerCaption: number;
+  engine: TranscriptionEngine;
 }
 
 // BCP-47 codes for manual selection
 export const LANG_CODE: Record<string, string> = {
-  Telugu:'te', English:'en', Hindi:'hi', Tamil:'ta', Urdu:'ur', Arabic:'ar',
+  Telugu: 'te',
+  English: 'en',
+  Hindi: 'hi',
+  Tamil: 'ta',
+  Urdu: 'ur',
+  Arabic: 'ar',
 };
 
 // Human-readable name from BCP-47 code

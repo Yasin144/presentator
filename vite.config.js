@@ -27,6 +27,11 @@ export default defineConfig({
   build: {
     outDir: 'renderer-dist',
   },
+  resolve: {
+    alias: {
+      'flow-sdk': path.resolve(__dirname, './src/services/flow-sdk.js'),
+    },
+  },
   plugins: [
     react(),
     {

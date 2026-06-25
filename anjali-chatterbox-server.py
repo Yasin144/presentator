@@ -662,13 +662,42 @@ def _enhance_voice_wav(wav: bytes) -> bytes:
 
     Chain:
       1. DC offset removal          → removes low-frequency hum/drift
-      2. Noise gate (-55 dB)        → silences breath/room noise between words
-      3. Presence boost @ 3 kHz    → +2 dB shelf adds voice clarity & intelligibility
-      4. Loudness match (-25 LUFS)  → matches reference WAV volume level exactly
-      5. True-peak limiter (-1 dBTP)→ prevents any clipping
+      2. Presence boost @ 3 kHz    → +2 dB shelf adds voice clarity & intelligibility
+      3. Loudness match (-25 LUFS)  → matches reference WAV volume level exactly
+      4. True-peak limiter (-1 dBTP)→ prevents any clipping
+      5. Noise gate (-60 dB)        → soft gate applied after normalization
       6. Fade-in 8ms, fade-out 20ms → natural smooth edges
     """
     import tempfile, subprocess as _sp
+    
+    # Calculate audio duration to avoid negative fade-out start time (st)
+    duration = 0.0
+    try:
+        with wave.open(io.BytesIO(wav), "rb") as r:
+            duration = r.getnframes() / r.getframerate()
+    except Exception:
+        pass
+
+    fade_in_d = min(0.008, duration) if duration > 0 else 0.008
+    fade_out_st = max(0.0, duration - 0.02) if duration > 0 else 0.0
+    fade_out_d = min(0.02, duration - fade_out_st) if duration > 0 else 0.02
+
+    fade_parts = []
+    if fade_in_d > 0:
+        fade_parts.append(f"afade=t=in:st=0:d={fade_in_d:.4f}")
+    if fade_out_d > 0:
+        fade_parts.append(f"afade=t=out:st={fade_out_st:.4f}:d={fade_out_d:.4f}")
+    fade_filter = ",".join(fade_parts)
+
+    filter_chain = (
+        "highpass=f=80,"
+        "equalizer=f=3000:t=h:w=1:g=2,"
+        "loudnorm=I=-25:TP=-1.0:LRA=7,"
+        "agate=threshold=-60dB:ratio=4:attack=5:release=150:makeup=1"
+    )
+    if fade_filter:
+        filter_chain += f",{fade_filter}"
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_in:
         tmp_in.write(wav)
         tmp_in_path = tmp_in.name
@@ -677,17 +706,7 @@ def _enhance_voice_wav(wav: bytes) -> bytes:
         _sp.run([
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", tmp_in_path,
-            "-af",
-            # 1. Remove DC offset
-            "highpass=f=80,"
-            # 2. Noise gate: close gate below -55dB, open above -45dB, fast attack
-            "agate=threshold=-55dB:ratio=10:attack=2:release=100:makeup=1,"
-            # 3. Presence/clarity boost: +2dB shelving at 3kHz — voice intelligibility
-            "equalizer=f=3000:t=h:w=1:g=2,"
-            # 4. Loudness normalise to match Pattan reference (-25 LUFS, LRA=7)
-            "loudnorm=I=-25:TP=-1.0:LRA=7,"
-            # 5. Smooth fade-in 8ms + fade-out 20ms
-            "afade=t=in:st=0:d=0.008,afade=t=out:st=-0.02:d=0.02",
+            "-af", filter_chain,
             "-ar", str(SAMPLE_RATE),
             "-ac", "1",
             "-sample_fmt", "s16",

@@ -181,7 +181,10 @@ function Read-JsonBody {
 # ── Whisper-based transcription (faster-whisper, word timestamps, VAD ON) ──────
 # Falls back to Windows Speech Recognition if Python/Whisper not available.
 function Invoke-WhisperTranscription {
-  param([string]$WavePath)
+  param(
+    [string]$WavePath,
+    [string]$Language = "auto"
+  )
 
   # Find Python in .singing-venv or system
   $root = Split-Path $PSScriptRoot -Parent
@@ -196,7 +199,7 @@ function Invoke-WhisperTranscription {
   try {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $py
-    $psi.Arguments = """$script"" ""$WavePath"" en"
+    $psi.Arguments = """$script"" ""$WavePath"" $Language"
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute = $false
@@ -260,6 +263,7 @@ function Handle-Request {
   if ($Request.Method -eq "POST" -and $path -eq "/api/transcribe") {
     $payload = Read-JsonBody -Bytes $Request.BodyBytes
     $audioBase64 = if ($payload) { [string]$payload.audioBase64 } else { "" }
+    $language = if ($payload -and $payload.language) { [string]$payload.language } else { "auto" }
 
     if ([string]::IsNullOrWhiteSpace($audioBase64)) {
       Write-JsonResponse -Stream $Stream -StatusCode 400 -Payload @{ error = "No audio data received." }
@@ -271,8 +275,8 @@ function Handle-Request {
 
     try {
       # Try Whisper first (real word timestamps, works on any audio)
-      Write-Host "[transcribe] Running Whisper on $([System.IO.Path]::GetFileName($tempWave))..."
-      $whisperResult = Invoke-WhisperTranscription -WavePath $tempWave
+      Write-Host "[transcribe] Running Whisper on $([System.IO.Path]::GetFileName($tempWave)) with language hint '$language'..."
+      $whisperResult = Invoke-WhisperTranscription -WavePath $tempWave -Language $language
 
       if ($whisperResult -and $whisperResult.text -and $whisperResult.text.Trim().Length -gt 2) {
         Write-Host "[transcribe] Whisper OK: $($whisperResult.text.Length) chars, $($whisperResult.words.Count) words"
