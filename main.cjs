@@ -686,6 +686,82 @@ async function createWindow() {
     return { ok: true };
   });
 
+  // ————————————— IPC: Extract audio natively to bypass browser memory limits ————
+  // Strategy: keep WAV on disk, return the file path — NEVER send the full bytes
+  // over IPC (a 35-min WAV is ~67 MB and Electron IPC serialization will crash).
+  ipcMain.handle('extract-audio', async (event, opts) => {
+    const { videoPath } = opts || {};
+    if (!videoPath) return { ok: false, error: 'No video path provided.' };
+
+    function findFFmpeg() {
+      try {
+        const r = require('child_process').execSync('where ffmpeg', { encoding: 'utf8', timeout: 3000 }).trim().split('\n')[0].trim();
+        if (r && fs.existsSync(r)) return r;
+      } catch (_) {}
+      const wp = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+      return fs.existsSync(wp) ? wp : 'ffmpeg';
+    }
+
+    const FFMPEG = findFFmpeg();
+    // Use a stable filename based on the video path hash so re-uploads reuse the cached WAV.
+    const crypto = require('crypto');
+    const videoHash = crypto.createHash('md5').update(videoPath).digest('hex').slice(0, 12);
+    const tmpWav = path.join(os.tmpdir(), 'caption-audio-' + videoHash + '.wav');
+
+    try {
+      // Skip extraction if cached WAV from the same video already exists
+      if (fs.existsSync(tmpWav)) {
+        const stat = fs.statSync(tmpWav);
+        if (stat.size > 44) {
+          console.log('[AudioExtract] Using cached WAV:', tmpWav, '(' + Math.round(stat.size / 1024) + ' KB)');
+          return { ok: true, wavPath: tmpWav, size: stat.size };
+        }
+      }
+
+      console.log('[AudioExtract] Extracting audio from:', path.basename(videoPath));
+      await new Promise((resolve, reject) => {
+        const proc = spawn(FFMPEG, [
+          '-y', '-i', videoPath,
+          '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+          tmpWav
+        ], { stdio: 'pipe', windowsHide: true });
+        let stderr = '';
+        proc.stderr && proc.stderr.on('data', d => { stderr += d.toString(); });
+        proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
+        proc.on('exit', code => code === 0 ? resolve() : reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-500))));
+      });
+
+      const size = fs.statSync(tmpWav).size;
+      console.log('[AudioExtract] Extracted successfully:', Math.round(size / 1024), 'KB ->', tmpWav);
+      // Return the file PATH only — renderer reads chunks on demand via read-audio-chunk
+      return { ok: true, wavPath: tmpWav, size };
+    } catch (err) {
+      console.error('[AudioExtract] Failed:', err);
+      if (fs.existsSync(tmpWav)) {
+        try { fs.unlinkSync(tmpWav); } catch (_) {}
+      }
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ————————————— IPC: Read a byte-range slice from a WAV file on disk ——————————
+  // Allows the renderer to read chunks without loading the whole file into memory.
+  ipcMain.handle('read-audio-chunk', async (event, opts) => {
+    const { wavPath, offset, length } = opts || {};
+    if (!wavPath || offset === undefined || length === undefined) {
+      return { ok: false, error: 'Missing wavPath/offset/length' };
+    }
+    try {
+      const fd = fs.openSync(wavPath, 'r');
+      const buf = Buffer.alloc(length);
+      const bytesRead = fs.readSync(fd, buf, 0, length, offset);
+      fs.closeSync(fd);
+      return { ok: true, data: buf.slice(0, bytesRead) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
 // ————————————— Crash-free Video Transcription (IPC) ————————————————————————————
 // Calls Whisper Python directly — works on ANY video type (speech, music, animation)
 // Pipeline:
@@ -1296,9 +1372,9 @@ ipcMain.handle('merge-audio-into-video', async (event, opts) => {
 // Audio is COPIED (no re-encode) → zero quality loss, instant mux.
 // Saves to Downloads as captioned_video_<timestamp>.mp4
 ipcMain.handle('burn-captions', async (event, opts) => {
-  const { videoPath, captions, fontSize = 28, position = 'bottom' } = opts || {};
+  const { videoPath, captions, fontSize = 28, position = 'bottom', assContent } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
-  if (!captions || !captions.length) return { ok: false, error: 'No captions provided.' };
+  if (!assContent && (!captions || !captions.length)) return { ok: false, error: 'No captions or assContent provided.' };
 
   // ── Dynamic FFmpeg detection ─────────────────────────────────────────────────
   function findFFmpegPath() {
@@ -1316,8 +1392,11 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   const FFMPEG = findFFmpegPath();
   const tmpDir  = require('os').tmpdir();
   const stamp   = Date.now();
-  const srtPath = path.join(tmpDir, 'captions-' + stamp + '.srt');
   const outFile = path.join(os.homedir(), 'Downloads', 'captioned_video_' + stamp + '.mp4');
+
+  let assPath = '';
+  let srtPath = '';
+  let subFilter = '';
 
   // ── 1. Build SRT file from caption chunks ────────────────────────────────────
   function toSrtTime(secs) {
@@ -1330,27 +1409,41 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   }
 
   try {
-    const srtLines = [];
-    captions.forEach((c, i) => {
-      const start = Math.max(0, Number(c.start) || 0);
-      const end   = Math.max(start + 0.1, Number(c.end) || start + 2);
-      const text  = String(c.text || '').trim().replace(/[<>]/g, '');
-      if (!text) return;
-      srtLines.push(String(i + 1));
-      srtLines.push(toSrtTime(start) + ' --> ' + toSrtTime(end));
-      srtLines.push(text);
-      srtLines.push('');
-    });
+    if (assContent) {
+      // Burn structured ASS subtitles directly (preserves colors, outlines, box backgrounds, fonts)
+      assPath = path.join(tmpDir, 'captions-' + stamp + '.ass');
+      require('fs').writeFileSync(assPath, assContent, 'utf8');
+      console.log('[BurnCaptions] ASS written:', assPath);
+      const safeAss = assPath.split('\\').join('/').split(':').join('\\:');
+      // Point libass to the Windows system fonts folder so non-Latin scripts
+      // (Hindi, Telugu, Urdu, Arabic, Chinese, etc.) render with the correct
+      // Nirmala UI / Tahoma / system font instead of showing tofu boxes.
+      // FFmpeg filter escaping: colon must be \: and backslash must be \\
+      const winFonts = 'C\\:/Windows/Fonts';
+      subFilter = `subtitles='${safeAss}':fontsdir='${winFonts}'`;
+    } else {
+      // Fallback SRT subtitles
+      srtPath = path.join(tmpDir, 'captions-' + stamp + '.srt');
+      const srtLines = [];
+      captions.forEach((c, i) => {
+        const start = Math.max(0, Number(c.start) || 0);
+        const end   = Math.max(start + 0.1, Number(c.end) || start + 2);
+        const text  = String(c.text || '').trim().replace(/[<>]/g, '');
+        if (!text) return;
+        srtLines.push(String(i + 1));
+        srtLines.push(toSrtTime(start) + ' --> ' + toSrtTime(end));
+        srtLines.push(text);
+        srtLines.push('');
+      });
 
-    require('fs').writeFileSync(srtPath, srtLines.join('\n'), 'utf8');
-    console.log('[BurnCaptions] SRT written:', srtPath, '(' + captions.length + ' captions)');
+      require('fs').writeFileSync(srtPath, srtLines.join('\n'), 'utf8');
+      console.log('[BurnCaptions] SRT written:', srtPath, '(' + captions.length + ' captions)');
 
-    // ── 2. FFmpeg: burn SRT onto video, copy audio exactly ──────────────────────
-    // subtitles filter: font size, position (bottom), white text + black outline
-    const yPos       = position === 'top' ? '50' : '(h-text_h-50)';
-    const safeSrt    = srtPath.split('\\').join('/').split(':').join('\\:');
-    const subFilter  = `subtitles='${safeSrt}':force_style='FontName=Arial,FontSize=${fontSize},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Bold=1,Outline=2,Shadow=1,Alignment=2,MarginV=40'`;
+      const safeSrt    = srtPath.split('\\').join('/').split(':').join('\\:');
+      subFilter  = `subtitles='${safeSrt}':force_style='FontName=Arial,FontSize=${fontSize},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Bold=1,Outline=2,Shadow=1,Alignment=2,MarginV=40'`;
+    }
 
+    // ── 2. FFmpeg: burn subtitles onto video, copy audio exactly ──────────────────────
     await new Promise((resolve, reject) => {
       const proc = spawn(FFMPEG, [
         '-y', '-i', videoPath,
@@ -1380,7 +1473,20 @@ ipcMain.handle('burn-captions', async (event, opts) => {
     console.error('[BurnCaptions] Error:', err.message);
     return { ok: false, error: err.message };
   } finally {
-    try { require('fs').unlinkSync(srtPath); } catch (_) {}
+    if (srtPath) { try { require('fs').unlinkSync(srtPath); } catch (_) {} }
+    if (assPath) { try { require('fs').unlinkSync(assPath); } catch (_) {} }
+  }
+});
+
+// ─── IPC: Open a file/folder with the OS default handler ────────────────────
+ipcMain.handle('open-file', async (event, filePath) => {
+  if (!filePath) return { ok: false, error: 'No path provided' };
+  try {
+    const { shell } = require('electron');
+    await shell.openPath(filePath);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
   }
 });
 

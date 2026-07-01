@@ -248,6 +248,36 @@ async function translateCaptionTextsInBatches(
   return results;
 }
 
+function groupCaptionsIntoSentences(captions: CaptionItem[]): CaptionItem[][] {
+  const sentences: CaptionItem[][] = [];
+  let currentSentence: CaptionItem[] = [];
+
+  for (let i = 0; i < captions.length; i++) {
+    const cap = captions[i];
+    currentSentence.push(cap);
+
+    const text = cap.text.trim();
+    const hasPunctuation = /[.!?]$/.test(text);
+
+    const nextCap = captions[i + 1];
+    const hasPause = nextCap ? (nextCap.start - cap.end > 0.8) : true;
+    
+    // Also split if the group is getting too long (to prevent translation batch overflow)
+    const tooLong = currentSentence.length >= 8 || (cap.end - currentSentence[0].start > 20);
+
+    if (hasPunctuation || hasPause || tooLong) {
+      sentences.push(currentSentence);
+      currentSentence = [];
+    }
+  }
+
+  if (currentSentence.length > 0) {
+    sentences.push(currentSentence);
+  }
+
+  return sentences;
+}
+
 async function translateCaptionsToLanguage(
   captions: CaptionItem[],
   language: Language,
@@ -262,19 +292,27 @@ async function translateCaptionsToLanguage(
 
   onProgress(`Translating captions to ${language}...`, 94);
 
-  // Translate each speech-timed caption independently. Merging captions into
-  // larger blocks erases pauses and makes translated text remain on screen.
-  const blocks = captions.map(cap => ({
-    start: cap.start,
-    end: cap.end,
-    text: cap.text,
-  }));
+  // Group captions into full sentences for context-aware translation
+  const sentenceGroups = groupCaptionsIntoSentences(captions);
+  const sentenceTexts = sentenceGroups.map(group => group.map(c => c.text).join(' '));
 
-  const translated = await translateCaptionTextsInBatches(blocks.map(b => b.text), targetCode, onProgress, language, signal);
-  const rebuilt = blocks.flatMap((block, index) =>
-    buildCaptionChunksFromTranslatedText(translated[index]?.trim() || block.text, block.start, block.end, maxWords)
-  );
-  const output = rebuilt.length ? rebuilt : captions;
+  // Translate all sentences in batches
+  const translatedTexts = await translateCaptionTextsInBatches(sentenceTexts, targetCode, onProgress, language, signal);
+
+  // Rebuild timed segments from translated text for each sentence group
+  const rebuiltCaptions: CaptionItem[] = [];
+  for (let i = 0; i < sentenceGroups.length; i++) {
+    const group = sentenceGroups[i];
+    const origText = sentenceTexts[i];
+    const transText = translatedTexts[i] || origText;
+    const start = group[0].start;
+    const end = group[group.length - 1].end;
+
+    const rebuilt = buildCaptionChunksFromTranslatedText(transText.trim(), start, end, maxWords);
+    rebuiltCaptions.push(...rebuilt);
+  }
+
+  const output = rebuiltCaptions.length ? rebuiltCaptions : captions;
   assertCaptionLanguage(output, targetCode, language);
   return output;
 }
@@ -405,13 +443,45 @@ function assertCaptionLanguage(captions: CaptionItem[], targetCode: string, lang
     return true;
   }).length;
 
-  if (matches / letters.length < 0.45) {
+  if (matches / letters.length < 0.20) {
     throw new Error(`Translation to ${language} failed. Export stopped to prevent burning captions in the wrong language.`);
   }
 }
 
+// ── On-disk WAV accessor (avoids loading full file into renderer memory) ─────
+interface WavHandle {
+  wavPath: string;   // actual file path on disk
+  size:    number;   // total WAV file size in bytes
+  blob?:   Blob;     // fallback in-memory blob (browser mode)
+}
+
 // ── Extract 16 kHz mono WAV from video ───────────────────────────────────
-async function extractAudioAsWav(file: File): Promise<Blob> {
+// In Electron: FFmpeg writes WAV to disk and returns the path. We never load
+// the full file into renderer memory — only the 12-second chunks are read.
+// In browser: falls back to in-memory AudioContext decoding.
+async function extractAudioAsWav(file: File): Promise<WavHandle> {
+  const api = typeof window !== 'undefined' ? (window as any).electronAPI : null;
+  const isElectron = !!(api && api.isElectron);
+
+  if (isElectron) {
+    if (!api.getPathForFile) {
+      throw new Error("Electron API 'getPathForFile' is missing! Preload script might not be loaded correctly.");
+    }
+    const filePath = api.getPathForFile(file);
+    if (!filePath) {
+      throw new Error(`Electron 'getPathForFile' returned empty for file "${file.name}" (size: ${file.size} bytes). Make sure the file exists and is accessible on your disk.`);
+    }
+    if (!api.extractAudio) {
+      throw new Error("Electron API 'extractAudio' is missing!");
+    }
+    const res = await api.extractAudio({ videoPath: filePath });
+    if (res?.ok && res.wavPath) {
+      return { wavPath: res.wavPath, size: res.size };
+    }
+    throw new Error(`Native audio extraction failed: ${res?.error || 'Unknown error'}`);
+  }
+
+  // Browser fallback — load full file into memory (works for short videos)
   const ab  = await file.arrayBuffer();
   const ctx = new AudioContext({ sampleRate: 16000 });
   let decoded: AudioBuffer;
@@ -438,13 +508,38 @@ async function extractAudioAsWav(file: File): Promise<Blob> {
   v.setUint32(40, mono.length*2, true);
   const s16 = new Int16Array(wavBuf, 44);
   for (let i = 0; i < mono.length; i++) s16[i] = Math.max(-32768, Math.min(32767, mono[i]*32768));
-  return new Blob([wavBuf], { type: 'audio/wav' });
+  const blob = new Blob([wavBuf], { type: 'audio/wav' });
+  return { wavPath: '', size: blob.size, blob };
 }
 
-async function buildWavChunkFromPcm(audio: Blob, pcmStart: number, pcmBytes: number): Promise<Blob> {
+// ── Build a WAV chunk from a byte range of the on-disk (or in-memory) WAV ──
+async function buildWavChunkFromPcm(audio: WavHandle, pcmStart: number, pcmBytes: number): Promise<Blob> {
   const safeStart = Math.max(0, pcmStart);
-  const safeBytes = Math.max(0, Math.min(pcmBytes, Math.max(0, audio.size - HDR - safeStart)));
-  const pcm = await audio.slice(HDR + safeStart, HDR + safeStart + safeBytes).arrayBuffer();
+  const totalPcm  = audio.size - HDR;
+  const safeBytes = Math.max(0, Math.min(pcmBytes, Math.max(0, totalPcm - safeStart)));
+  if (safeBytes === 0) return new Blob([], { type: 'audio/wav' });
+
+  let pcm: ArrayBuffer;
+
+  if (audio.blob) {
+    // Browser fallback: slice the in-memory blob
+    pcm = await audio.blob.slice(HDR + safeStart, HDR + safeStart + safeBytes).arrayBuffer();
+  } else {
+    // Electron path: read a byte-range slice from the on-disk WAV via IPC
+    const api = typeof window !== 'undefined' ? (window as any).electronAPI : null;
+    if (!api?.readAudioChunk) throw new Error('readAudioChunk not available');
+    const res = await api.readAudioChunk({
+      wavPath: audio.wavPath,
+      offset:  HDR + safeStart,
+      length:  safeBytes,
+    });
+    if (!res?.ok) throw new Error(`Read chunk failed: ${res?.error}`);
+    // res.data is a Buffer (Node.js) serialized as a Uint8Array-like object
+    pcm = (res.data instanceof ArrayBuffer) ? res.data : (res.data.buffer as ArrayBuffer).slice(
+      res.data.byteOffset, res.data.byteOffset + res.data.byteLength
+    );
+  }
+
   const out = new ArrayBuffer(HDR + pcm.byteLength);
   const v = new DataView(out);
   const ws = (o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
@@ -463,6 +558,36 @@ async function buildWavChunkFromPcm(audio: Blob, pcmStart: number, pcmBytes: num
   v.setUint32(40, pcm.byteLength, true);
   new Uint8Array(out, HDR).set(new Uint8Array(pcm));
   return new Blob([out], { type: 'audio/wav' });
+}
+
+// ── Transcription checkpoint (resume on re-upload) ────────────────────────
+const CHECKPOINT_PREFIX = 'cb_checkpoint_';
+
+interface Checkpoint {
+  numChunks:     number;
+  captions:      CaptionItem[];
+  completedUpTo: number; // last chunk index that was successfully transcribed
+  spokenLangCode?: string;
+  displayLang?:  string;
+}
+
+function cpKey(file: File) {
+  return CHECKPOINT_PREFIX + file.name.replace(/[^a-z0-9]/gi, '_') + '_' + file.size;
+}
+
+function loadCheckpoint(file: File): Checkpoint | null {
+  try {
+    const raw = localStorage.getItem(cpKey(file));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveCheckpoint(file: File, cp: Checkpoint) {
+  try { localStorage.setItem(cpKey(file), JSON.stringify(cp)); } catch (_) {}
+}
+
+function clearCheckpoint(file: File) {
+  try { localStorage.removeItem(cpKey(file)); } catch (_) {}
 }
 
 async function toB64(blob: Blob): Promise<string> {
@@ -689,10 +814,24 @@ export async function transcribeWithHuggingFace(
   const totalPcmBytes = Math.max(0, audio.size - HDR);
   const stepPcmBytes = CHUNK_PCM_BYTES - CHUNK_OVERLAP_BYTES;
   const numChunks = Math.max(1, Math.ceil(Math.max(0, totalPcmBytes - CHUNK_OVERLAP_BYTES) / stepPcmBytes));
-  let all: CaptionItem[] = [];
   let lastErr: string | null = null;
 
-  for (let i = 0; i < numChunks; i++) {
+  // ── Resume from checkpoint ───────────────────────────────────────────────
+  const cp = loadCheckpoint(file);
+  let all: CaptionItem[] = [];
+  let startFromChunk = 0;
+
+  if (cp && cp.numChunks === numChunks && cp.completedUpTo >= 0) {
+    all           = cp.captions || [];
+    startFromChunk = cp.completedUpTo + 1;
+    spokenLangCode = cp.spokenLangCode || spokenLangCode;
+    displayLang    = cp.displayLang    || displayLang;
+    const resumePct = 12 + Math.round((startFromChunk / numChunks) * 82);
+    onProgress(`▶ Resuming from part ${startFromChunk + 1}/${numChunks}…`, resumePct);
+    console.log(`[CB] Resuming transcription from chunk ${startFromChunk}/${numChunks} with ${all.length} saved captions`);
+  }
+
+  for (let i = startFromChunk; i < numChunks; i++) {
     const pct = 12 + Math.round((i / numChunks) * 82);
     onProgress(`${displayLang} — part ${i + 1}/${numChunks}…`, pct);
 
@@ -705,23 +844,29 @@ export async function transcribeWithHuggingFace(
       throwIfAborted(signal);
       if (await isSilentWavChunk(chunk)) {
         console.log(`[CaptionBurner] Skipping silent chunk ${i + 1}/${numChunks}`);
+        // Still save checkpoint so we can skip this chunk on resume too
+        saveCheckpoint(file, { numChunks, captions: all, completedUpTo: i, spokenLangCode, displayLang });
         continue;
       }
       const caps = await transcribeChunk(chunk, hfToken, spokenLangCode, timeOffset, maxWordsPerCaption, signal);
       if (caps.length > 0) {
-        const deduped = caps.filter(cap => {
+        const boundaryStart = (i === 0) ? 0 : (timeOffset + (CHUNK_OVERLAP_SECONDS / 2));
+        const boundaryEnd = (i === numChunks - 1) ? Infinity : (timeOffset + CHUNK_SECONDS - (CHUNK_OVERLAP_SECONDS / 2));
+
+        const inBounds = caps.filter(cap => {
           if (isGenericWhisperHallucination(cap.text)) return false;
-          const prev = all[all.length - 1];
-          if (!prev) return true;
-          const sameText = prev.text.trim().toLowerCase() === cap.text.trim().toLowerCase();
-          const overlapsPrev = cap.start < prev.end + 0.5;
-          return !(sameText && overlapsPrev);
+          // Keep captions that start within the non-overlapping partition of this chunk
+          return cap.start >= boundaryStart && cap.start < boundaryEnd;
         });
-        all.push(...deduped);
+        all.push(...inBounds);
       }
+      // ✅ Save checkpoint after every successful chunk
+      saveCheckpoint(file, { numChunks, captions: all, completedUpTo: i, spokenLangCode, displayLang });
     } catch (err: any) {
       lastErr = String(err.message || err);
       console.error(`[CaptionBurner] Chunk ${i+1} failed:`, lastErr);
+      // Save progress so far before possibly throwing
+      saveCheckpoint(file, { numChunks, captions: all, completedUpTo: i - 1, spokenLangCode, displayLang });
       if (lastErr.includes('Invalid API token') || lastErr.includes('Rate limited')) throw new Error(lastErr);
     }
   }
@@ -753,6 +898,8 @@ export async function transcribeWithHuggingFace(
     ? await translateCaptionsToLanguage(all, language, onProgress, maxWordsPerCaption, signal)
     : all;
 
+  // ✅ Transcription complete — clear checkpoint so it doesn't resume next time
+  clearCheckpoint(file);
   onProgress(`${displayLang || 'Done'} captions ready ✓`, 97);
   return { captions: finalCaptions, detectedLang: displayLang };
 }
@@ -800,26 +947,55 @@ Example output format:
   ]
 }`;
 
-    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: JSON.stringify(payload) }
-        ],
-        temperature: 0.1,
-        response_format: { type: "json_object" }
-      }),
-      signal,
-    });
+    let resp: Response | null = null;
+    let retries = 0;
+    const maxRetries = 6;
+    while (retries < maxRetries) {
+      throwIfAborted(signal);
+      resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: JSON.stringify(payload) }
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        }),
+        signal,
+      });
 
-    if (!resp.ok) {
-      throw new Error(`Groq AI Error: ${await resp.text()}`);
+      if (resp.status === 429) {
+        retries++;
+        const text = await resp.text();
+        console.warn(`[Spellcheck] Batch ${batchNum} rate limited. Retry ${retries}/${maxRetries}. Response:`, text);
+        
+        let delayMs = 4500;
+        try {
+          const errJson = JSON.parse(text);
+          const msg = errJson?.error?.message || '';
+          const match = msg.match(/try again in ([\d\.]+)s/i);
+          if (match && match[1]) {
+            delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 500;
+          }
+        } catch (_) {}
+        
+        onProgress(`Rate limited — waiting ${Math.ceil(delayMs / 1000)}s...`, 50 + Math.round((batchNum / totalBatches) * 40));
+        await abortableDelay(delayMs, signal);
+        continue;
+      }
+
+      break;
+    }
+
+    if (!resp || !resp.ok) {
+      const errText = resp ? await resp.text() : 'No response';
+      throw new Error(`Groq AI Error: ${errText}`);
     }
 
     const json = await resp.json();

@@ -167,6 +167,9 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration]   = useState(0);
+  // URL of the burned output video to show on canvas after export completes
+  const [burnedVideoUrl, setBurnedVideoUrl] = useState<string | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<string>('16/9');
 
   const [openSection, setOpenSection] = useState<string | null>('presets');
 
@@ -174,13 +177,13 @@ export default function CaptionBurner({ onClose }: Props) {
   const [editingCapText, setEditingCapText]   = useState<string>('');
 
   const [S, setS] = useState<CaptionSettings>({
-    fontSize: 52,
+    fontSize: 35,
     fontColor: 'White',
     bgColor: 'Transparent',
     style: 'white-yellow',
     position: 'bottom',
     xPos: 50,
-    yPos: 82,
+    yPos: 90,
     highlightColor: '#facc15',
     language: 'Auto-Detect',
     offset: 0,
@@ -228,11 +231,17 @@ export default function CaptionBurner({ onClose }: Props) {
   // Position presets
   useEffect(() => {
     if (S.position === 'top')    setS(s => ({ ...s, yPos: 14 }));
-    if (S.position === 'bottom') setS(s => ({ ...s, yPos: 82 }));
+    if (S.position === 'bottom') setS(s => ({ ...s, yPos: 90 }));
   }, [S.position]);
 
   // Video URL loader
+  // In Electron: use file:// path directly (blob URLs fail for large videos).
+  // In browser: fall back to blob URL.
   useEffect(() => {
+    // Clear burned output preview when switching to a different video
+    setBurnedVideoUrl(null);
+    setAspectRatio('16/9');
+
     const item = activeItem;
     if (!item) {
       setVideoUrl(null);
@@ -240,12 +249,26 @@ export default function CaptionBurner({ onClose }: Props) {
       setIsPlaying(false);
       return;
     }
-    const u = item.outputUrl ?? (item.video.file ? URL.createObjectURL(item.video.file) : null);
+    if (!item.video.file) {
+      setVideoUrl(null);
+      return;
+    }
+    // Use native file path in Electron to avoid blob URL failures on large files
+    const api = (window as any).electronAPI;
+    if (api?.getPathForFile) {
+      const filePath = api.getPathForFile(item.video.file);
+      if (filePath) {
+        // Convert Windows backslashes to forward slashes for file:// URL
+        const fileUrl = 'file:///' + filePath.replace(/\\/g, '/');
+        setVideoUrl(fileUrl);
+        return;
+      }
+    }
+    // Browser fallback: blob URL
+    const u = URL.createObjectURL(item.video.file);
     setVideoUrl(u);
-    return () => {
-      if (u && !item.outputUrl) URL.revokeObjectURL(u);
-    };
-  }, [activeId, activeItem?.video.file, activeItem?.outputUrl]);
+    return () => { URL.revokeObjectURL(u); };
+  }, [activeId, activeItem?.video.file]);
 
   const upd = useCallback((id: string, p: Partial<QueueItem>) =>
     setQueue(q => q.map(i => i.id === id ? { ...i, ...p } : i)), []);
@@ -268,6 +291,16 @@ export default function CaptionBurner({ onClose }: Props) {
       outputFileName: undefined,
     });
   }, [upd]);
+
+  // Remove a video from the queue
+  const remove = useCallback((id: string) => {
+    setQueue(q => q.filter(i => i.id !== id));
+    if (activeId === id) {
+      setActiveId(null);
+      setVideoUrl(null);
+      setBurnedVideoUrl(null);
+    }
+  }, [activeId]);
 
   const notify = useCallback((title: string, body: string) => {
     const api = electronApi();
@@ -417,6 +450,8 @@ export default function CaptionBurner({ onClose }: Props) {
         outputPath: saved.filePath,
         outputFileName: saved.fileName,
       });
+      // Auto-switch canvas to the burned output so user can watch it immediately
+      setBurnedVideoUrl(outputUrl);
       notify('Burn complete', saved.filePath ? `${item.video.name} saved to Downloads` : item.video.name);
       speak(`${item.video.name} completed`);
       return nextItem;
@@ -546,10 +581,23 @@ export default function CaptionBurner({ onClose }: Props) {
     return caption;
   }, [activeItem, curTime, S.offset]);
 
+  // Demo caption shown when video is loaded but not yet transcribed — lets user
+  // adjust font/color/position/style before running transcription.
+  const DEMO_CAP: CaptionItem = useMemo(() => ({
+    start: 0, end: 999999,
+    text: 'Sample Caption Text',
+    words: [
+      { start: 0, end: 999999/3,   text: 'Sample'  },
+      { start: 999999/3, end: 999999*2/3, text: 'Caption' },
+      { start: 999999*2/3, end: 999999,  text: 'Text'    },
+    ],
+  }), []);
+
   const previewCap = useMemo<CaptionItem | null>(() => {
     if (!videoUrl) return null;
-    return activeCap;
-  }, [activeCap, videoUrl]);
+    // Show real caption if available, otherwise show demo for style preview
+    return activeCap ?? (activeItem && !activeItem.captions?.length ? DEMO_CAP : null);
+  }, [activeCap, videoUrl, activeItem, DEMO_CAP]);
 
   const getWords = (cap: CaptionItem): WordItem[] => {
     if (cap.words?.length) return cap.words;
@@ -745,25 +793,50 @@ export default function CaptionBurner({ onClose }: Props) {
             <div className="flex flex-col gap-3 w-full" style={{ maxWidth: 980 }}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[13px] font-black text-white leading-none">Upload preview</p>
-                  <p className="text-[9px] text-slate-500 mt-1">Caption options update live on this video.</p>
+                  <p className="text-[13px] font-black text-white leading-none">
+                    {burnedVideoUrl ? '🎬 Burned Output' : 'Upload preview'}
+                  </p>
+                  <p className="text-[9px] text-slate-500 mt-1">
+                    {burnedVideoUrl
+                      ? 'Your captioned video — play, download, or open in folder.'
+                      : 'Caption options update live on this video.'}
+                  </p>
                 </div>
-                <span
-                  className="text-[9px] font-bold uppercase rounded-full"
-                  style={{ padding: '7px 12px', color: '#bae6fd', background: 'rgba(14,165,233,0.13)', border: '1px solid rgba(14,165,233,0.28)' }}
-                >
-                  Live Review
-                </span>
+                <div className="flex items-center gap-2">
+                  {burnedVideoUrl && (
+                    <button
+                      onClick={() => setBurnedVideoUrl(null)}
+                      className="text-[9px] font-bold rounded-full transition-all"
+                      style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.07)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.1)' }}
+                      title="Switch back to original upload preview"
+                    >
+                      ← Original
+                    </button>
+                  )}
+                  <span
+                    className="text-[9px] font-bold uppercase rounded-full"
+                    style={{ padding: '7px 12px', color: burnedVideoUrl ? '#86efac' : '#bae6fd', background: burnedVideoUrl ? 'rgba(16,185,129,0.13)' : 'rgba(14,165,233,0.13)', border: `1px solid ${burnedVideoUrl ? 'rgba(16,185,129,0.28)' : 'rgba(14,165,233,0.28)'}` }}
+                  >
+                    {burnedVideoUrl ? '✓ Export Done' : 'Live Review'}
+                  </span>
+                </div>
               </div>
-              <div className="relative w-full" style={{ aspectRatio: '16/9' }}>
+              <div className="relative w-full mx-auto" style={{ aspectRatio, maxWidth: `calc(420px * ${aspectRatio})`, maxHeight: '420px' }}>
                 <div className="absolute inset-0 rounded-2xl" style={{ boxShadow: '0 0 70px rgba(56,189,248,0.12)', filter: 'blur(16px)', background: 'rgba(56,189,248,0.06)' }} />
-                <div className="relative rounded-2xl overflow-hidden bg-black w-full h-full" style={{ border: '1px solid rgba(148,163,184,0.16)', boxShadow: '0 22px 70px rgba(0,0,0,0.72)' }}>
+                <div className="relative rounded-2xl overflow-hidden bg-black w-full h-full" style={{ border: '1px solid rgba(148,163,184,0.16)', boxShadow: '0 22px 70px rgba(0,0,0,0.72)', containerType: 'size' }}>
                   <video
                     ref={vidRef}
-                    src={videoUrl}
+                    src={burnedVideoUrl || videoUrl || ''}
                     className="w-full h-full object-contain"
                     onTimeUpdate={() => setCurTime(vidRef.current?.currentTime ?? 0)}
-                    onLoadedMetadata={e => setDuration(e.currentTarget.duration)}
+                    onLoadedMetadata={e => {
+                      setDuration(e.currentTarget.duration);
+                      const w = e.currentTarget.videoWidth;
+                      const h = e.currentTarget.videoHeight;
+                      if (w && h) {
+                        setAspectRatio(`${w}/${h}`);
+                      }
+                    }}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
                     onClick={togglePlay}
@@ -773,10 +846,21 @@ export default function CaptionBurner({ onClose }: Props) {
                       className="absolute pointer-events-none z-50 text-center"
                       style={{ left: `${S.xPos}%`, top: `${S.yPos}%`, transform: 'translate(-50%, -50%)', width: '90%' }}
                     >
+                      {/* DEMO badge — only shown before transcription */}
+                      {!activeItem?.captions?.length && (
+                        <div style={{ marginBottom: 6, display: 'flex', justifyContent: 'center' }}>
+                          <span style={{
+                            fontSize: 9, fontWeight: 900, letterSpacing: '0.12em',
+                            padding: '3px 10px', borderRadius: 999,
+                            background: 'rgba(251,191,36,0.18)', color: '#fbbf24',
+                            border: '1px solid rgba(251,191,36,0.4)',
+                          }}>✦ STYLE PREVIEW</span>
+                        </div>
+                      )}
                       <div
                         className={`px-5 py-2.5 font-black flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 mx-auto w-fit leading-tight max-w-[90%] ${S.style === 'pill' ? 'backdrop-blur-sm' : ''}`}
                         style={{
-                          fontSize: `${S.fontSize * 0.7}px`,
+                          fontSize: `calc(${S.fontSize} * 0.162cqh)`,
                           color: S.style === 'white-yellow' ? '#ffffff' : sc(S.fontColor),
                           borderRadius: S.style === 'pill' ? '9999px' : '10px',
                           background: S.style === 'pill' ? sc(S.bgColor) : 'transparent',
@@ -864,6 +948,56 @@ export default function CaptionBurner({ onClose }: Props) {
                   <IconForward />
                 </button>
               </div>
+
+              {/* ── Burned-output action bar: shown when a completed video is on canvas ── */}
+              {burnedVideoUrl && activeItem?.status === 'completed' && (
+                <div
+                  className="flex items-center gap-2 w-full"
+                  style={{ padding: '10px 14px', borderRadius: 14, background: 'linear-gradient(135deg,rgba(16,185,129,0.12),rgba(5,150,105,0.08))', border: '1px solid rgba(16,185,129,0.28)' }}
+                >
+                  <span className="text-[9px] font-black text-emerald-300 shrink-0">✓ Ready</span>
+                  <span className="text-[9px] text-slate-400 truncate flex-1">{activeItem.outputFileName || 'captioned_video.mp4'}</span>
+                  {/* Play in OS media player */}
+                  <button
+                    onClick={() => {
+                      const api = electronApi();
+                      if (activeItem.outputPath && api?.openFile) {
+                        api.openFile(activeItem.outputPath);
+                      } else if (burnedVideoUrl) {
+                        window.open(burnedVideoUrl, '_blank');
+                      }
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl text-[9px] font-bold text-white transition-all shrink-0"
+                    style={{ padding: '7px 14px', background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', boxShadow: '0 4px 14px rgba(14,165,233,0.25)' }}
+                  >
+                    ▶ Play in Player
+                  </button>
+                  {/* Open folder in Explorer */}
+                  <button
+                    onClick={() => {
+                      const api = electronApi();
+                      if (activeItem.outputPath && api?.showItemInFolder) {
+                        api.showItemInFolder(activeItem.outputPath);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl text-[9px] font-bold text-emerald-300 transition-all shrink-0"
+                    style={{ padding: '7px 14px', background: 'rgba(16,185,129,0.14)', border: '1px solid rgba(16,185,129,0.32)' }}
+                  >
+                    📁 Open Folder
+                  </button>
+                  {/* Direct download link */}
+                  {activeItem.outputUrl && (
+                    <a
+                      href={activeItem.outputUrl}
+                      download={activeItem.outputFileName || 'captioned_video.mp4'}
+                      className="flex items-center gap-1.5 rounded-xl text-[9px] font-bold text-indigo-300 transition-all shrink-0 no-underline"
+                      style={{ padding: '7px 14px', background: 'rgba(99,102,241,0.14)', border: '1px solid rgba(99,102,241,0.30)' }}
+                    >
+                      ⬇ Download
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <button

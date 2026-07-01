@@ -5,6 +5,8 @@ import { ReaderStage } from './ReaderStage';
 import { PlaybackBar } from './PlaybackBar';
 
 const PRESENTATION_EXPORT_TAIL_PAD_MS = 2500;
+const INTRO_VIDEO_SRC = '/default-intro-optimized.mp4';
+const INFO_KIDS_LOGO_SRC = '/info-kids-logo.png';
 
 // WAV Encoder helper to convert concatenated AudioBuffer to standard WAV bytes
 function bufferToWav(buffer) {
@@ -224,6 +226,122 @@ function waitForNextPaint() {
   });
 }
 
+function waitForVideoReady(video, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    if (!video || video.readyState >= 2) {
+      resolve();
+      return;
+    }
+
+    let timeoutId = null;
+    const cleanup = () => {
+      video.removeEventListener('loadeddata', handleReady);
+      video.removeEventListener('canplay', handleReady);
+      video.removeEventListener('error', handleReady);
+      clearTimeout(timeoutId);
+    };
+    const handleReady = () => {
+      cleanup();
+      resolve();
+    };
+
+    video.addEventListener('loadeddata', handleReady);
+    video.addEventListener('canplay', handleReady);
+    video.addEventListener('error', handleReady);
+    timeoutId = setTimeout(handleReady, timeoutMs);
+    video.load();
+  });
+}
+
+function waitForImageReady(image, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    if (!image || (image.complete && (image.naturalWidth || image.width))) {
+      resolve();
+      return;
+    }
+
+    let timeoutId = null;
+    const cleanup = () => {
+      image.removeEventListener('load', handleReady);
+      image.removeEventListener('error', handleReady);
+      clearTimeout(timeoutId);
+    };
+    const handleReady = () => {
+      cleanup();
+      resolve();
+    };
+
+    image.addEventListener('load', handleReady);
+    image.addEventListener('error', handleReady);
+    timeoutId = setTimeout(handleReady, timeoutMs);
+  });
+}
+
+async function playIntroVideo(video) {
+  if (!video) return false;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  await waitForVideoReady(video);
+  try {
+    video.currentTime = 0;
+  } catch {
+    // Some media backends reject seeking before metadata is fully settled.
+  }
+  try {
+    await video.play();
+    return true;
+  } catch (error) {
+    console.warn('[Presentation] Intro video could not start automatically.', error);
+    return false;
+  }
+}
+
+function drawElementRectOnCanvas(ctx, mediaElement, elementRect, stageRect, canvasWidth, canvasHeight) {
+  const x = ((elementRect.left - stageRect.left) / stageRect.width) * canvasWidth;
+  const y = ((elementRect.top - stageRect.top) / stageRect.height) * canvasHeight;
+  const width = (elementRect.width / stageRect.width) * canvasWidth;
+  const height = (elementRect.height / stageRect.height) * canvasHeight;
+  ctx.drawImage(mediaElement, x, y, width, height);
+}
+
+function drawObjectCoverVideo(ctx, video, stageRect, canvasWidth, canvasHeight) {
+  if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+
+  const videoRatio = video.videoWidth / video.videoHeight;
+  const canvasRatio = canvasWidth / canvasHeight;
+  let sourceWidth = video.videoWidth;
+  let sourceHeight = video.videoHeight;
+  let sourceX = 0;
+  let sourceY = 0;
+
+  if (videoRatio > canvasRatio) {
+    sourceWidth = video.videoHeight * canvasRatio;
+    sourceX = (video.videoWidth - sourceWidth) / 2;
+  } else {
+    sourceHeight = video.videoWidth / canvasRatio;
+    sourceY = (video.videoHeight - sourceHeight) / 2;
+  }
+
+  const rect = video.getBoundingClientRect();
+  const x = ((rect.left - stageRect.left) / stageRect.width) * canvasWidth;
+  const y = ((rect.top - stageRect.top) / stageRect.height) * canvasHeight;
+  const width = (rect.width / stageRect.width) * canvasWidth;
+  const height = (rect.height / stageRect.height) * canvasHeight;
+
+  ctx.drawImage(
+    video,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    x,
+    y,
+    width,
+    height
+  );
+}
+
 function getSupportedPresentationVideoMimeType() {
   const mimeTypes = [
     'video/webm;codecs=vp8',
@@ -291,6 +409,20 @@ async function captureStageToCanvas(stageElement, targetCanvas) {
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
   ctx.drawImage(snapshot, 0, 0, targetCanvas.width, targetCanvas.height);
+
+  const introVideo = stageElement.querySelector('[data-stage-intro-video="true"]');
+  const logoImage = stageElement.querySelector('[data-info-kids-logo="true"]');
+  drawObjectCoverVideo(ctx, introVideo, rect, targetCanvas.width, targetCanvas.height);
+  if (logoImage?.complete && (logoImage.naturalWidth || logoImage.width)) {
+    drawElementRectOnCanvas(
+      ctx,
+      logoImage,
+      logoImage.getBoundingClientRect(),
+      rect,
+      targetCanvas.width,
+      targetCanvas.height
+    );
+  }
 }
 
 async function createStageCanvasCapture({ stageElement, durationMs, onProgress }) {
@@ -423,6 +555,7 @@ export default function PresentationApp() {
   const sc3AudioBase64Ref = useRef('');
   
   const introVideoRef = useRef(null);
+  const introFallbackTimeoutRef = useRef(null);
   const posterTimeoutRef = useRef(null);
   const posterStartTimeRef = useRef(0);
   const posterRemainingTimeRef = useRef(0);
@@ -527,6 +660,7 @@ export default function PresentationApp() {
     return () => {
       window.speechSynthesis.cancel();
       window.speechSynthesis.onvoiceschanged = null;
+      clearTimeout(introFallbackTimeoutRef.current);
       clearTimeout(posterTimeoutRef.current);
     };
   }, [selectedVoice]);
@@ -547,6 +681,7 @@ export default function PresentationApp() {
       clearTimeout(animationFrameId.current);
       animationFrameId.current = null;
     }
+    clearTimeout(introFallbackTimeoutRef.current);
     clearTimeout(posterTimeoutRef.current);
   }, []);
 
@@ -562,7 +697,7 @@ export default function PresentationApp() {
     // 1. Fetch and decode intro WAV audio
     if (playIntro) {
       try {
-        const response = await fetch('./default-intro.wav');
+        const response = await fetch('/default-intro.wav');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const arrayBuf = await response.arrayBuffer();
         const introBuffer = await audioCtx.decodeAudioData(arrayBuf);
@@ -926,6 +1061,7 @@ export default function PresentationApp() {
 
   const handlePause = useCallback(() => {
     if (playbackPhase === 'intro' && introVideoRef.current) {
+      clearTimeout(introFallbackTimeoutRef.current);
       introVideoRef.current.pause();
       setIsPaused(true);
     } else if (playbackPhase === 'poster') {
@@ -1019,8 +1155,7 @@ export default function PresentationApp() {
     }
   }, [engine, wordData, playbackPhase, triggerVoiceNarration]);
 
-  const handleIntroVideoEnded = () => {
-    if (isExporting) return;
+  const continueAfterIntro = useCallback(() => {
     if (posterImage) {
       setPlaybackPhase('poster');
       posterStartTimeRef.current = Date.now();
@@ -1033,7 +1168,36 @@ export default function PresentationApp() {
       setPlaybackPhase('narration');
       triggerVoiceNarration();
     }
-  };
+  }, [posterImage, posterDuration, triggerVoiceNarration]);
+
+  const handleIntroVideoEnded = useCallback(() => {
+    if (isExporting) return;
+    clearTimeout(introFallbackTimeoutRef.current);
+    continueAfterIntro();
+  }, [continueAfterIntro, isExporting]);
+
+  useEffect(() => {
+    if (!isPresenting || !playIntro || playbackPhase !== 'intro') return;
+
+    let cancelled = false;
+    clearTimeout(introFallbackTimeoutRef.current);
+
+    const video = introVideoRef.current;
+    playIntroVideo(video).then((didStart) => {
+      if (cancelled || isExporting) return;
+      const durationMs = Number.isFinite(video?.duration) && video.duration > 0
+        ? Math.ceil(video.duration * 1000) + 250
+        : 8000;
+      introFallbackTimeoutRef.current = setTimeout(() => {
+        if (!cancelled) continueAfterIntro();
+      }, didStart ? durationMs : 8000);
+    });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(introFallbackTimeoutRef.current);
+    };
+  }, [continueAfterIntro, isExporting, isPresenting, playIntro, playbackPhase]);
 
   const handleExportVideo = useCallback(async () => {
     if (!context || context.trim() === '') return;
@@ -1117,6 +1281,11 @@ export default function PresentationApp() {
       setSidebarOpen(false);
       setExportProgress('Recording (0%)...');
       await waitForNextPaint();
+      if (playIntro) {
+        await playIntroVideo(introVideoRef.current);
+        await waitForNextPaint();
+      }
+      await waitForImageReady(stageRef.current?.querySelector('[data-info-kids-logo="true"]'));
 
       const exportCaptureDurationMs = decodedDurationMs + PRESENTATION_EXPORT_TAIL_PAD_MS;
       const stageCapture = await createStageCanvasCapture({
@@ -1460,12 +1629,18 @@ export default function PresentationApp() {
         {/* Render Intro Video Segment */}
         {isPresenting && playIntro && playbackPhase === 'intro' && (
           <video
+            data-stage-intro-video="true"
             ref={introVideoRef}
-            src="./default-intro-optimized.mp4"
+            src={INTRO_VIDEO_SRC}
             className="absolute inset-0 w-full h-full object-cover z-30"
             muted={true}
+            playsInline
+            preload="auto"
             autoPlay
             onEnded={handleIntroVideoEnded}
+            onError={() => {
+              if (!isExporting) continueAfterIntro();
+            }}
           />
         )}
 
@@ -1477,6 +1652,20 @@ export default function PresentationApp() {
             className="absolute inset-0 w-full h-full object-cover z-30"
           />
         )}
+
+        <img
+          data-info-kids-logo="true"
+          src={INFO_KIDS_LOGO_SRC}
+          alt="Info kids logo"
+          className="absolute pointer-events-none select-none"
+          style={{
+            right: '5.2%',
+            bottom: '7.8%',
+            width: 'clamp(150px, 11vw, 230px)',
+            height: 'auto',
+            zIndex: 70
+          }}
+        />
 
         {!isExporting && (
           <PlaybackBar 

@@ -2847,6 +2847,7 @@ button:focus-visible,
 }
 
 .stage-frame {
+  position: relative;
   margin: 0 auto;
   width: 100%;
   max-width: 100%;
@@ -2860,6 +2861,37 @@ button:focus-visible,
     0 24px 44px rgba(8, 26, 30, 0.18);
   overflow: auto;
   min-height: 0;
+}
+
+.stage-info-kids-logo-overlay {
+  position: absolute;
+  z-index: 20;
+  cursor: move;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+
+.stage-info-kids-logo-overlay img {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+}
+
+.stage-info-kids-logo-resize {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(14, 165, 233, 0.92);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 3px 10px rgba(2, 6, 23, 0.3);
+  cursor: nwse-resize;
+  touch-action: none;
 }
 
 #previewCanvas {

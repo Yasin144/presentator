@@ -3,8 +3,25 @@ import { useStore } from "../store/useStore";
 
 function StagePanel() {
   const canvasRef = useRef(null);
+  const stageFrameRef = useRef(null);
+  const logoGestureRef = useRef(null);
   const actionLocks = useStore((state) => state.actionLocks);
   const [isExporting, setIsExporting] = useState(false);
+  const [logoBox, setLogoBox] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("stage-info-kids-logo-box") || "null");
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) && Number.isFinite(saved.w)) {
+        return {
+          x: Math.min(94, Math.max(0, saved.x)),
+          y: Math.min(92, Math.max(0, saved.y)),
+          w: Math.min(38, Math.max(10, saved.w))
+        };
+      }
+    } catch {
+      // Ignore invalid saved placement.
+    }
+    return { x: 82, y: 83, w: 15 };
+  });
 
   // Poll export status every 500 ms
   useEffect(() => {
@@ -21,6 +38,74 @@ function StagePanel() {
       ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("stage-info-kids-logo-box", JSON.stringify(logoBox));
+    } catch {
+      // Placement persistence is helpful but not required.
+    }
+  }, [logoBox]);
+
+  const clampLogoBox = (box) => {
+    const w = Math.min(38, Math.max(10, Number(box.w) || 15));
+    return {
+      w,
+      x: Math.min(100 - w, Math.max(0, Number(box.x) || 0)),
+      y: Math.min(94, Math.max(0, Number(box.y) || 0))
+    };
+  };
+
+  const beginLogoGesture = (event, mode) => {
+    const frame = stageFrameRef.current;
+    if (!frame) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    const rect = frame.getBoundingClientRect();
+    logoGestureRef.current = {
+      mode,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      frameWidth: Math.max(1, rect.width),
+      frameHeight: Math.max(1, rect.height),
+      startBox: logoBox
+    };
+  };
+
+  const updateLogoGesture = (event) => {
+    const gesture = logoGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const dxPct = ((event.clientX - gesture.startX) / gesture.frameWidth) * 100;
+    const dyPct = ((event.clientY - gesture.startY) / gesture.frameHeight) * 100;
+
+    if (gesture.mode === "resize") {
+      const nextW = gesture.startBox.w + dxPct;
+      setLogoBox(clampLogoBox({ ...gesture.startBox, w: nextW }));
+      return;
+    }
+
+    setLogoBox(clampLogoBox({
+      ...gesture.startBox,
+      x: gesture.startBox.x + dxPct,
+      y: gesture.startBox.y + dyPct
+    }));
+  };
+
+  const endLogoGesture = (event) => {
+    if (logoGestureRef.current?.pointerId === event.pointerId) {
+      event.preventDefault();
+      event.stopPropagation();
+      logoGestureRef.current = null;
+    }
+  };
 
   return (
     <section className="panel panel-stage hidden" id="stagePanel">
@@ -591,8 +676,24 @@ function StagePanel() {
         </div>
       </div>
 
-      <div className="stage-frame">
+      <div className="stage-frame" ref={stageFrameRef}>
             <canvas ref={canvasRef} id="previewCanvas" width="1280" height="720" aria-label="Anjali Teacher preview" />
+            <div
+              className="stage-info-kids-logo-overlay"
+              style={{ left: `${logoBox.x}%`, top: `${logoBox.y}%`, width: `${logoBox.w}%` }}
+              onPointerDown={(event) => beginLogoGesture(event, "drag")}
+              onPointerMove={updateLogoGesture}
+              onPointerUp={endLogoGesture}
+              onPointerCancel={endLogoGesture}
+              title="Drag to move. Pull the corner to resize."
+            >
+              <img src="/info-kids-logo.png" alt="Info kids logo" draggable="false" />
+              <span
+                className="stage-info-kids-logo-resize"
+                onPointerDown={(event) => beginLogoGesture(event, "resize")}
+                aria-hidden="true"
+              />
+            </div>
       </div>
 
       <p className="note" id="statusText">

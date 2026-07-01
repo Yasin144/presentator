@@ -83,6 +83,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   burnCaptions: (opts) =>
     ipcRenderer.invoke('burn-captions', opts),
 
+  // Extract 16kHz mono WAV audio natively using FFmpeg (returns on-disk path, NOT bytes)
+  extractAudio: (opts) =>
+    ipcRenderer.invoke('extract-audio', opts),
+
+  // Read a byte-range slice from an on-disk WAV file (used to stream chunks without loading full file)
+  readAudioChunk: (opts) =>
+    ipcRenderer.invoke('read-audio-chunk', opts),
+
   // Merge narration audio into video (for animation/no-speech videos)
   mergeAudioIntoVideo: (opts) =>
     ipcRenderer.invoke('merge-audio-into-video', opts),
@@ -91,5 +99,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showNotification: (title, body, opts) =>
     ipcRenderer.invoke('show-notification', { title, body, ...opts }),
 
-});
+  // Open a file with the OS default handler (e.g. play a burned video in media player)
+  openFile: (filePath) =>
+    ipcRenderer.invoke('open-file', filePath),
 
+});

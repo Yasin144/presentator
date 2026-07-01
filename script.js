@@ -364,9 +364,9 @@ const MUX_PACKAGE_MAGIC = "LOMUX1";
 const STAGE_VIDEO_MAX_DIMENSION = 1280;
 const STAGE_VIDEO_CUTOUT_TOLERANCE = 66;
 const STAGE_VIDEO_EDGE_FEATHER = 22;
-const DEFAULT_INTRO_VIDEO_FILE = "INTRO.mp4";
-const DEFAULT_INTRO_VIDEO_FALLBACK_FILE = "default-intro-optimized.mp4";
-const LEGACY_DEFAULT_INTRO_VIDEO_FILE = "default-intro.mp4";
+const DEFAULT_INTRO_VIDEO_FILE = "default-intro-optimized.mp4";
+const DEFAULT_INTRO_VIDEO_FALLBACK_FILE = "default-intro.mp4";
+const LEGACY_DEFAULT_INTRO_VIDEO_FILE = "INTRO.mp4";
 const ANJALI_SAMPLE_AUDIO_FILE = "voice-preview-anjali.mp3";
 const SC3_NARRATION_VOICE = "anjali";
 const EDGE_NARRATION_VOICE = "edge";
@@ -844,13 +844,8 @@ const SPEECH_SYNC_REVEAL_START = 0.0;
 const SPEECH_SYNC_REVEAL_END   = 1.0;
 const SPEECH_SYNC_WORD_COMMIT_MIN = 0.0;
 const SPEECH_SYNC_WORD_COMMIT_MAX = 1.0;
-// Positive = text appears slightly AFTER the word is spoken (in seconds).
-// Set to 0.1 (100ms) to compensate for the Edge TTS server's 100ms leading
-// silence pad prepended to every audio chunk.  Without this offset the
-// animation reveals text during the silent pad Ã¢â‚¬â€ making words appear before
-// the voice speaks them.  The first-word cold-start window below covers the
-// remaining gap for short (Ã¢â€°Â¤3-word) chunks that use a 220ms pad.
-const SPEECH_SYNC_VISUAL_PROGRESS_LAG = 0.1;
+// Strict audio-clock sync: text reveal follows audio.currentTime directly.
+const SPEECH_SYNC_VISUAL_PROGRESS_LAG = 0;
 const MATHS_NUMBERS_TEMPLATE = `# Numbers
 1 is one.
 2 is two.
@@ -1145,7 +1140,7 @@ const state = {
   stageVideos: [],
   activeStageVideoId: "",
   introPlayback: {
-    enabled: false,
+    enabled: true,
     active: false,
     previewVisible: false,
     available: null,
@@ -2231,7 +2226,8 @@ function getSelectedExportQuality() {
 
 function resolveProjectAssetUrl(path) {
   try {
-    return new URL(path, window.location.href).href;
+    const cleanPath = String(path || "").replace(/^\/+/, "");
+    return new URL(`/${cleanPath}`, window.location.origin).href;
   } catch (error) {
     console.error(error);
     return path;
@@ -3759,8 +3755,21 @@ async function saveBlobWithHandle(fileHandle, blob) {
   }
 }
 
+function normalizeLessonScreenText(text = "") {
+  if (isPureInputModeEnabled()) {
+    return String(text || "").replace(/\r\n|\r/g, "\n");
+  }
+
+  return String(text || "")
+    .replace(/\r\n|\r/g, "\n")
+    .replace(/([^\n])\s*=>\s*/g, "$1\n=> ")
+    .replace(/[ \t]*=>[ \t]*/g, "=> ")
+    .replace(/^[ \t]+=>/gm, "=>")
+    .trim();
+}
+
 function splitIntoLines(text) {
-  const normalizedText = String(text || "").replace(/\r\n|\r/g, "\n");
+  const normalizedText = normalizeLessonScreenText(text);
   if (isPureInputModeEnabled()) {
     return normalizedText.split("\n");
   }
@@ -3768,7 +3777,7 @@ function splitIntoLines(text) {
   const smartText = normalizedText
     .replace(/(?<!\n)\n(?!\n)/g, (match, offset, string) => {
       const nextSegment = string.substring(offset + 1).trimStart();
-      if (/^[Ã¢â‚¬Â¢*-]\s|^#+|^[0-9]+\./.test(nextSegment)) {
+      if (/^(?:=>|[Ã¢â‚¬Â¢*-]\s|#+|[0-9]+\.)/.test(nextSegment)) {
         return "\n";
       }
       return " ";
@@ -5466,9 +5475,7 @@ function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, opti
         0,
         1
       );
-      // smoothstep easing: fast burst at word-start (matching TTS articulation onset),
-      // decelerate toward word-end Ã¢â‚¬â€ feels like real speech instead of mechanical ticker.
-      const speechProgress = rawProgress * rawProgress * (3 - 2 * rawProgress);
+      const speechProgress = rawProgress;
       exactCharCountFloat = unit.startIndex + (unit.displayText.length * speechProgress);
       displayedText = safeText.slice(0, Math.ceil(exactCharCountFloat));
       mouthActive = true;
@@ -5943,7 +5950,7 @@ function getEffectiveLessonText() {
     }
   }
   
-  return text;
+  return normalizeLessonScreenText(text);
 }
 
 function getPureInputText() {
@@ -6950,13 +6957,13 @@ function createLessonRenderStateSnapshot() {
 }
 
 function applyLessonRenderStateFromText(text, options = {}) {
-  const safeText = typeof text === "string" ? text : "";
+  const safeText = normalizeLessonScreenText(typeof text === "string" ? text : "");
   state.presentationMode = "lesson";
   state.text = safeText;
   state.lines = splitIntoLines(safeText);
   state.words = splitIntoWords(safeText);
   state.tokens = splitIntoTokens(safeText);
-  state.displayedText = typeof options.displayedText === "string" ? options.displayedText : safeText;
+  state.displayedText = typeof options.displayedText === "string" ? normalizeLessonScreenText(options.displayedText) : safeText;
   state.previewPageIndex = Math.max(0, Math.round(Number(options.previewPageIndex) || 0));
   state.renderedPageCount = Math.max(1, Math.round(Number(options.renderedPageCount) || 1));
   state.contentScrollOffset = 0;
@@ -8697,12 +8704,15 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
           underline: true
         }
         : getBaseTextStyle();
-      const lineText = (bulletMatch ? bulletMatch[1] : sourceLine).replace(/\s+/g, " ").trim() || sourceLine.trim();
+      const rawLineText = bulletMatch ? bulletMatch[1] : sourceLine;
+      const lineText = String(rawLineText || "").replace(/\t/g, "    ").trim() || sourceLine.trim();
       const styledRuns = getStyledTextRuns(lineText, baseLineStyle).map((run) => ({
         ...run,
         text: applyDisplayCase(run.text)
       }));
-      const wrapped = wrapStyledRuns(ctx, styledRuns, maxWidth - (bulletMatch ? 28 : 0), size);
+      const wrapped = wrapStyledRuns(ctx, styledRuns, maxWidth - (bulletMatch ? 28 : 0), size, {
+        preserveEdges: true
+      });
 
       wrapped.forEach((row, rowIndex) => {
         rows.push({ segments: row, bullet: Boolean(bulletMatch) && rowIndex === 0 });
@@ -12223,8 +12233,8 @@ function getIntroVideoCandidateFiles() {
   const candidates = [
     state.introPlayback.url || DEFAULT_INTRO_VIDEO_FILE,
     DEFAULT_INTRO_VIDEO_FILE,
-    LEGACY_DEFAULT_INTRO_VIDEO_FILE,
-    DEFAULT_INTRO_VIDEO_FALLBACK_FILE
+    DEFAULT_INTRO_VIDEO_FALLBACK_FILE,
+    LEGACY_DEFAULT_INTRO_VIDEO_FILE
   ];
 
   return candidates.filter((value, index, items) => {
@@ -13821,12 +13831,15 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
           underline: true
         }
         : getBaseTextStyle();
-      const lineText = (bulletMatch ? bulletMatch[1] : sourceLine).replace(/\s+/g, " ").trim() || sourceLine.trim();
+      const rawLineText = bulletMatch ? bulletMatch[1] : sourceLine;
+      const lineText = String(rawLineText || "").replace(/\t/g, "    ").trim() || sourceLine.trim();
       const styledRuns = getStyledTextRuns(lineText, baseLineStyle).map((run) => ({
         ...run,
         text: applyDisplayCase(run.text)
       }));
-      const wrapped = wrapStyledRuns(ctx, styledRuns, maxWidth - (bulletMatch ? 28 : 0), size);
+      const wrapped = wrapStyledRuns(ctx, styledRuns, maxWidth - (bulletMatch ? 28 : 0), size, {
+        preserveEdges: true
+      });
 
       wrapped.forEach((row, rowIndex) => {
         rows.push({ segments: row, bullet: Boolean(bulletMatch) && rowIndex === 0 });
@@ -15694,6 +15707,23 @@ function drawHeaderBackdrop() {
   ctx.fill();
 }
 
+function drawTemplateHeaderOverlay() {
+  drawHeaderBackdrop();
+  const titleText = getPresentationHeaderTitle();
+  ctx.save();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#173e58";
+  ctx.font = '900 34px "Nunito", "Segoe UI", sans-serif';
+  const maxWidth = Math.max(360, canvas.width - 420);
+  const cleanTitle = String(titleText || "LESSON").replace(/\s+/g, " ").trim();
+  ctx.fillText(cleanTitle, 84, 58, maxWidth);
+  ctx.fillStyle = "rgba(13, 126, 169, 0.92)";
+  ctx.font = '800 16px "Nunito", "Segoe UI", sans-serif';
+  ctx.fillText("INFO KIDS", 88, 91);
+  ctx.restore();
+}
+
 function getLogoDrawRect() {
   const headerY = 18;
   const headerHeight = 94;
@@ -15744,23 +15774,39 @@ infoKidsLogoImg.onerror = function() {
 infoKidsLogoImg.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAArQAAADwCAYAAADxaPeJAAAACXBIWXMAAAsTAAALEwEAmpwYAAAE8WlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgMTAuMC1jMDAwIDI1LkcuZDIwZTQ2NiwgMjAyNS8xMi8wOC0yMDo1MDoyMSAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iIHhtbG5zOnBob3Rvc2hvcD0iaHR0cDovL25zLmFkb2JlLmNvbS9waG90b3Nob3AvMS4wLyIgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIDI3LjQgKFdpbmRvd3MpIiB4bXA6Q3JlYXRlRGF0ZT0iMjAyNi0wMy0zMVQxOTozOToyMSswNTozMCIgeG1wOk1vZGlmeURhdGU9IjIwMjYtMDQtMDFUMTI6NDc6MDQrMDU6MzAiIHhtcDpNZXRhZGF0YURhdGU9IjIwMjYtMDQtMDFUMTI6NDc6MDQrMDU6MzAiIGRjOmZvcm1hdD0iaW1hZ2UvcG5nIiBwaG90b3Nob3A6Q29sb3JNb2RlPSIzIiB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOmU1ZWYwNzliLWFkNWItNWY0ZC04ZjU5LWNiNDc0NmM3MDlmZCIgeG1wTU06RG9jdW1lbnRJ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恩jh3S9EJv3Tp4F1UpEyOdb6FQjq9UeXgaAdrHCF2+fvdKov7z+hm49p7XIzqP74g8Vw8v45leem1Jex46QhryhI4sz8zbA96YirAPlNPbsiRK1jKdWGNiwE7SrVlRVymc5A6LiLEme1qBg7ImnFK8sMbFxmtbbGHM97IGTlewSqDIOocyoXGDMW3beSaLi5HXfmGrSB1b20KDNmqcTkMXYGkDWAd0m9BGUmtr18oYNG3lpbYpQ1epbIEXLSTuctfLUUglbHPWWlV7VzTjfhc5gF7R4Mn9ooX37Nd2BGJd85wQAOHGdWNMFzCHoMhK1LESAPjmT9Kct4UNAXmachCgtF2gH6sdCTcX5D5rIVk4hPmTB5LPY/iCqLUNVCCUq6+rnZYpP11MXUKRC0ZM6chKW/KrhANrQxFUuMdnTagOUeiRPjVNsgijAkQjLy9tEBrNALyNdeGXDPrsJQeF1ZREAKufx45Xpd0X4Vd6zfLMu0lSz0ZryG5TaJFSFlsjekGYl10QqcMsx5u8SCHafSYpjWnhWTmCmnoWVLTtwuxDXbDsTbIQK/tqdr+eW2iaE01bpLx+ZfQrNNavRX3kztgdQ9+bDLX6ciJvDSxJGNfDKK5lI0B7ENu2EpsKvKL8XWHTTCRSr01DsonmQWyv41nWKvGCzm8V5qHbpREUy3fqlEIz+CmMhG1MLf34VkxPGWvh4sV6EfQ9kou9q7aBzmpX0jV4an/5GbElE/antp6dtpKwa1oADdpBBpWatYxu5Rqg1pyDJgcZpyw90pJYby/zY3lhacoaIA+mRXOR2XXRVIv2A21WZRxJ2fi90p4OD0r+peytJhjEa11fSZtYW0vbmdARn/eMlNc9E0J8m5T03a/yrLajT1dFilxP1EDaRiv/Ml0VLp5SUi5P0oL6xshaxJKO6twQ8AIoZzDbr9C9AU+/WHpNdKmHSz/2rW9ZEF+C3XPU0WIP1KngbxSi/Li1dOX3uFYV6uWHczX2vdlNSbGoYh1nAA275xjIi0TgkNrWhiEGu2X8G28eNuxBIQ2Fg3FUbAx0I1vsrTMgBq4Q7IctJTZ2MG7RgvbWLzln9anAmjc4bBGIjD93jIhKqDazqjyjyj3ZrRKzCesDFqZdo+e28eA2rlTilyBpGN8LCTX4CK5mOFoxPdPkgoAA920L3a88lmcE5rFcmJpQbVLRWkMjTU6fOpyG64Tj8/VbXd4xXTQCtAcRXb5+10oAsC9P14ZtQsRpaJKv/WtsuC112ZZXVx4MUNAEoPVM9+/2BkmX0YHDSU1DCbuCWz21XVV8z8MgYThiF5Y0qr1slm4ri7VZXXc2lJftZ4A3JRvblkKw5ZeTvCjpGm1sihk42uqytne2MOSi5RNntIqg8my/i2JA63HMHVqsodqLYF8WcDGbEJBf5dGhjVWNRwMEi6DAoLZRcHAuccOzmF0gmKt+u1Kai51bfAowViiQO4sFhFljSfspKRVnvSS0jXn4w2/a2OZFLljaaWEsfxVTwKYagb7vlDKGnBIUtVauwQ25oK6s2E/G/hKnrNSteb7kbZPQg+LoVuqWAIl3B22MB7RjFrtKMeWA51AIzuBnHLfD2wO6gsrCExo23b5E4b2q4VALLWkWYKdzWMylQAuOyodgVhHLlSj3dbblbQx8nSe1t1xy4krtaA5Xnq9g3URcZidfuyZdy8MxznVv+CRvqU60MUmFjzkBFcCmKBTSc2Z3W7ibzi+pXxC+cR3pxzXFON6sXnJqM1lI8m1pjgWuc9ukvhTe3qtbIQsQvL9mSUU7YLafjkJ3MYqxVnR2+a31tAfpWf08X59a0Lo/nFNVKLUDb1ul30wjQHhya2Dfwp3deDTDqIeC/CpMUrU8DsAZgi6xNpGxcxjXxHkr4rfRggqtmwFIxj3fTIChzAwjoYakf4pJXdGuJLNVspWrNTzQhMFs2BpxZ35a36lBKtkWKy8sMMbP7/l4A98Uto9QVmVRyVENRIi02Vo9SFkgnL0ZgMoALLjtnMFDg/uanxGksAnt3pYBZJxkXICHazwSP3daYa0cpi9lzIsn2MjqZeFCbYUhp81RH+65a7YZw42wWe3EUCBBI7eoHhhs9YCIQxwOTLMX2r432Yh6g70tEDltsMa/sEW6DR2pRerdL6tDZwm0EiFQESelNjCAh2ipuHo46IAtrmMW+5mIzWpyHzOkQN11Zm6kARNKQ7cKMk4v94ngZZ+DcY3qmIg666BZYMhkHwTZTbY/L7gQIQul3agczP8FYH6WczqBY0J8WHbSa4shjvEh4lK95GCMyTyGqhgoaMcKCfMfIG6olHOP+KO94Aag4FxaNpY6PwGMFNohAmMEsRE2QMWpOYcoBC+eTaAcRLMn8SlFasDVwr4z5odNmd9oh+9015NGpf3VkFGFBbM65DPIO8x/H68UMINpmhryVbwIPkH62cSMOnCDzBUcv937+IiMKRzburSHcx15jBIvzhS+VVoo7OL6k1KLhwNCn6YTXcEHW6/iGf2eyOcZ8a8GofsKvXCNAO0Pp8vW73lC0sVkTm8hPGPuXmmYC3fcGkd9Kc2Jh0KUgCK5Gtqalkz1oHIwJeEYSyyFWZJi/r2fXtQYAwvJULQhPwkWzhvPbU9gaqLlCmUG1hyzLa70j9Ea9gTllSP4GNpnBmopZNGN+eTZrtczig1lEDD3UbgEom6wj4liBrxWw29bSDki2pCfaIrvmNTWWoRVTQLY8w9oYCUPFi3pXmXyf4TWfoc/S2suXFTVqWC9rM9beGPjTvqlCpXWXVCgq29raaBQw6vRQUOqqfX63+FBlG29Ghd2FVG1yEeZ0btURQ0S7yg+H+Q6N3sxNQ6xZr+SxHc12Cghl7a7frh82Jvk5NhvJgFFAJBSV51PVYlCHWAETfsxe1Zqhi9R0wwkwkU/26ogSmLlidc/zBMz6/Eq7unBrpk7g+oGZTwNesOZXBH+7ZqVF4NclqNp7cffN/Sqdy8KSgOuaccgcZM1tY30LIpStsj7KhYkuUZHUb/MHSUkH4eA1OHIDEVbwLbbzbtMwPWZ/IJ/3pbA0e0NyqNfYNifdd+qCtF15jADtjDMp6L2laGRzNAKkNpTlaRdj27n3xNZR32iH11JoJRJxEcPcIJWt43BdSsLl7HV7Aof8qudgPUAIjJJvlPp9C3nmoWmARtGnX/4tiEEkY18mecbaQN4UsO60nKB1iaDcyim1kbRKjQTo6Ls1248LM/70nrWyBce/ZbExUOsZFqbfAkzKm+E134ccx1LaKFtn5LapUQqDcVwWW20jCpmy/Mki70qNo8Rv3datZEuvgiu3vEqP1iWqWioIaHqvaGS4/m6EWfimkAE6hliKNjbcYodtr9+5U3A5jfp4dHDxwqilofNC7W/tus0skSw8N9JxHMeOPI659kK7Nx1BynxSLaLMM37XhOT6fTSFcAVwtfffFCzBuEBAbKB9gAkObD1HXZU+IrF4dexbv+D4trnWBp7umm7lmyDRqzqjCBsq1NrOjNeLI+DuFVvZtuDTtojlqynQGIETF2u3xaMyGw7kf9NzOL5j/AApu+QjwN3Wujj/bHcK1xg/22ElrEzQ2iDM8fUwU+McsrZioT1Se330s8xzQWyf/QGs3VTXO454PxSH5Wa96dOs39tf0OsXpBGgnQF0+fpdySb2LUS9l/ttt9qeSu3mYNmrJ4H9ChuFjtnylrcBC83bLcTDPVIVJoDWKR4g4NmUbYPh+zHPuAmJ77bke5uC9p49GcnAjVu8BDfgYgivaBsnqR+k+QhCsDYRvNvTGLaJN/hkW156pMWUcQsxNhpeUtuuHNOUwy35utXLUU4DQnFhCK5Kc9pr2ZdiHjFdAT2Yt4TXkaXGDqDANpDU2dMbgam1sWjPvCmC5VOPNJwNjXZwzwpIAr0MLJz2pNQR0hNzDAeI8Ha8GkCM1NW9g/dhbLGxtyanW94AZGIJ3DfQHnvNUj3CzWpErvCWb2yTCHiyFlRqBrGYZea6dlIc38+2sZpgxRPFbtIOIxABx9pL2qVLDYwlhVBcVtryVHQYjKk08nQ7KjgWBcD6SBMsVJQRH3bIImUziGTa0fQPqEuPOwTSgs5JTaISqIYaoxzUY17LkfmXzCZ+wptSGyjjeLdRXyqmM314Bn0KilgGtrEYzjBdR2VL5qlq+gG25RgarghLOUKCmiAV8VPbsgWaW/dqANciGa2e79jaJb+tf3Dl70q7mmWNfLupGxBHIB2Fn24BoB4ng0vVqhFiHVkf4hs4IkeA9lGkS9ftfEOv13sLh9jyg0OHb2Oc+SWah7rYbFbMtbHo6r1mqTpAjgMUg+sVF25vhRaZ+uDEhJ1xePK44DPbmyi1ZP+ue6rFBltSsSNlMJMAIpe/7TggCTuEXN4VZGnMwkBrDXlazKa2FrUW0RoJI+cVIIC6IadeBzvD9glgiDB0JMICwRF/oplMsqvMi2V2xIh9wnabuLhwy8NKrW2q1oDaxH7737R4uPWLevEILFhnhFEfPHSRZvGAQA5LoKEOcp2gpAMYdY1Xrp+8qyo597Zec4Hpe+pLFEsksZddGnWu3CqlXTUyR2MqaxvrFChLeK+jnbK9rbzpQWfNLRSyuLHMtquoBW3XJMIJl0+HeULt7Gh56vwI7eCnfw+u2YM178EShsL5h5oUo3XgC111k3qIgKlztsQXT7Mao0Nw+wZNdEnc4nfzXOYDN0zsb4sDnJ7Umv0RivlIKLPtOhkslKT04JixWa6vxOk1tg0aFahJgtrkMt/wJzwOaHeth5h9SfwI/26qmznZtVZ+LJ2BeZxodWmQ89u6OZ00PP2JlMCvcyiE2SrfDd4rLfLopLADT5et351MCi6h/vgKuWaaJmNyyIr6gTvyyVcCa6LdnxFvNqYl2i+6CC/jQuElRaTyfGbgY505CwiU+uBztaayNVxrYI+T3O5gGsZIWqWWf8VjlplKHQHA20X6MGLC2OTQW/krZNEYfV1loqI2UK3TQBOKC4FMWu63WXrPbOVwcYjSe2kTXICCFtCGUmGUIT6tgOCuU7f4Wteo8y1fp2H2iX6xGG+AbeH86Z0ahPhaAQBvlMbeQ0tls2uVe8nRpQa8flHhhUrAdK2hRrGzLO3ByKdbdBy2cxHr0wqnFeGR3YC7CbjkQw660uZRLs6ILVgYOYCNSnEO8k+b2UC7Jeq0sA4i1IhzXT8cB1t6ozj6cVXxaGXLQ3tHzROEz9Rl8bzGPOmtZHIaG/NkmcOs6YPTxQSWFztdK4l4sEluIAI6xyAAwbA948EyOtJxSD5xWsTDI6wtwOShg3+2eHd9N8XblXB1fgNdeKjy2rJjhOKIqC2kVAJAOea2HD+DgJeF5pxPqUseybCrwLJWeRftesOhDzI+VGB1c7YGTx5W+vvG6QcpWvyOBI5IL4i1OUSrL7pW6y5qwd06Tf/McKTYQh/x7mDBoNKGR7xgdtC7iHr39qi3ttdLJ4X1RieFHWj60rrdb+j3+5fMGuspkI1UBchS43ezq+RhXse0i4A4kR7wWEBoSZTzksDsIaXI0rsWvHpKeWaS3y3aNttmGcQcrQRoMhHrJPfr5dU/16Is+feYUXonr1YN/bnbwkAT5ZYU7WIGucKaTHdq8KylkyhgBzSUskiK1ivnKwy2AAoOd2TkNWrcCjpCxsdziChe2FqM1zt6DKNa+PWasbiVaTaOA+yk9dhVfCiO7QS83PI/lLl6QcU0tSw4mJGNLm1qV4wz0I9yvG7l73LQCg6CRaAc1tSD5kUXNbWGmFd/uOZX29aBYwbssOPcyCWUPyckEQ78ARIWyL8Glsa/NCVI34CsP2a2jDtY/zn7ImTAwIttVINlnyNe9bC9bgHBjxhHOgqcVTvpU4WnqcNPoy8rR05fgqx1r7bvWyVN/CMer9sSMGKfNMqPgr9GE2g8099L42piUpfJrGNrGCkmGlgnFR2jD0exkyiuEPBWOBzECa841sVkRVkuzG0EqAy8JTSfb5+Jcierf2slnTnUC78nB2knwsuG6ZH9/cYOdPg9ArQHgC5bv/t5/T69p0f989zWBXjY6LQq2gZmBrhlytNKyHtPinTXBQpFSq8nWwsORaoAJRi6x3tlPStlRD2V1CEuFcO3WCvNYZNptG2k2gtE976b2d+yLZecT4/aBKkb6zTwLB8rl7RKXZ+6/My8Idg7MOsupmAAwVqN0wFQrECztH3whO7aRkPDELkiC2HnGHLDGlsMF3QZq2K7XcdjtOe6CUEHOuRJ+jgGuQ1aaSJoK3XNL7ZhQUt8qtuiUW6Zxx11qfYZUCtepeohl+ccvmROfKls4ss3AIetUdqG8/XccvkBWNA2FdBUwG0spS+dnTWbjsFN291q0y0h3IaskyhsRGGuytuVtxbSTeBBTWOrP+HUvzD+LOV+mDAoGIlTar2Aj/WKb32JaY32tmwDGndo6rLht4qnJOG5fBHnMp+mgW4uN85btoMWrmnjgHPZk8P1gYOfM/bw5fD6UC4nO45ZjGVZ81A1IyERc4xwKVPpI9H+MiQtz8Ex7douZe47HlfGnWrcnSgmHMDEYnwiihhWo9grftWO9W8Dvt4+QdH+gLJ0ad+735hIrnUa+0eDzB05nxGgnUa6dF06jpY+1OvRc9Nv2YIatCTVMQrD8hRsMnUaSeio0OE43eR53STKjCiy8PEJ2pd2aCwK48eFp3tiWvpat4rXirG+SNr11NQUxPYJmH2XlMnhXGoHN11kSiJJk4v9pC2RNajF2Yr6ml4yBdkLm2e5pbLRYjmLW7S5YYvY4lbWLR1PAfNa1WIoHzQW3P4AhdxJY/wvekbLW5AAtKWMMVuG8LAIrafmE9tTEtO3G31dcypwPwoB1Mxxrb2g+8US5xQKiNQBNARitnQn0tZchjo0leXevlc/J3lye+I7tg1u9o2TIatBBDSlLk6dFQQhV+nhAka1UDdP8/BvObCsjlqNcaCsBHcBIH0ctgX46DjUcYYbwjgqTVsfc3czUXgK1tHXOAA/KxqDJyxzNFGxHRgZe/mqmuMIXyujsrKRRb5XQya3axJBvB6Z68OKoc0sanM5vS5UAUZWhUfhrhYfBsEVk+1jjtMq0W/Z7EqFhxz/2vLtjSUzEpldvh2xrxAYS1Fr4xcfDSPbz5byiaNYTrXEtbXwh+iiZONI53yn3butIS19em34173Gtqk9IjHvydii4ntdVKc2vLyTs+yN6MSPwxaNAO000KXrdqfDEFL4rbe3tllbJyJZWJ0GuOgY2t7pBdNyS0X5KzZ/OIgHD9hYElt2u22tvMZj6qQzv/2ESwFca1RHGZOCXISIA/JTL1tJiGs9GxaNtKXvFxhkC1J/KyEGqTcWCPVwC5Itam7BDifnCqiyeqoUUa35sa3YaxzKF4agvgNaak/CiqVxMej9xIi1TWbjlxezsZATI+WGI4/YFQ8ea7535AosakHph7bHgonMllpEC35PTrySex46Dqg3/DW7aBtBPFTMDjMJSX781wtQi3PU8Mbfa/KVgQVH8D98hietWXYChIfz2Msa/yLsxZqI9IT9onayZleqc6TTwVHyNe0pe9HXJgitpT5piLkOg59vQYEasAhATWVlG220fWbNa3u557B3EBHFHWmeZ0G1rd42Q4nzyhyguFlTAZo9PAg1gVl/hMh1G6Jv5/7sE65fS5q3G1+8J/z4688P73/Z5vD6v/1G+N//11+G07/58/C5f3lbeP3P/3A4t/c23+eK7fP/8X/7+X/37hHh5X/3+8J/vv3B42P63nxhO/Mknwv8u/F04/Qc/G0797s/D/u/6m/C//oP7w4v+z+d+5w7h/G9+Pry88P/u64s4467j4Y2f/H34zH/9VnhrW//Yn+v4+t/7+t/788L/5n18Pf//P3h/+5/8+Gf77x3+W/uE0O/rJ/9sW/u//bQx//4fV4cTf/C3hJ//23fD6j/8+nP2Tnws/9Qv/X/h/f/13hB/5i7fDq7/73fD69/4wPPeXfxz+5n/+Jzz39/82vPWzfwq3/c3XhT//5b/D01/+2/D/X/uN8Osv/D/h6//9X/z/u//7X4b//j/fG/7uT34rfOS/fD38x1+8N7z60vWD7cZ5gP/2l+8PL758bXj/r/+38Eef+G/h9X/38/B3v/h74S/+8G/C83/z94Yf/83/Dr//yP4Uv/8dvhR/+4u+H/3/k34Tf/d5vDf/9X/02nPvS3w5//8cfC6/84p/D9/7xN8Pv/9N3h7/6r98Nf/nznwxf+P63h9d+4D7hM7/63fD/n/q/4f/983+GL/7L/w//+K/eFf7uf/wnnP8zXwnf+N4PhW/92H3h23/1N8Pr//1L4e/+4z+Gr/7bH4Tf/c7Ph+e/7hPh7//z/4W//r1fD7/+s78P/8P/8e/DH/3q74W//G9+Nzz3V/8m/O//5p/Dr/3iH4Wv/N/Ph//4p18Pn/m5/xz+4r/6b/D8P31j+Oqv/u/w+3/3n8J//7f+J/z3f/e/w3/8t/8n/Lf/6g/D/3z294a//U/8u/D6f/1m+P/+/M/DP/7874RPf284/dUP+f/84k/D/3zhp+H/v/i/hX/54l+H//Tlfwr/9O/8P/z3X/03nP/L/yH85/d/P/z3n/0tHPf9w51/9t/D6/d/P/z33/zN8Pd/8MvB/0P/8vB/3/0sHPD9Q5047gP93x/9/wG+57fXz4H+zQAAAABJRU5ErkJggg==";
 
 
-function drawInfoKidsLogo() {
+function drawInfoKidsLogo(options = {}) {
   // InfoKids logo: draw on ALL templates at bottom-right corner
-  const enableCheck = document.getElementById("logoEnableCheck");
-  if (!enableCheck || enableCheck.checked) {
+  if (true) {
     if (infoKidsLogoImg.complete || infoKidsLogoImg._logoReady) {
       try {
         // In Electron, naturalWidth can be 0 for data URLs even when decoded.
         // Fall back to .width/.height, then to known logo pixel size (720x240).
         const imgW = infoKidsLogoImg.naturalWidth || infoKidsLogoImg.width || 720;
         const imgH = infoKidsLogoImg.naturalHeight || infoKidsLogoImg.height || 240;
-        logoConfig.w = imgW * logoConfig.scale;
-        logoConfig.h = imgH * logoConfig.scale;
-        if (!logoConfig.initialized) {
-            logoConfig.x = canvas.width  - logoConfig.w - 50;
-            logoConfig.y = canvas.height - logoConfig.h - 30;
-            logoConfig.initialized = true;
+        let savedBox = null;
+        try {
+          savedBox = JSON.parse(localStorage.getItem("stage-info-kids-logo-box") || "null");
+        } catch {
+          savedBox = null;
         }
+        const savedW = Number(savedBox?.w);
+        const savedX = Number(savedBox?.x);
+        const savedY = Number(savedBox?.y);
+        const targetWidth = Number.isFinite(savedW)
+          ? Math.round(canvas.width * clamp(savedW, 10, 38) / 100)
+          : clamp(Math.round(canvas.width * 0.12), 190, 260);
+        const targetHeight = Math.round(targetWidth * (imgH / imgW));
+        logoConfig.w = targetWidth;
+        logoConfig.h = targetHeight;
+        logoConfig.x = Number.isFinite(savedX)
+          ? Math.round(canvas.width * clamp(savedX, 0, 100) / 100)
+          : canvas.width - logoConfig.w - 36;
+        logoConfig.y = Number.isFinite(savedY)
+          ? Math.round(canvas.height * clamp(savedY, 0, 100) / 100)
+          : canvas.height - logoConfig.h - 76;
+        logoConfig.x = clamp(logoConfig.x, 0, canvas.width - logoConfig.w);
+        logoConfig.y = clamp(logoConfig.y, 0, canvas.height - logoConfig.h);
+        logoConfig.initialized = true;
         ctx.save();
         if (logoConfig.hovered) {
            ctx.strokeStyle = "rgba(42, 133, 255, 0.8)";
@@ -15774,7 +15820,9 @@ function drawInfoKidsLogo() {
       }
     }
   }
-
+  if (options.skipAnimatedHeader) {
+    return;
+  }
   // Ã¢â€â‚¬Ã¢â€â‚¬ Animated title badge Ã¢â‚¬â€ slides in from right at playback start, out at end Ã¢â€â‚¬Ã¢â€â‚¬
   // Badge only shows on Learning Outcomes template
   const _logoTpl = normalizePresentationTemplate(state.presentationTemplate);
@@ -16963,6 +17011,7 @@ function drawScene(mouthOpen = 0.12) {
     } else {
       drawPdfContextScene();
     }
+    drawInfoKidsLogo();
     drawRuntimeDisplayErrorOverlay();
     requestCanvasExportFrame();
     return;
@@ -17067,6 +17116,7 @@ function drawScene(mouthOpen = 0.12) {
     drawProceduralConceptAnimations();
     drawAutoQuizOverlay();
     drawWhiteboardStrokes();
+    drawInfoKidsLogo();
     drawRuntimeDisplayErrorOverlay();
     requestCanvasExportFrame();
     return;
@@ -17201,6 +17251,8 @@ function drawScene(mouthOpen = 0.12) {
   if (window._renderHologramFrame) {
     window._renderHologramFrame(ctx, typeof mouthOpen !== 'undefined' ? mouthOpen : (state.mouthOpen || 0.12));
   }
+
+  drawInfoKidsLogo();
   
   requestCanvasExportFrame();
 }
@@ -18884,29 +18936,13 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       syncProfileData
     });
     let nextDisplayedText = syncFrame.displayedText;
-    const nextDisplayedLength = nextDisplayedText.length;
 
-    // In glossary mode the pauses between term (1s) and definition (2s) are intentional.
-    // Skip the recovery override so it doesn't eat those deliberate gaps.
-    const isGlossaryMode = isPureInputModeEnabled() && Boolean(resolvePureInputGlossaryPairs(timelineText));
-    if (!isGlossaryMode && nextDisplayedLength <= lastDisplayedLength && (progress - lastDisplayedAdvanceProgress) >= 0.12) {
-      const recoveryProgress = clamp((progress - 0.12) / 0.88, 0, 1);
-      const recoveryText = getVisibleTextForProgress(timelineText, recoveryProgress);
-      if (recoveryText.length > nextDisplayedLength) {
-        nextDisplayedText = recoveryText;
-        lastDisplayedLength = recoveryText.length;
-        lastDisplayedAdvanceProgress = progress;
-      }
-    } else if (!isGlossaryMode && nextDisplayedLength > lastDisplayedLength) {
-      lastDisplayedLength = nextDisplayedLength;
+    if (nextDisplayedText.length > lastDisplayedLength) {
+      lastDisplayedLength = nextDisplayedText.length;
       lastDisplayedAdvanceProgress = progress;
     }
 
-    const remainingNarrationMs = Math.max(0, narrationTimelineMs - elapsedMs);
-    const completionThresholdMs = isGlossaryMode
-      ? Math.max(1200, visualLagMs)
-      : Math.max(700, visualLagMs);
-    if (remainingNarrationMs <= completionThresholdMs) {
+    if (progress >= 1) {
       nextDisplayedText = timelineText;
       lastDisplayedLength = timelineText.length;
       lastDisplayedAdvanceProgress = 1;
@@ -19440,6 +19476,7 @@ function drawIntroScene() {
     width: canvas.width,
     height: canvas.height
   });
+  drawInfoKidsLogo({ skipAnimatedHeader: true });
   requestCanvasExportFrame();
 }
 
@@ -19482,6 +19519,7 @@ function drawPosterScene() {
   }
 
   // Anjali is intentionally NOT drawn here Ã¢â‚¬â€ poster only during the hold.
+  drawInfoKidsLogo({ skipAnimatedHeader: true });
   requestCanvasExportFrame();
 }
 
@@ -21193,21 +21231,7 @@ function startNarrationLoop(audioElement) {
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ First-word cold-start fix Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     // The renderer uses `state.displayedText` when speaking (line ~4978).
-    // At t=0 getSpeechSyncFrame returns displayedText="" and exactCharCountFloat=0
-    // Ã¢â€ â€™ nothing renders Ã¢â€ â€™ screen looks STUCK for the Edge TTS leading silence pad.
-    // The server prepends 100ms of silence for most chunks (220ms for Ã¢â€°Â¤3-word
-    // chunks). SPEECH_SYNC_VISUAL_PROGRESS_LAG=0.1 shifts sync by 100ms, so
-    // syncElapsedMs is 0 for the first 100ms of real audio time. We keep the
-    // first-word reveal window at 200ms to safely cover both pad sizes (100ms
-    // and 220ms) and ensure no blank-screen flash at the very start.
-    if (syncElapsedMs < 200 && !syncFrame.displayedText && state.text) {
-      const firstSpace = state.text.indexOf(' ');
-      syncFrame.displayedText = firstSpace > 0
-        ? state.text.slice(0, firstSpace + 1)
-        : state.text.slice(0, 1);
-      syncFrame.exactCharCountFloat = 0.5;
-    }
-
+    // Strict sync: do not reveal any word before the audio clock reaches it.
     state.displayedText = syncFrame.displayedText;
     state.exactCharCountFloat = syncFrame.exactCharCountFloat;
 
@@ -25306,7 +25330,7 @@ if (showPlaceValueTableBtn) {
   });
 }
 lessonInput.addEventListener("input", () => {
-  scheduleLessonInputChange();
+  scheduleLessonInputChange(stagePanel && !stagePanel.classList.contains("hidden") ? 0 : 140);
   if (isPureInputModeEnabled()) {
     return;
   }
@@ -27599,7 +27623,10 @@ initializeMathsTeacherAssets();
 updateStageVideoUi();
 applyPreviewZoom();
 drawScene(0.12);
-state.introPlayback.enabled = Boolean(introClipEnabled?.checked);
+if (introClipEnabled) {
+  introClipEnabled.checked = true;
+}
+state.introPlayback.enabled = true;
 if (state.introPlayback.enabled) {
   void ensureDefaultIntroClip();
 } else {

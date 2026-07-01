@@ -619,14 +619,14 @@ try:
         VOICE_REF_WAV_24K = VOICE_REF_WAV
         print(f"[Voice] soxr upsample failed ({_upe}), using original reference.", flush=True)
 
-    # ── Raise max_new_tokens: 350 was cutting off sentences mid-word ──
-    # 900 tokens = ~35+ words → full paragraphs complete without truncation.
+    # Keep generation bounded. Longer text is already chunked in the app, so
+    # 350 avoids slow 900-token sampling while still allowing full sentence chunks.
     _orig_t3_inf = MODEL.t3.inference
     def _capped_t3_inference(*args, **kwargs):
-        kwargs['max_new_tokens'] = min(kwargs.get('max_new_tokens', 900), 900)
+        kwargs['max_new_tokens'] = min(kwargs.get('max_new_tokens', 350), 350)
         return _orig_t3_inf(*args, **kwargs)
     MODEL.t3.inference = _capped_t3_inference
-    print(f"[Voice] max_new_tokens = 900 (HD quality, full sentence completion).", flush=True)
+    print(f"[Voice] max_new_tokens = 350 (normal speed, chunked completion).", flush=True)
 
     print(f"[Voice] Pre-computing sc3 voice embeddings (24kHz soxr reference)...", flush=True)
     MODEL.prepare_conditionals(VOICE_REF_WAV_24K, exaggeration=0.5)
@@ -1434,14 +1434,8 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
                         top_p=top_p,
                     )
 
-                # Best-of-2: generate twice, keep the longer (more complete) result.
-                # Rejects garbled/silent first attempts that Chatterbox occasionally produces.
                 wav_t1 = _do_generate()
-                len1   = wav_t1.shape[-1]
-                wav_t2 = _do_generate()
-                len2   = wav_t2.shape[-1]
-                wav_t  = wav_t1 if len1 >= len2 else wav_t2
-                print(f"[Voice] Best-of-2: attempt1={len1} attempt2={len2} → kept {'1' if len1>=len2 else '2'}", flush=True)
+                wav_t  = wav_t1
             finally:
                 progress_stop.set()
             _set_progress(STAGES[3][0], STAGES[3][1], active=True, text=text)

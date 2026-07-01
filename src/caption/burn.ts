@@ -148,7 +148,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
   else if (['Telugu', 'Hindi', 'Tamil'].includes(s.language)) fontName = 'Nirmala UI';
   else if (['Urdu', 'Arabic'].includes(s.language)) fontName = 'Tahoma';
 
-  const fs = Math.round(720 * (s.fontSize / 720));
+  const fs = Math.round(s.fontSize * 1.75);
   
   // Swap primary and secondary colors for standard karaoke behavior:
   // - SecondaryColour (sec) is the inactive/unhighlighted color (normal text, e.g. White).
@@ -169,9 +169,13 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
   if (s.style === 'pill') {
     borderStyle = 3;
     outline = 0;
-  } else if (s.style === 'minimal' || s.style === 'white-yellow') {
+  } else if (s.style === 'minimal') {
     borderStyle = 1;
     outline = 0;
+    shadow = 1; // small drop-shadow so text is readable on bright backgrounds
+  } else if (s.style === 'white-yellow') {
+    borderStyle = 1;
+    outline = 1; // thin black outline keeps text readable on ANY background
   } else {
     // 'outline'
     borderStyle = 1;
@@ -190,18 +194,20 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
     backColor = '&HFF000000'; // 100% transparent
   }
 
-  // Outline color: solid black for outline style, otherwise transparent
-  const outColor = s.style === 'outline' ? '&H00000000' : '&HFF000000';
+  // Outline color: solid black for any style that renders an outline, transparent for pill (box style)
+  const outColor = s.style === 'pill' ? '&HFF000000' : '&H00000000';
 
   const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${fontName},${fs},${pri},${sec},${outColor},${backColor},-1,0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${align},10,10,60,${encoding}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
+
+  const x = Math.round(1920 * Math.max(0, Math.min(100, s.xPos)) / 100);
+  const y = Math.round(1080 * Math.max(0, Math.min(100, s.yPos)) / 100);
+  const posPrefix = `{\\an5\\pos(${x},${y})}`;
 
   const lines = timelineCaps.flatMap(c => {
     const words: WordItem[] = c.words?.length ? c.words : c.text.trim().split(/\s+/).map((t,i,a)=>({
       text:t, start:c.start+(i/a.length)*(c.end-c.start), end:c.start+((i+1)/a.length)*(c.end-c.start)
     }));
     if (s.style === 'white-yellow') {
-      const x = Math.round(1920 * Math.max(0, Math.min(100, s.xPos)) / 100);
-      const y = Math.round(1080 * Math.max(0, Math.min(100, s.yPos)) / 100);
       return words
         .filter(w => w.end > w.start)
         .map((word, activeIndex) => {
@@ -212,7 +218,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
           const text = isRtlLanguage(s.language) || hasArabic
             ? `\u202B${styledText}\u202C`
             : styledText;
-          return `Dialogue: 0,${toAss(word.start)},${toAss(word.end)},Default,,0,0,0,,{\\an5\\pos(${x},${y})}${text}`;
+          return `Dialogue: 0,${toAss(word.start)},${toAss(word.end)},Default,,0,0,0,,${posPrefix}${text}`;
         });
     }
     let kar = '';
@@ -227,7 +233,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
       kar += `{\\k${Math.max(1, Math.round(dur * 100))}}${shapeCaptionText(w.text, s)} `;
       currentTime = w.end;
     }
-    return [`Dialogue: 0,${toAss(c.start)},${toAss(c.end)},Default,,0,0,0,,${kar.trim()}`];
+    return [`Dialogue: 0,${toAss(c.start)},${toAss(c.end)},Default,,0,0,0,,${posPrefix}${kar.trim()}`];
   });
   return [header,...lines].join('\n');
 }
@@ -242,21 +248,40 @@ export async function burnCaptions(
   const assContent = buildAss(caps, settings);
   
   // Try the ultra-fast native FFmpeg IPC route first
-  const api = (window as any).electron;
-  if (api?.invoke && (file as any).path) {
-    onProgress(5);
-    try {
-      const result = await api.invoke('fast-burn-ass', {
-        videoPath: (file as any).path,
-        assContent,
-      });
-      if (result.ok) {
-        onProgress(100);
-        return { outputPath: result.outputPath, outputFileName: result.fileName };
+  const api = (window as any).electronAPI;
+  if (api?.burnCaptions && api?.getPathForFile) {
+    const videoPath = api.getPathForFile(file);
+    if (videoPath) {
+      onProgress(5);
+
+      // Smooth progress ticker: 5 → 94 while FFmpeg processes natively.
+      // Ramps quickly at first then slows near the end.
+      let fakeProgress = 5;
+      const ticker = setInterval(() => {
+        const remaining = 94 - fakeProgress;
+        const step = Math.max(0.4, remaining * 0.025);
+        fakeProgress = Math.min(94, fakeProgress + step);
+        onProgress(Math.round(fakeProgress));
+      }, 800);
+
+      try {
+        const result = await api.burnCaptions({
+          videoPath,
+          captions: caps,
+          fontSize: settings.fontSize,
+          position: settings.position,
+          assContent,
+        });
+        clearInterval(ticker);
+        if (result.ok) {
+          onProgress(100);
+          return { outputPath: result.outputPath, outputFileName: result.fileName };
+        }
+        throw new Error(result.error || 'Native burn failed');
+      } catch (err: any) {
+        clearInterval(ticker);
+        console.warn('[burnCaptions] Native fast-burn failed, falling back to WASM:', err);
       }
-      throw new Error(result.error || 'Native burn failed');
-    } catch (err: any) {
-      console.warn('[burnCaptions] Native fast-burn failed, falling back to WASM:', err);
     }
   }
 

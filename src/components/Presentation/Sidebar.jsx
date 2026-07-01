@@ -439,6 +439,9 @@ const GRADIENT_PRESETS = [
   { name: 'Aurora', value: 'linear-gradient(135deg, #001a0a 0%, #0a001a 50%, #1a0a00 100%)' },
 ];
 
+const normalizeArrowLineBreaks = (value) =>
+  String(value || '').replace(/=>[^\S\r\n]*/g, '=>\n');
+
 // ─── Sidebar Component ────────────────────────────────────────────────────────
 export const Sidebar = ({
   context, setContext, theme, setTheme, voices, selectedVoice, setSelectedVoice, disabled,
@@ -534,7 +537,7 @@ export const Sidebar = ({
               <SectionLabel>Story Script</SectionLabel>
               <textarea
                 value={context}
-                onChange={(e) => setContext(e.target.value)}
+                onChange={(e) => setContext(normalizeArrowLineBreaks(e.target.value))}
                 disabled={disabled}
                 placeholder="Enter your story here..."
                 className="w-full h-80 p-3 bg-white/5 border border-white/10 rounded-xl text-[12px] leading-relaxed font-medium resize-none focus:outline-none focus:border-[#969696] placeholder:text-white/10 text-white/80 transition-all"
