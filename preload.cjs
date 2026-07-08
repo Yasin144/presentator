@@ -2,6 +2,8 @@
 
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+const burnProgressHandlers = new Map();
+
 // ─── Expose a secure, limited API to the renderer via window.electronAPI ─────
 contextBridge.exposeInMainWorld('electronAPI', {
 
@@ -79,9 +81,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
   platform: process.platform,
 
+  // Synchronous Groq API key retrieval
+  getGroqApiKey: () =>
+    ipcRenderer.sendSync('get-groq-api-key'),
+
   // Fast caption export — burns subtitles into video using FFmpeg (no video playback)
   burnCaptions: (opts) =>
     ipcRenderer.invoke('burn-captions', opts),
+
+  // Probe video dimensions/duration natively so caption export can match the
+  // exact preview position and font scale without loading large videos in JS.
+  probeVideoMeta: (opts) =>
+    ipcRenderer.invoke('probe-video-meta', opts),
 
   // Extract 16kHz mono WAV audio natively using FFmpeg (returns on-disk path, NOT bytes)
   extractAudio: (opts) =>
@@ -102,5 +113,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Open a file with the OS default handler (e.g. play a burned video in media player)
   openFile: (filePath) =>
     ipcRenderer.invoke('open-file', filePath),
+
+  // Erase hardcoded captions from the bottom of the video using delogo filter
+  eraseCaptions: (opts) =>
+    ipcRenderer.invoke('erase-captions', opts),
+
+  // Real-time FFmpeg burn progress (0-94) sent from main while burning captions
+  onBurnProgress: (callback) => {
+    const handler = (_, data) => callback(data);
+    burnProgressHandlers.set(callback, handler);
+    ipcRenderer.on('burn-captions-progress', handler);
+  },
+
+  offBurnProgress: (callback) => {
+    const handler = burnProgressHandlers.get(callback);
+    if (handler) {
+      ipcRenderer.removeListener('burn-captions-progress', handler);
+      burnProgressHandlers.delete(callback);
+    }
+  },
 
 });

@@ -9,6 +9,8 @@ interface HFResponse {
   language?: string;
 }
 
+const CAPTION_SILENCE_GAP_SECONDS = 0.75;
+
 function getLanguageCode(language: Language): string | undefined {
   if (language === 'Auto-Detect') return undefined;
   const code = LANG_CODE[language];
@@ -149,7 +151,7 @@ async function isSilentWavChunk(chunk: Blob): Promise<boolean> {
     const value = samples[i] / 32768;
     sumSquares += value * value;
   }
-  return Math.sqrt(sumSquares / samples.length) < 0.0025;
+  return Math.sqrt(sumSquares / samples.length) < 0.001;
 }
 
 async function abortableDelay(ms: number, signal?: AbortSignal) {
@@ -353,8 +355,9 @@ function groupIntoSentences(chunks: HFChunk[], maxWords = 4): CaptionItem[] {
     const prevChunk = currentGroup.length ? currentGroup[currentGroup.length - 1] : null;
     const gap = prevChunk ? (chunk.timestamp[0] ?? 0) - (prevChunk.timestamp[1] ?? 0) : 0;
 
-    // Split if max words reached OR if there's a silence gap of > 0.6 seconds
-    if (currentGroup.length >= maxWords || gap > 0.2) {
+    // Split if max words reached OR if speech pauses. This keeps captions from
+    // hanging on screen while narration is silent.
+    if (currentGroup.length >= maxWords || gap > CAPTION_SILENCE_GAP_SECONDS) {
       if (currentGroup.length) {
         const start = currentGroup[0].timestamp[0] ?? 0;
         const end   = currentGroup[currentGroup.length - 1].timestamp[1] ?? start + 1;
@@ -389,6 +392,91 @@ function groupIntoSentences(chunks: HFChunk[], maxWords = 4): CaptionItem[] {
   }
 
   return caps.filter(c => c.text.length > 0);
+}
+
+function wordFingerprint(text: string): string {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .trim();
+}
+
+function flattenCaptionWords(captions: CaptionItem[]): { text: string; start: number; end: number }[] {
+  const words: { text: string; start: number; end: number }[] = [];
+  for (const cap of captions) {
+    const capWords = cap.words?.length
+      ? cap.words
+      : String(cap.text || '').trim().split(/\s+/).filter(Boolean).map((text, i, arr) => ({
+          text,
+          start: cap.start + (i / Math.max(1, arr.length)) * (cap.end - cap.start),
+          end: cap.start + ((i + 1) / Math.max(1, arr.length)) * (cap.end - cap.start),
+        }));
+
+    for (const word of capWords) {
+      const text = String(word.text || '').trim();
+      const start = Number(word.start);
+      const end = Number(word.end);
+      if (!text || !Number.isFinite(start) || !Number.isFinite(end)) continue;
+      words.push({ text, start: Math.max(0, start), end: Math.max(start + 0.05, end) });
+    }
+  }
+  return words.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+function sameOverlapWord(a: { text: string; start: number; end: number }, b: { text: string; start: number; end: number }): boolean {
+  const aKey = wordFingerprint(a.text);
+  const bKey = wordFingerprint(b.text);
+  if (!aKey || !bKey || aKey !== bKey) return false;
+  const overlap = Math.min(a.end, b.end) - Math.max(a.start, b.start);
+  if (overlap <= 0) return false;
+  const shortest = Math.max(0.05, Math.min(a.end - a.start, b.end - b.start));
+  return overlap >= Math.min(0.35, shortest * 0.55);
+}
+
+function mergeWordTimelines(existing: CaptionItem[], incoming: CaptionItem[], maxWords: number): CaptionItem[] {
+  const merged: { text: string; start: number; end: number }[] = [];
+
+  for (const word of flattenCaptionWords([...existing, ...incoming])) {
+    const duplicateIndex = merged.findIndex(prev => sameOverlapWord(prev, word));
+    if (duplicateIndex >= 0) {
+      const prev = merged[duplicateIndex];
+      merged[duplicateIndex] = {
+        text: prev.text.length >= word.text.length ? prev.text : word.text,
+        start: Math.min(prev.start, word.start),
+        end: Math.max(prev.end, word.end),
+      };
+      continue;
+    }
+    merged.push(word);
+  }
+
+  return rebuildCaptionsFromWords(merged.sort((a, b) => a.start - b.start || a.end - b.end), maxWords);
+}
+
+function rebuildCaptionsFromWords(words: { text: string; start: number; end: number }[], maxWords: number): CaptionItem[] {
+  const out: CaptionItem[] = [];
+  const limit = Math.max(1, maxWords);
+  let group: { text: string; start: number; end: number }[] = [];
+
+  const flush = () => {
+    if (!group.length) return;
+    out.push({
+      start: group[0].start,
+      end: group[group.length - 1].end,
+      text: group.map(w => w.text).join(' '),
+      words: group.map(w => ({ ...w })),
+    });
+    group = [];
+  };
+
+  for (const word of words) {
+    const prev = group[group.length - 1];
+    const gap = prev ? word.start - prev.end : 0;
+    if (group.length >= limit || gap > CAPTION_SILENCE_GAP_SECONDS) flush();
+    group.push(word);
+  }
+  flush();
+  return out;
 }
 
 // ── Plain-text → evenly spaced captions (no timestamps) ──────────────────
@@ -610,13 +698,20 @@ async function callWhisper(
   timestampMode: 'word' | 'segment' | 'none' = 'word',
   retryCount = 0,
   signal?: AbortSignal,
+  contextPrompt?: string,       // tail words from previous chunk for cross-boundary continuity
 ): Promise<HFResponse> {
   throwIfAborted(signal);
 
   const formData = new FormData();
   formData.append('file', chunk, 'audio.wav');
-  formData.append('model', 'whisper-large-v3'); // Use the full model instead of turbo for better accuracy
+  formData.append('model', 'whisper-large-v3'); // Full model — best accuracy
   formData.append('response_format', 'verbose_json');
+  formData.append('temperature', '0');           // Deterministic greedy decoding — no random substitutions
+  // Context prompt: helps Whisper stay in speech mode and continue from previous chunk
+  const prompt = contextPrompt
+    ? contextPrompt
+    : 'Transcribe every spoken word exactly as heard. Do not summarise, add music notes, or skip words.';
+  formData.append('prompt', prompt);
   if (langCode) formData.append('language', langCode);
   if (timestampMode === 'word') {
     formData.append('timestamp_granularities[]', 'word');
@@ -636,7 +731,7 @@ async function callWhisper(
     const retryAfter = resp.headers.get('retry-after') || '2';
     if (retryCount < 5) {
       await abortableDelay(parseInt(retryAfter) * 1000, signal);
-      return callWhisper(chunk, token, langCode, timestampMode, retryCount + 1, signal);
+      return callWhisper(chunk, token, langCode, timestampMode, retryCount + 1, signal, contextPrompt);
     }
     throw new Error('Rate limited — wait a moment and retry');
   }
@@ -647,7 +742,7 @@ async function callWhisper(
   if (json.error) {
     if (retryCount < 2) {
       await abortableDelay(3000, signal);
-      return callWhisper(chunk, token, langCode, timestampMode, retryCount + 1, signal);
+      return callWhisper(chunk, token, langCode, timestampMode, retryCount + 1, signal, contextPrompt);
     }
     throw new Error(`Whisper error: ${json.error.message || json.error}`);
   }
@@ -664,11 +759,12 @@ async function callWhisper(
 // ── Transcribe one audio chunk with fallback strategy ─────────────────────
 async function transcribeChunk(
   chunk: Blob, token: string, langCode: string | undefined, timeOffset: number, maxWords: number, signal?: AbortSignal,
+  contextPrompt?: string,
 ): Promise<CaptionItem[]> {
   console.log(`[CB] transcribeChunk offset=${timeOffset.toFixed(1)}s size=${chunk.size} lang=${langCode}`);
 
   // Try 1: word-level timestamps
-  let result = await callWhisper(chunk, token, langCode, 'word', 0, signal);
+  let result = await callWhisper(chunk, token, langCode, 'word', 0, signal, contextPrompt);
   console.log('[CB] word result: chunks=', result.chunks?.length ?? 0, 'text=', result.text?.slice(0,60));
   if (result.chunks && result.chunks.length > 0) {
     const shifted = result.chunks.map(c => ({
@@ -682,7 +778,7 @@ async function transcribeChunk(
   }
 
   // Try 2: segment-level timestamps
-  result = await callWhisper(chunk, token, langCode, 'segment', 0, signal);
+  result = await callWhisper(chunk, token, langCode, 'segment', 0, signal, contextPrompt);
   console.log('[CB] segment result: chunks=', result.chunks?.length ?? 0, 'text=', result.text?.slice(0,60));
   if (result.chunks && result.chunks.length > 0) {
     const shifted = result.chunks.map(c => ({
@@ -696,7 +792,7 @@ async function transcribeChunk(
   }
 
   // Try 3: no timestamps — plain text
-  result = await callWhisper(chunk, token, langCode, 'none', 0, signal);
+  result = await callWhisper(chunk, token, langCode, 'none', 0, signal, contextPrompt);
   console.log('[CB] none result: text=', result.text?.slice(0,60));
   const txt = result.text?.trim() ?? '';
   if (txt) {
@@ -831,6 +927,8 @@ export async function transcribeWithHuggingFace(
     console.log(`[CB] Resuming transcription from chunk ${startFromChunk}/${numChunks} with ${all.length} saved captions`);
   }
 
+  let chunkContextPrompt: string | undefined;  // tail of previous chunk passed into next for continuity
+
   for (let i = startFromChunk; i < numChunks; i++) {
     const pct = 12 + Math.round((i / numChunks) * 82);
     onProgress(`${displayLang} — part ${i + 1}/${numChunks}…`, pct);
@@ -848,17 +946,14 @@ export async function transcribeWithHuggingFace(
         saveCheckpoint(file, { numChunks, captions: all, completedUpTo: i, spokenLangCode, displayLang });
         continue;
       }
-      const caps = await transcribeChunk(chunk, hfToken, spokenLangCode, timeOffset, maxWordsPerCaption, signal);
+      const caps = await transcribeChunk(chunk, hfToken, spokenLangCode, timeOffset, maxWordsPerCaption, signal, chunkContextPrompt);
       if (caps.length > 0) {
-        const boundaryStart = (i === 0) ? 0 : (timeOffset + (CHUNK_OVERLAP_SECONDS / 2));
-        const boundaryEnd = (i === numChunks - 1) ? Infinity : (timeOffset + CHUNK_SECONDS - (CHUNK_OVERLAP_SECONDS / 2));
+        const cleanCaps = caps.filter(cap => !isGenericWhisperHallucination(cap.text));
+        all = mergeWordTimelines(all, cleanCaps, maxWordsPerCaption);
 
-        const inBounds = caps.filter(cap => {
-          if (isGenericWhisperHallucination(cap.text)) return false;
-          // Keep captions that start within the non-overlapping partition of this chunk
-          return cap.start >= boundaryStart && cap.start < boundaryEnd;
-        });
-        all.push(...inBounds);
+        // Build context prompt for next chunk: last 30 words of this chunk's text
+        const allWords = caps.map(c => c.text).join(' ').trim().split(/\s+/);
+        chunkContextPrompt = allWords.slice(-30).join(' ');
       }
       // ✅ Save checkpoint after every successful chunk
       saveCheckpoint(file, { numChunks, captions: all, completedUpTo: i, spokenLangCode, displayLang });

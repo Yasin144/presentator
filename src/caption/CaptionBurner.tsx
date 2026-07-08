@@ -12,6 +12,8 @@ import { burnCaptions } from './burn';
 // ── helpers ───────────────────────────────────────────────────────────────
 const uid    = () => Math.random().toString(36).slice(2, 10);
 const sanify = (n: string) => n.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 28) || 'video';
+const QUEUE_EXPORT_FONT_SIZE = 50;
+const CAPTION_WORD_LIMIT = 8;
 
 function dlBlob(blob: Blob, name: string) {
   const u = URL.createObjectURL(blob);
@@ -164,6 +166,7 @@ export default function CaptionBurner({ onClose }: Props) {
   const [errorMsg, setError]      = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testing, setTesting]     = useState(false);
+  const [erasing, setErasing]     = useState(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration]   = useState(0);
@@ -177,7 +180,7 @@ export default function CaptionBurner({ onClose }: Props) {
   const [editingCapText, setEditingCapText]   = useState<string>('');
 
   const [S, setS] = useState<CaptionSettings>({
-    fontSize: 35,
+    fontSize: QUEUE_EXPORT_FONT_SIZE,
     fontColor: 'White',
     bgColor: 'Transparent',
     style: 'white-yellow',
@@ -187,16 +190,14 @@ export default function CaptionBurner({ onClose }: Props) {
     highlightColor: '#facc15',
     language: 'Auto-Detect',
     offset: 0,
-    maxWordsPerCaption: 8,
+    maxWordsPerCaption: CAPTION_WORD_LIMIT,
     engine: 'groq',
   });
 
   const fileRef = useRef<HTMLInputElement>(null);
   const vidRef  = useRef<HTMLVideoElement>(null);
-  const procRef = useRef(false);
   const rafRef  = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const currentJobIdRef = useRef<string | null>(null);
+  const abortControllersRef = useRef<Record<string, AbortController>>({});
   const activeItem = useMemo(() => queue.find(i => i.id === activeId), [queue, activeId]);
 
   // RAF preview sync
@@ -275,7 +276,9 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const settingsForItem = useCallback((item: QueueItem): CaptionSettings => ({
     ...S,
-    language: item.language || S.language,
+    language: ((item.language || S.language) === 'Auto-Detect' && item.detectedLang && CAPTION_LANGUAGES.includes(item.detectedLang as Language))
+      ? item.detectedLang as Language
+      : item.language || S.language,
   }), [S]);
 
   const setItemLanguage = useCallback((id: string, language: Language) => {
@@ -316,13 +319,27 @@ export default function CaptionBurner({ onClose }: Props) {
   const isCancelError = (e: any) =>
     e?.name === 'AbortError' || /cancel/i.test(String(e?.message || e || ''));
 
-  const cancelCurrentVideo = useCallback(() => {
-    const id = currentJobIdRef.current || queue.find(i => i.status === 'transcribing' || i.status === 'exporting')?.id || activeId;
+  const cancelVideoItem = useCallback((id: string) => {
     if (!id) return;
-    abortRef.current?.abort();
+    const controller = abortControllersRef.current[id];
+    if (controller) {
+      controller.abort();
+      delete abortControllersRef.current[id];
+    }
     upd(id, { status: 'cancelled', progress: 0, message: 'Cancelled' });
-    notify('Cancelled', queue.find(i => i.id === id)?.video.name || 'Current video');
-  }, [activeId, queue, upd, notify]);
+    const item = queue.find(i => i.id === id);
+    if (item) {
+      notify('Cancelled', item.video.name);
+    }
+    setProc(Object.keys(abortControllersRef.current).length > 0);
+  }, [queue, upd, notify]);
+
+  const cancelCurrentVideo = useCallback(() => {
+    const id = queue.find(i => i.status === 'transcribing' || i.status === 'exporting')?.id || activeId;
+    if (id) {
+      cancelVideoItem(id);
+    }
+  }, [activeId, queue, cancelVideoItem]);
 
   const speak = useCallback((text: string) => {
     try {
@@ -380,12 +397,16 @@ export default function CaptionBurner({ onClose }: Props) {
         S.engine,
         signal,
       );
+      const resolvedLanguage = item.language === 'Auto-Detect' && CAPTION_LANGUAGES.includes(detectedLang as Language)
+        ? detectedLang as Language
+        : item.language;
       const nextItem: QueueItem = {
         ...item,
         status: 'transcribed',
         captions,
         message: `Ready · ${detectedLang}`,
         detectedLang,
+        language: resolvedLanguage,
         progress: 0,
       };
       upd(item.id, {
@@ -393,6 +414,7 @@ export default function CaptionBurner({ onClose }: Props) {
         captions,
         message: `Ready · ${detectedLang}`,
         detectedLang,
+        language: resolvedLanguage,
         progress: 0,
       });
       notify('Transcribe complete', item.video.name);
@@ -411,13 +433,29 @@ export default function CaptionBurner({ onClose }: Props) {
   }, [S.language, S.maxWordsPerCaption, S.engine, apiKey, upd, notify]);
 
   // Burn captions
-  const burnItem = useCallback(async (item: QueueItem, opts: { autoDownload?: boolean; phaseName?: string; signal?: AbortSignal } = {}) => {
+  const burnItem = useCallback(async (item: QueueItem, opts: { autoDownload?: boolean; phaseName?: string; signal?: AbortSignal; fontSize?: number } = {}) => {
     if (!item.captions) return null;
     setError(null);
     notify(opts.phaseName || 'Burn start', item.video.name);
     upd(item.id, { status: 'exporting', message: 'Burning captions…', progress: 0 });
     try {
-      const result = await burnCaptions(item.video.file!, item.captions, settingsForItem(item), p => upd(item.id, { progress: p }), opts.signal);
+      const itemSettings = settingsForItem(item);
+      const burnSettings = {
+        ...itemSettings,
+        fontSize: opts.fontSize ?? itemSettings.fontSize,
+      };
+      const result = await burnCaptions(
+        item.video.file!,
+        item.captions,
+        burnSettings,
+        p => upd(item.id, { progress: p }),
+        opts.signal,
+        {
+          width: item.video.width,
+          height: item.video.height,
+          duration: item.video.duration,
+        },
+      );
       const outputName = `${sanify(item.video.name)}_captioned_${Date.now()}.mp4`;
       
       let saved = { filePath: '', fileName: '' };
@@ -430,7 +468,7 @@ export default function CaptionBurner({ onClose }: Props) {
         outputUrl = URL.createObjectURL(result.blob);
       } else {
         saved = { filePath: result.outputPath || '', fileName: result.outputFileName || outputName };
-        outputUrl = `file:///${result.outputPath}`;
+        outputUrl = `file:///${result.outputPath.replace(/\\/g, '/')}`;
       }
 
       const nextItem: QueueItem = {
@@ -468,117 +506,171 @@ export default function CaptionBurner({ onClose }: Props) {
     }
   }, [settingsForItem, upd, notify, saveBlobToDownloads, speak]);
 
+  const processSingleItem = useCallback(async (item: QueueItem, signal: AbortSignal) => {
+    if (!item.video.file) return;
+    try {
+      let itemToBurn = item;
+      if (!item.captions?.length || item.status !== 'transcribed') {
+        const transcribed = await transcribeItem(item, signal);
+        if (!transcribed || !transcribed.captions?.length) return;
+        itemToBurn = transcribed;
+      }
+      upd(item.id, { status: 'exporting', message: `Captions ready. Exporting at ${QUEUE_EXPORT_FONT_SIZE}px...`, progress: 2 });
+      await burnItem(itemToBurn, { autoDownload: true, phaseName: 'Start queue', signal, fontSize: QUEUE_EXPORT_FONT_SIZE });
+    } catch (e) {
+      console.error(`[CaptionBurner] Failed to process ${item.video.name}:`, e);
+    }
+  }, [transcribeItem, burnItem]);
+
   const runFullProcess = useCallback(async (item: QueueItem) => {
-    if (!item.video.file || procRef.current) return;
-    procRef.current = true;
-    currentJobIdRef.current = item.id;
-    abortRef.current = new AbortController();
+    if (!item.video.file) return;
+    if (abortControllersRef.current[item.id]) return; // already running
+
+    const controller = new AbortController();
+    abortControllersRef.current[item.id] = controller;
     setProc(true);
     try {
-      const signal = abortRef.current.signal;
-      const transcribed = await transcribeItem(item, signal);
-      if (!transcribed?.captions?.length) return;
-
-      // Burn the transcription exactly as produced. AI spelling correction is
-      // manual because it must never translate or change the detected script.
-      await burnItem(transcribed, { autoDownload: true, phaseName: 'Burn start', signal });
+      await processSingleItem(item, controller.signal);
     } finally {
-      abortRef.current = null;
-      currentJobIdRef.current = null;
-      procRef.current = false;
-      setProc(false);
+      delete abortControllersRef.current[item.id];
+      setProc(Object.keys(abortControllersRef.current).length > 0);
     }
-  }, [transcribeItem, burnItem, apiKey, S.language, upd]);
+  }, [processSingleItem]);
 
-  const runAllProcesses = useCallback(async () => {
-    if (!queue.length || procRef.current) return;
-    procRef.current = true;
-    abortRef.current = new AbortController();
+  const orderQueueFrom = useCallback((items: QueueItem[], startId?: string) => {
+    if (!items.length || !startId) return items;
+    const startIndex = items.findIndex(item => item.id === startId);
+    if (startIndex <= 0) return items;
+    return [...items.slice(startIndex), ...items.slice(0, startIndex)];
+  }, []);
+
+  const runAllProcesses = useCallback(async (startId?: string) => {
+    if (!queue.length) return;
     setProc(true);
     setBatch(true);
+
+    const eligibleItems = orderQueueFrom(queue, startId).filter(item =>
+      item.video.file &&
+      item.status !== 'completed' &&
+      item.status !== 'cancelled' &&
+      item.status !== 'exporting' &&
+      item.status !== 'transcribing' &&
+      !abortControllersRef.current[item.id]
+    );
+
     try {
-      for (const item of queue) {
-        if (!item.video.file || item.status === 'completed' || item.status === 'cancelled') continue;
-        abortRef.current = new AbortController();
-        currentJobIdRef.current = item.id;
-        const signal = abortRef.current.signal;
+      for (const item of eligibleItems) {
         setActiveId(item.id);
-        if (item.captions?.length && item.status === 'transcribed') {
-          await burnItem(item, { autoDownload: true, phaseName: 'Burn start', signal });
-          continue;
+        const controller = new AbortController();
+        abortControllersRef.current[item.id] = controller;
+        try {
+          await processSingleItem(item, controller.signal);
+        } finally {
+          delete abortControllersRef.current[item.id];
         }
-        const transcribed = await transcribeItem(item, signal);
-        
-        if (transcribed?.captions?.length) {
-          await burnItem(transcribed, { autoDownload: true, phaseName: 'Burn start', signal });
-        }
-        currentJobIdRef.current = null;
       }
     } finally {
-      abortRef.current = null;
-      currentJobIdRef.current = null;
       setBatch(false);
-      procRef.current = false;
-      setProc(false);
+      setProc(Object.keys(abortControllersRef.current).length > 0);
     }
-  }, [queue, transcribeItem, burnItem]);
+  }, [queue, processSingleItem, orderQueueFrom]);
+
+  const exportAllCaptions = useCallback(async (startId?: string) => {
+    if (!queue.length) return;
+    setProc(true);
+    setBatch(true);
+
+    const eligibleItems = orderQueueFrom(queue, startId).filter(item =>
+      item.video.file &&
+      item.captions?.length &&
+      item.status !== 'cancelled' &&
+      item.status !== 'exporting' &&
+      item.status !== 'transcribing' &&
+      !abortControllersRef.current[item.id]
+    );
+
+    try {
+      for (const item of eligibleItems) {
+        setActiveId(item.id);
+        const controller = new AbortController();
+        abortControllersRef.current[item.id] = controller;
+        try {
+          await burnItem(item, { autoDownload: true, phaseName: 'Export queue', signal: controller.signal, fontSize: QUEUE_EXPORT_FONT_SIZE });
+        } finally {
+          delete abortControllersRef.current[item.id];
+        }
+      }
+    } finally {
+      setBatch(false);
+      setProc(Object.keys(abortControllersRef.current).length > 0);
+    }
+  }, [queue, burnItem, orderQueueFrom]);
 
   const reburnItem = useCallback(async (item: QueueItem) => {
-    if (!item.video.file || !item.captions?.length || procRef.current) return;
-    procRef.current = true;
-    currentJobIdRef.current = item.id;
-    abortRef.current = new AbortController();
+    if (!item.video.file || !item.captions?.length) return;
+    if (abortControllersRef.current[item.id]) return; // already running
+
+    const controller = new AbortController();
+    abortControllersRef.current[item.id] = controller;
     setProc(true);
     try {
-      await burnItem(item, { autoDownload: true, phaseName: 'Re-burn start', signal: abortRef.current.signal });
+      await burnItem(item, { autoDownload: true, phaseName: 'Re-burn start', signal: controller.signal, fontSize: QUEUE_EXPORT_FONT_SIZE });
     } finally {
-      abortRef.current = null;
-      currentJobIdRef.current = null;
-      procRef.current = false;
-      setProc(false);
+      delete abortControllersRef.current[item.id];
+      setProc(Object.keys(abortControllersRef.current).length > 0);
     }
   }, [burnItem]);
 
-  // Batch runner
-  useEffect(() => {
-    if (processing || procRef.current || !batchOn) return;
-    const next = queue.find(i => i.status === 'transcribed') ?? queue.find(i => i.status === 'idle' || i.status === 'failed');
-    if (!next) {
-      setBatch(false);
+  const handleEraseCaptions = useCallback(async () => {
+    if (!activeItem || !activeItem.video.file || erasing) return;
+    const api = electronApi();
+    const filePath = api?.getPathForFile ? api.getPathForFile(activeItem.video.file) : null;
+    if (!filePath) {
+      setError('Could not get video file path. Make sure you are running inside the desktop app.');
       return;
     }
-    procRef.current = true;
-    currentJobIdRef.current = next.id;
-    abortRef.current = new AbortController();
-    setProc(true);
-    (async () => {
-      const signal = abortRef.current?.signal;
-      if (next.status === 'transcribed') {
-        await burnItem(next, { autoDownload: true, phaseName: 'Burn start', signal });
-      } else {
-        const transcribed = await transcribeItem(next, signal);
-        if (transcribed?.captions?.length) {
-          await burnItem(transcribed, { autoDownload: true, phaseName: 'Burn start', signal });
-        }
+    
+    setErasing(true);
+    setError(null);
+    upd(activeItem.id, { status: 'exporting', message: 'Erasing bottom captions...', progress: 40 });
+    
+    try {
+      const res = await api.eraseCaptions({ filePath });
+      if (!res || !res.ok) {
+        throw new Error(res ? res.error : 'Caption erasing failed.');
       }
-    })()
-      .finally(() => {
-        abortRef.current = null;
-        currentJobIdRef.current = null;
-        procRef.current = false;
-        setProc(false);
+      
+      upd(activeItem.id, {
+        status: 'completed',
+        outputPath: res.outputPath,
+        outputFileName: res.fileName,
+        outputUrl: URL.createObjectURL(new Blob([])), // placeholder to satisfy completed state check
+        message: 'Captions erased successfully!',
+        progress: 100
       });
-  }, [queue, processing, batchOn, transcribeItem, burnItem]);
+      
+      setBurnedVideoUrl('file:///' + res.outputPath.replace(/\\/g, '/'));
+      
+      if (api?.showNotification) {
+        api.showNotification('Captions Erased!', 'Your clean video is ready in Downloads.');
+      }
+      
+    } catch (err: any) {
+      setError(err.message);
+      upd(activeItem.id, { status: 'failed', message: 'Erasing failed: ' + err.message, progress: 0 });
+    } finally {
+      setErasing(false);
+    }
+  }, [activeItem, erasing, upd]);
+
+  // Batch runner: process the whole queue with limited concurrency so large
+  // videos do not launch too many Whisper/FFmpeg jobs at once.
 
   const activeCap = useMemo(() => {
     if (!activeItem?.captions) return null;
     const t = Math.max(0, curTime - S.offset);
-    const caption = activeItem.captions.find(c => t >= c.start && t <= c.end) ?? null;
-    if (!caption) return null;
-    if (caption.words?.length && !caption.words.some(word => t >= word.start && t <= word.end)) {
-      return null;
-    }
-    return caption;
+    // Show caption for the full caption duration — don't hide during inter-word gaps
+    return activeItem.captions.find(c => t >= c.start && t <= c.end) ?? null;
   }, [activeItem, curTime, S.offset]);
 
   // Demo caption shown when video is loaded but not yet transcribed — lets user
@@ -645,9 +737,25 @@ export default function CaptionBurner({ onClose }: Props) {
   const failedCount    = queue.filter(i => i.status === 'failed').length;
   const cancelledCount = queue.filter(i => i.status === 'cancelled').length;
   const remainingCount = Math.max(0, queue.length - completedCount - cancelledCount);
-  const overallPct     = queue.length ? Math.round((completedCount / queue.length) * 100) : 0;
-  const currentWorkingItem = queue.find(i => i.status === 'exporting' || i.status === 'transcribing');
+  const currentWorkingItem = (activeItem && (activeItem.status === 'exporting' || activeItem.status === 'transcribing'))
+    ? activeItem
+    : queue.find(i => i.status === 'exporting' || i.status === 'transcribing');
   const isAllDone      = queue.length > 0 && queue.every(i => i.status === 'completed');
+  const currentWorkingIndex = currentWorkingItem ? queue.findIndex(i => i.id === currentWorkingItem.id) : -1;
+  const currentItemPct = Math.max(0, Math.min(100, Math.round(currentWorkingItem?.progress || 0)));
+  const queueProgressPct = queue.length
+    ? Math.min(100, Math.round(((completedCount + (currentWorkingItem ? currentItemPct / 100 : 0)) / queue.length) * 100))
+    : 0;
+  const queuePhaseLabel = currentWorkingItem
+    ? currentWorkingItem.status === 'exporting' ? 'Exporting captions' : 'Generating captions'
+    : isAllDone ? 'Queue complete'
+    : queue.length ? 'Queue ready'
+    : 'No videos loaded';
+  const queuePhaseDetail = currentWorkingItem
+    ? currentWorkingItem.message || (currentWorkingItem.status === 'exporting' ? `Burning at ${QUEUE_EXPORT_FONT_SIZE}px` : 'Transcribing speech')
+    : isAllDone ? 'All captioned videos are saved.'
+    : queue.length ? 'Click Start Queue to begin.'
+    : 'Add videos to begin.';
 
   const currentWizardStep = useMemo(() => {
     if (queue.length === 0) return 1;
@@ -703,10 +811,26 @@ export default function CaptionBurner({ onClose }: Props) {
   };
 
   // Active item derived action state
-  const canStart      = !!activeItem && !!activeItem.video.file && !processing && !procRef.current;
+  const isWorking     = activeItem && (activeItem.status === 'transcribing' || activeItem.status === 'exporting');
+  const canStart      = !!activeItem && !!activeItem.video.file && !isWorking;
   const canBurn       = activeItem && activeItem.captions?.length;
   const canDownload   = activeItem && activeItem.status === 'completed' && activeItem.outputUrl;
-  const isWorking     = activeItem && (activeItem.status === 'transcribing' || activeItem.status === 'exporting');
+  const captionReadyCount = queue.filter(i => i.video.file && i.captions?.length && i.status !== 'cancelled').length;
+  const queueRunnableCount = queue.filter(i =>
+    i.video.file &&
+    i.status !== 'completed' &&
+    i.status !== 'cancelled' &&
+    i.status !== 'exporting' &&
+    i.status !== 'transcribing'
+  ).length;
+  const needsTranscribeCount = queue.filter(i =>
+    i.video.file &&
+    i.status !== 'completed' &&
+    i.status !== 'cancelled' &&
+    i.status !== 'exporting' &&
+    i.status !== 'transcribing' &&
+    (!i.captions?.length || i.status !== 'transcribed')
+  ).length;
 
   const panel = {
     background: 'linear-gradient(135deg, rgba(12,18,34,0.92), rgba(8,12,24,0.96))',
@@ -782,15 +906,89 @@ export default function CaptionBurner({ onClose }: Props) {
         </button>
       </header>
 
-      <main className="flex flex-col flex-1 min-h-0" style={{ padding: 18, gap: 16 }}>
+      <section
+        className="shrink-0"
+        style={{
+          padding: '10px 24px',
+          background: currentWorkingItem
+            ? currentWorkingItem.status === 'exporting'
+              ? 'linear-gradient(90deg, rgba(245,158,11,0.18), rgba(99,102,241,0.12))'
+              : 'linear-gradient(90deg, rgba(14,165,233,0.18), rgba(99,102,241,0.12))'
+            : 'rgba(2,6,23,0.62)',
+          borderBottom: '1px solid rgba(125,145,255,0.12)',
+          boxShadow: currentWorkingItem ? '0 12px 30px rgba(2,6,23,0.28)' : 'none',
+        }}
+      >
+        <div className="flex items-center gap-4">
+          <div className="min-w-0" style={{ width: 260 }}>
+            <p className="text-[9px] font-black uppercase tracking-wider leading-none" style={{ color: currentWorkingItem?.status === 'exporting' ? '#fcd34d' : '#7dd3fc' }}>
+              Status
+            </p>
+            <p className="text-[12px] font-black text-white leading-none mt-1 truncate">{queuePhaseLabel}</p>
+            <p className="text-[9px] font-bold text-slate-300 mt-1 truncate">{queuePhaseDetail}</p>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[9px] font-bold text-slate-300 truncate">
+                {currentWorkingItem ? currentWorkingItem.video.name : queue.length ? `${remainingCount} remaining` : 'Add videos to begin'}
+              </span>
+              <span className="text-[11px] font-black text-white shrink-0">
+                {currentWorkingItem ? `${currentItemPct}% current` : `${queueProgressPct}% queue`}
+              </span>
+            </div>
+            <div className="w-full h-2 rounded-full overflow-hidden mt-2" style={{ background: 'rgba(255,255,255,0.10)' }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${currentWorkingItem ? currentItemPct : queueProgressPct}%`,
+                  background: currentWorkingItem?.status === 'exporting'
+                    ? 'linear-gradient(90deg,#f59e0b,#facc15,#a78bfa)'
+                    : 'linear-gradient(90deg,#38bdf8,#818cf8,#22d3ee)',
+                }}
+              />
+            </div>
+          </div>
+          <div style={{ width: 180 }}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[9px] font-black text-slate-300">Queue</span>
+              <span className="text-[9px] font-black text-white">{queueProgressPct}%</span>
+            </div>
+            <div className="w-full h-2 rounded-full overflow-hidden mt-2" style={{ background: 'rgba(255,255,255,0.08)' }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${queueProgressPct}%`, background: 'linear-gradient(90deg,#10b981,#38bdf8,#6366f1)' }}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <main
+        className="flex flex-col flex-1 min-h-0"
+        style={{
+          padding: 18,
+          paddingBottom: videoUrl ? 120 : 18,
+          gap: 16,
+          height: 'calc(100vh - 126px)',
+          overflowY: videoUrl ? 'auto' : 'hidden',
+          overflowX: 'hidden',
+          overscrollBehavior: 'contain',
+        }}
+      >
         <section
-          className="flex flex-col items-center justify-center shrink-0"
-          style={{ ...panel, borderRadius: 22, padding: 18, minHeight: 'clamp(330px, 50vh, 580px)' }}
+          className="flex flex-col items-center justify-center"
+          style={{
+            ...panel,
+            borderRadius: 22,
+            padding: 18,
+            minHeight: videoUrl ? 'clamp(520px, 66vh, 720px)' : 'clamp(330px, 50vh, 580px)',
+            overflow: 'hidden',
+          }}
           onDragOver={e => e.preventDefault()}
           onDrop={e => { e.preventDefault(); addFiles(Array.from(e.dataTransfer.files)); }}
         >
           {videoUrl ? (
-            <div className="flex flex-col gap-3 w-full" style={{ maxWidth: 980 }}>
+            <div className="flex flex-col gap-3 w-full min-h-0" style={{ maxWidth: 980 }}>
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[13px] font-black text-white leading-none">
@@ -821,7 +1019,7 @@ export default function CaptionBurner({ onClose }: Props) {
                   </span>
                 </div>
               </div>
-              <div className="relative w-full mx-auto" style={{ aspectRatio, maxWidth: `calc(420px * ${aspectRatio})`, maxHeight: '420px' }}>
+              <div className="relative w-full mx-auto min-h-0" style={{ aspectRatio, width: 'min(1120px, 100%)', maxHeight: 'min(560px, calc(100vh - 240px))' }}>
                 <div className="absolute inset-0 rounded-2xl" style={{ boxShadow: '0 0 70px rgba(56,189,248,0.12)', filter: 'blur(16px)', background: 'rgba(56,189,248,0.06)' }} />
                 <div className="relative rounded-2xl overflow-hidden bg-black w-full h-full" style={{ border: '1px solid rgba(148,163,184,0.16)', boxShadow: '0 22px 70px rgba(0,0,0,0.72)', containerType: 'size' }}>
                   <video
@@ -835,6 +1033,16 @@ export default function CaptionBurner({ onClose }: Props) {
                       const h = e.currentTarget.videoHeight;
                       if (w && h) {
                         setAspectRatio(`${w}/${h}`);
+                        if (activeItem) {
+                          upd(activeItem.id, {
+                            video: {
+                              ...activeItem.video,
+                              width: w,
+                              height: h,
+                              duration: e.currentTarget.duration,
+                            },
+                          });
+                        }
                       }
                     }}
                     onPlay={() => setIsPlaying(true)}
@@ -860,7 +1068,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       <div
                         className={`px-5 py-2.5 font-black flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 mx-auto w-fit leading-tight max-w-[90%] ${S.style === 'pill' ? 'backdrop-blur-sm' : ''}`}
                         style={{
-                          fontSize: `calc(${S.fontSize} * 0.162cqh)`,
+                          fontSize: `${S.fontSize}px`,
                           color: S.style === 'white-yellow' ? '#ffffff' : sc(S.fontColor),
                           borderRadius: S.style === 'pill' ? '9999px' : '10px',
                           background: S.style === 'pill' ? sc(S.bgColor) : 'transparent',
@@ -873,25 +1081,33 @@ export default function CaptionBurner({ onClose }: Props) {
                             : 'none',
                         }}
                       >
-                        {getWords(previewCap).map((w, i) => {
+                        {(() => {
+                          const allWords = getWords(previewCap);
                           const t = Math.max(0, curTime - S.offset);
-                          const liveLit = t >= w.start && t <= w.end;
-                          const lit = liveLit;
-                          return (
-                            <span
-                              key={i}
-                              className="inline-block transition-all duration-100"
-                              style={{
-                                color: lit ? (S.style === 'white-yellow' ? '#facc15' : S.highlightColor) : 'inherit',
-                                fontWeight: S.style === 'white-yellow' ? 900 : (lit ? 900 : 700),
-                                transform: lit ? 'scale(1.06)' : 'scale(1)',
-                                textShadow: lit ? `0 0 20px ${S.style === 'white-yellow' ? '#facc15' : S.highlightColor}60` : 'inherit',
-                              }}
-                            >
-                              {w.text}
-                            </span>
-                          );
-                        })}
+                          const activeIndex = allWords.findIndex(w => t >= w.start && t <= w.end);
+                          const groupStart = activeIndex >= 0 ? Math.floor(activeIndex / CAPTION_WORD_LIMIT) * CAPTION_WORD_LIMIT : 0;
+                          const wordsToShow = allWords.slice(groupStart, groupStart + CAPTION_WORD_LIMIT);
+                          return wordsToShow.filter((_, __, words) => {
+                          if (S.style !== 'white-yellow') return true;
+                          return words.some(w => t >= w.start && t <= w.end);
+                        }).map((w, i) => {
+                            const lit = t >= w.start && t <= w.end;
+                            return (
+                              <span
+                                key={i}
+                                className="inline-block transition-all duration-100"
+                                style={{
+                                  color: lit ? (S.style === 'white-yellow' ? '#facc15' : S.highlightColor) : 'inherit',
+                                  fontWeight: S.style === 'white-yellow' ? 900 : (lit ? 900 : 700),
+                                  transform: lit ? 'scale(1.06)' : 'scale(1)',
+                                  textShadow: lit && S.style !== 'white-yellow' ? `0 0 20px ${S.highlightColor}60` : 'inherit',
+                                }}
+                              >
+                                {w.text}
+                              </span>
+                            );
+                          });
+                        })()}
                       </div>
                     </div>
                   )}
@@ -1019,8 +1235,8 @@ export default function CaptionBurner({ onClose }: Props) {
           )}
         </section>
 
-        <section className="flex flex-1 min-h-0 gap-4">
-          <aside className="flex flex-col" style={{ ...panel, width: '35%', minWidth: 340, borderRadius: 18, overflow: 'hidden' }}>
+        <section className="flex flex-1 min-h-0 gap-4" style={videoUrl ? { minHeight: 620, overflow: 'visible' } : undefined}>
+          <aside className="flex flex-col" style={{ ...panel, width: '34%', minWidth: 340, borderRadius: 18, overflow: 'hidden' }}>
             <div className="flex items-center justify-between" style={{ padding: 14, borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               <div>
                 <p className="text-[11px] font-black text-white leading-none">Videos and captions</p>
@@ -1038,16 +1254,67 @@ export default function CaptionBurner({ onClose }: Props) {
               </div>
             </div>
             <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(2,6,23,0.28)' }}>
+              {(batchOn || currentWorkingItem) && (
+                <div
+                  className="rounded-xl mb-3"
+                  style={{
+                    padding: 12,
+                    background: currentWorkingItem?.status === 'exporting'
+                      ? 'linear-gradient(135deg,rgba(245,158,11,0.18),rgba(124,58,237,0.12))'
+                      : 'linear-gradient(135deg,rgba(14,165,233,0.18),rgba(99,102,241,0.12))',
+                    border: currentWorkingItem?.status === 'exporting'
+                      ? '1px solid rgba(245,158,11,0.30)'
+                      : '1px solid rgba(14,165,233,0.30)',
+                    boxShadow: '0 12px 28px rgba(2,6,23,0.32)',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="inline-block w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin shrink-0"
+                        style={{ borderColor: currentWorkingItem?.status === 'exporting' ? '#fcd34d' : '#7dd3fc', borderTopColor: 'transparent' }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-[8px] font-black uppercase tracking-wider leading-none" style={{ color: currentWorkingItem?.status === 'exporting' ? '#fcd34d' : '#7dd3fc' }}>
+                          Active now
+                        </p>
+                        <p className="text-[10px] font-black text-white leading-none">{queuePhaseLabel}</p>
+                        <p className="text-[8px] font-bold text-slate-300 truncate mt-1">
+                          {currentWorkingItem
+                            ? `${currentWorkingIndex + 1}/${queue.length} · ${currentWorkingItem.video.name}`
+                            : 'Preparing next video...'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[13px] font-black text-white leading-none">{currentItemPct}%</p>
+                      <p className="text-[8px] font-bold text-slate-400 mt-1">current video</p>
+                    </div>
+                  </div>
+                  <p className="text-[8px] font-bold text-slate-300 truncate mt-2">{queuePhaseDetail}</p>
+                  <div className="w-full h-2 rounded-full overflow-hidden mt-2" style={{ background: 'rgba(255,255,255,0.10)' }}>
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${currentItemPct}%`,
+                        background: currentWorkingItem?.status === 'exporting'
+                          ? 'linear-gradient(90deg,#f59e0b,#facc15,#a78bfa)'
+                          : 'linear-gradient(90deg,#38bdf8,#818cf8,#22d3ee)',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[9px] font-black text-white">{overallPct}% complete</span>
+                <span className="text-[9px] font-black text-white">{queueProgressPct}% queue progress</span>
                 <span className="text-[8px] font-bold text-slate-400">
-                  Done {completedCount}/{queue.length} · Remaining {remainingCount} · Working {workingCount}{failedCount ? ` · Failed ${failedCount}` : ''}{cancelledCount ? ` · Cancelled ${cancelledCount}` : ''}
+                  Done {completedCount}/{queue.length} · Remaining {remainingCount}/{queue.length} · Working {workingCount}{failedCount ? ` · Failed ${failedCount}` : ''}{cancelledCount ? ` · Cancelled ${cancelledCount}` : ''}
                 </span>
               </div>
               <div className="w-full h-2 rounded-full overflow-hidden mt-2" style={{ background: 'rgba(255,255,255,0.07)' }}>
                 <div
                   className="h-full rounded-full transition-all"
-                  style={{ width: `${overallPct}%`, background: 'linear-gradient(90deg,#10b981,#38bdf8,#6366f1)' }}
+                  style={{ width: `${queueProgressPct}%`, background: 'linear-gradient(90deg,#10b981,#38bdf8,#6366f1)' }}
                 />
               </div>
               {currentWorkingItem && (
@@ -1057,7 +1324,9 @@ export default function CaptionBurner({ onClose }: Props) {
                       {currentWorkingItem.status === 'exporting' ? 'Burning' : 'Transcribing'} · {currentWorkingItem.video.name}
                     </span>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[9px] font-black text-white">{Math.round(currentWorkingItem.progress || 0)}%</span>
+                      <span className="text-[9px] font-black text-white">
+                        {Math.round(currentWorkingItem.progress || 0)}% · Rem {Math.max(0, 100 - Math.round(currentWorkingItem.progress || 0))}%
+                      </span>
                       <button
                         onClick={cancelCurrentVideo}
                         className="w-6 h-6 rounded-lg text-[10px] font-black text-rose-300 hover:text-white transition-all"
@@ -1099,22 +1368,35 @@ export default function CaptionBurner({ onClose }: Props) {
                         <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
                         <span className={`text-[8px] font-bold ${cfg.text}`}>{cfg.label}</span>
                         {(item.status === 'transcribing' || item.status === 'exporting') && (
-                          <span className="text-[8px] font-black text-white">{Math.round(item.progress || 0)}%</span>
+                          <span className="text-[8px] font-black text-white">
+                            {Math.round(item.progress || 0)}% · Rem {Math.max(0, 100 - Math.round(item.progress || 0))}%
+                          </span>
                         )}
                         {(item.status === 'transcribing' || item.status === 'exporting') ? (
                           <button
-                            onClick={e => { e.stopPropagation(); cancelCurrentVideo(); }}
+                            onClick={e => { e.stopPropagation(); cancelVideoItem(item.id); }}
                             className="w-5 h-5 rounded text-[8px] font-black text-rose-300 hover:text-white transition-all"
                             style={{ marginLeft: 'auto', background: 'rgba(244,63,94,0.14)', border: '1px solid rgba(244,63,94,0.24)' }}
                             title="Cancel this video"
                           >X</button>
                         ) : (
-                          <button
-                            onClick={e => { e.stopPropagation(); remove(item.id); }}
-                            className="w-5 h-5 rounded text-[8px] font-black text-slate-400 hover:text-rose-400 transition-all"
-                            style={{ marginLeft: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
-                            title="Remove video from list"
-                          >X</button>
+                          <>
+                            {item.captions?.length && (
+                              <button
+                                onClick={e => { e.stopPropagation(); setActiveId(item.id); reburnItem(item); }}
+                                disabled={processing}
+                                className="h-5 rounded px-2 text-[8px] font-black text-amber-200 hover:text-white transition-all disabled:opacity-40"
+                                style={{ marginLeft: 'auto', background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.24)' }}
+                                title="Export this video"
+                              >Export</button>
+                            )}
+                            <button
+                              onClick={e => { e.stopPropagation(); remove(item.id); }}
+                              className="w-5 h-5 rounded text-[8px] font-black text-slate-400 hover:text-rose-400 transition-all"
+                              style={{ marginLeft: item.captions?.length ? 0 : 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+                              title="Remove video from list"
+                            >X</button>
+                          </>
                         )}
                       </div>
                       <select
@@ -1217,24 +1499,37 @@ export default function CaptionBurner({ onClose }: Props) {
             </div>
           </aside>
 
-          <div className="flex flex-col flex-1 min-w-0" style={{ ...panel, borderRadius: 18, overflow: 'hidden' }}>
+          <div className="flex flex-col flex-1 min-w-0" style={{ ...panel, borderRadius: 18, overflow: 'hidden', minHeight: 0 }}>
             <div className="flex items-center justify-between" style={{ padding: 14, borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               <div>
                 <p className="text-[11px] font-black text-white leading-none">Caption options</p>
                 <p className="text-[9px] text-slate-500 mt-1">Row-wise controls. Changes show on the upload preview above.</p>
               </div>
-              <button
-                disabled={queue.length === 0 || isAllDone || processing}
-                onClick={runAllProcesses}
-                className="px-3 py-1.5 rounded-lg text-[9px] font-bold transition-all"
-                style={{ color: batchOn ? '#fcd34d' : '#cbd5e1', background: batchOn ? 'rgba(245,158,11,0.14)' : 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
-              >
-                {batchOn ? `Processing ${completedCount}/${queue.length}` : 'Start All Process'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={queue.length === 0 || queueRunnableCount === 0 || processing}
+                  onClick={() => runAllProcesses(activeId || undefined)}
+                  className="px-3 py-1.5 rounded-lg text-[9px] font-bold transition-all flex items-center gap-1.5"
+                  style={{ color: batchOn ? '#fcd34d' : '#cbd5e1', background: batchOn ? 'rgba(245,158,11,0.14)' : 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+                >
+                  {batchOn && (
+                    <span className="inline-block w-3 h-3 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#fcd34d', borderTopColor: 'transparent' }} />
+                  )}
+                  {batchOn ? `Queue Running ${workingCount}/${queue.length}` : `Start Queue (${queueRunnableCount})`}
+                </button>
+                <button
+                  disabled={captionReadyCount === 0 || processing}
+                  onClick={() => exportAllCaptions(activeId || undefined)}
+                  className="px-3 py-1.5 rounded-lg text-[9px] font-bold transition-all"
+                  style={{ color: '#fcd34d', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.24)' }}
+                >
+                  Export All ({captionReadyCount})
+                </button>
+              </div>
             </div>
 
-            <div className="overflow-y-auto" style={{ padding: 14 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(260px, 1fr))', gap: 12 }}>
+            <div className="overflow-y-auto flex-1 min-h-0" style={{ padding: 14, overscrollBehavior: 'contain', scrollbarGutter: 'stable' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(280px, 1fr))', gap: 12 }}>
                 <OptionCard title="Style">
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
                     {(['pill', 'outline', 'minimal', 'white-yellow'] as const).map(p => (
@@ -1274,7 +1569,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       <input type="color" value={S.highlightColor} onChange={e => setS(s => ({ ...s, highlightColor: e.target.value }))} className="w-full h-9 rounded-lg cursor-pointer border-0 bg-transparent p-0 mt-1" />
                     </div>
                     <SliderRow label="Sync Offset" value={`${S.offset > 0 ? '+' : ''}${S.offset.toFixed(2)}s`} min={-2} max={2} step={0.05} inputValue={S.offset} onChange={v => setS(s => ({ ...s, offset: v }))} isFloat />
-                    <SliderRow label="Words / Segment" value={`${S.maxWordsPerCaption}`} min={1} max={12} inputValue={S.maxWordsPerCaption} onChange={v => setS(s => ({ ...s, maxWordsPerCaption: v }))} />
+                    <SliderRow label="Words / Segment" value={`${S.maxWordsPerCaption}`} min={1} max={CAPTION_WORD_LIMIT} inputValue={S.maxWordsPerCaption} onChange={v => setS(s => ({ ...s, maxWordsPerCaption: v }))} />
                   </div>
                 </OptionCard>
 
@@ -1330,8 +1625,8 @@ export default function CaptionBurner({ onClose }: Props) {
               <div className="flex flex-col gap-2 mt-3">
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => activeItem && (canBurn ? reburnItem(activeItem) : runFullProcess(activeItem))}
-                    disabled={(!canStart && !canBurn) || !!isWorking || (canBurn && processing)}
+                    onClick={() => activeItem && (canBurn ? reburnItem(activeItem) : runAllProcesses(activeItem.id))}
+                    disabled={(!canStart && !canBurn) || !!isWorking}
                     className="flex-1 py-2.5 rounded-xl font-bold text-[11px] flex items-center justify-center gap-2 transition-all disabled:opacity-30"
                     style={{
                       background: canBurn 
@@ -1341,11 +1636,13 @@ export default function CaptionBurner({ onClose }: Props) {
                       color: canBurn ? '#fcd34d' : '#bae6fd'
                     }}
                   >
-                    {canBurn ? <IconFire /> : <IconMic />}
+                    {batchOn || isWorking ? (
+                      <span className="inline-block w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: canBurn ? '#fcd34d' : '#bae6fd', borderTopColor: 'transparent' }} />
+                    ) : canBurn ? <IconFire /> : <IconMic />}
                     {activeItem?.status === 'transcribing' ? 'Transcribing...' 
                       : activeItem?.status === 'exporting' ? 'Burning...' 
-                      : canBurn ? 'Burn Video' 
-                      : 'Start Selected'}
+                      : canBurn ? 'Export Video' 
+                      : `Start Queue (${queueRunnableCount})`}
                   </button>
                   {canBurn && (
                     <button
@@ -1393,6 +1690,20 @@ export default function CaptionBurner({ onClose }: Props) {
                 >
                   <IconDownload /> {activeItem?.outputPath ? 'Open Saved File' : 'Save Output'}
                 </button>
+                {activeItem && (
+                  <button
+                    onClick={handleEraseCaptions}
+                    disabled={!!isWorking || processing || erasing}
+                    className="flex-1 py-2.5 rounded-xl font-bold text-[11px] flex items-center justify-center gap-2 transition-all disabled:opacity-30"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(239,68,68,0.18), rgba(185,28,28,0.10))',
+                      border: '1px solid rgba(239,68,68,0.28)',
+                      color: '#fca5a5'
+                    }}
+                  >
+                    🧹 {erasing ? 'Erasing...' : 'Caption Eraser (delogo)'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1553,7 +1864,7 @@ function CaptionLookPreview({
 }) {
   const previewText = ['this', 'section', 'looks', 'synced'];
   const activeIndex = compact ? 1 : 2;
-  const fontSize = compact ? 10 : Math.max(13, Math.min(22, Math.round(settings.fontSize * 0.32)));
+  const fontSize = compact ? 10 : Math.max(13, Math.min(22, Math.round(settings.fontSize * 0.5)));
   const background = settings.style === 'pill' ? sc(settings.bgColor) : 'transparent';
   const color = settings.style === 'white-yellow' ? '#ffffff' : sc(settings.fontColor);
   const textShadow = settings.style === 'white-yellow'
@@ -1607,8 +1918,8 @@ function CaptionLookPreview({
                 color: index === activeIndex ? (settings.style === 'white-yellow' ? '#facc15' : settings.highlightColor) : 'inherit',
                 transform: index === activeIndex ? 'scale(1.08)' : 'scale(1)',
                 transition: 'all 120ms ease',
-                textShadow: index === activeIndex
-                  ? `0 0 14px ${settings.style === 'white-yellow' ? '#facc15' : settings.highlightColor}88`
+                textShadow: index === activeIndex && settings.style !== 'white-yellow'
+                  ? `0 0 14px ${settings.highlightColor}88`
                   : textShadow,
               }}
             >

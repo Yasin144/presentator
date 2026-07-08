@@ -9,7 +9,6 @@ function InputPanel() {
     <section className="panel panel-input" id="inputPanel">
       <div className="panel-head">
         <div className="panel-copy">
-          <p className="eyebrow">Anjali Teacher</p>
           <h1>Presentator Workspace</h1>
           <p className="subcopy">
             A premium, dynamic environment. Type your lesson once. The narration and presentation update
@@ -1419,7 +1418,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
           fontWeight:'700',alignSelf:'center'}}></span>
       </div>
 
-      <details className="section-card" id="aiCaptionSection" open>
+      <details className="section-card caption-burner-card" id="aiCaptionSection" open>
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">CAP</span>
@@ -1430,15 +1429,30 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             </span>
           </span>
         </summary>
-        <div className="section-content">
+        <div className="section-content caption-burner-body">
           <div className="upload-block">
             <label className="field-label" htmlFor="captionVideoInput">Source Video</label>
             <p className="upload-copy">Upload an `mp4` or `webm`. The AI will extract the audio and generate TikTok-style
               dynamic captions completely offline.</p>
-            <input id="captionVideoInput" className="image-input" type="file" accept="video/*"  />
+            <input id="captionVideoInput" className="image-input" type="file" accept="video/*" multiple />
+
+            <div id="captionQueuePanel" className="hidden" style={{"marginTop": "10px", "padding": "10px", "borderRadius": "8px", "background": "rgba(255,255,255,0.05)", "border": "1px solid rgba(255,255,255,0.1)"}}>
+              <div style={{"display": "flex", "alignItems": "center", "justifyContent": "space-between", "gap": "10px"}}>
+                <span id="captionQueueStatus" className="upload-copy" style={{"margin": "0", "fontWeight": "700"}}>Queue ready.</span>
+                <div style={{"display": "flex", "gap": "8px"}}>
+                  <button id="captionQueueRunBtn" className="ghost-btn" type="button">Start Queue</button>
+                  <button id="captionQueueExportAllBtn" className="ghost-btn" type="button">Export All</button>
+                  <button id="captionQueuePrevBtn" className="ghost-btn" type="button">Previous</button>
+                  <button id="captionQueueNextBtn" className="ghost-btn" type="button">Next Video</button>
+                </div>
+              </div>
+              <div id="captionQueueList" style={{"display": "grid", "gap": "6px", "marginTop": "8px"}}></div>
+            </div>
 
             <div className="toolbar toolbar-compact">
               <button id="captionActionBtn" className="primary-btn" type="button" disabled>Generate Captions (Upload Source First)</button>
+              <button id="captionEraseBtn" className="accent-btn hidden" type="button" style={{"background": "linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(185, 28, 28, 0.15))", "border": "1px solid rgba(239, 68, 68, 0.4)", "color": "#fca5a5"}}>🧹 Erase Captions</button>
+              <button id="captionPreviewBtn" className="ghost-btn hidden" type="button">Preview 5s</button>
               <button id="captionExportBtn" className="accent-btn hidden" type="button">Export Result</button>
               <button id="captionViralShortBtn" className="primary-btn hidden" type="button" style={{"background": "#f90"}}>✂️
                 Export 15s Viral Short</button>
@@ -1446,7 +1460,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             </div>
 
 
-            <div className="display-style-card"
+            <div className="display-style-card caption-options-scroll"
               style={{"marginTop": "1rem", "padding": "12px", "borderRadius": "8px", "background": "rgba(0,0,0,0.1)"}}>
               <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "8px"}}>
                 <label className="field-label" style={{"margin": "0"}}>Advanced Caption Engine Theme</label>
@@ -1489,7 +1503,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <p className="upload-copy" style={{"margin": "0"}}>(Triggers Whoosh/Pop SFX randomly on focus)</p>
                 </div>
                 <div style={{"display": "flex", "alignItems": "center", "gap": "8px"}}>
-                  <input type="checkbox" id="captionProgressBarCheck" style={{"width": "18px", "height": "18px"}} defaultChecked />
+                  <input type="checkbox" id="captionProgressBarCheck" style={{"width": "18px", "height": "18px"}} />
                   <label htmlFor="captionProgressBarCheck"
                     style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer", "flexGrow": "1"}}>⏱️ Viewer Retention Progress
                     Bar</label>
@@ -1514,7 +1528,8 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <div style={{"display": "flex", "gap": "10px", "marginBottom": "12px"}}>
                 <div style={{"flex": "1"}}>
                   <span className="style-label" style={{"color": "#aaa"}}>Visual Master Theme</span>
-                  <select id="captionStyleSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="tiktok">
+                  <select id="captionStyleSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="white-yellow">
+                    <option value="white-yellow">White + Yellow (Bold & Outline)</option>
                     <option value="tiktok">Viral Pop (Bold & Shadow)</option>
                     <option value="classic">Classic TV (White & Black Box)</option>
                     <option value="cinematic">Cinematic Fade (Clean White)</option>
@@ -1551,29 +1566,41 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <div className="display-style-grid"
                 style={{"gap": "8px", "marginBottom": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr"}}>
                 <label className="style-field">
-                  <span className="style-label">Engine Text Size Scale</span>
-                  <input type="range" id="captionSizeSlider" min="30" max="150" defaultValue="80" />
+                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
+                    <span className="style-label">Caption Font Size</span>
+                    <span id="captionSizeValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>43% · 50px</span>
+                  </div>
+                  <input type="range" id="captionSizeSlider" min="20" max="90" defaultValue="50" />
                 </label>
                 <label className="style-field">
-                  <span className="style-label">Line Spacing Gap</span>
+                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
+                    <span className="style-label">Line Spacing Gap</span>
+                    <span id="captionGapValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>33% · 120</span>
+                  </div>
                   <input type="range" id="captionGapSlider" min="80" max="200" defaultValue="120" />
                 </label>
                 <label className="style-field">
-                  <span className="style-label">Max Width Bound</span>
+                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
+                    <span className="style-label">Max Width Bound</span>
+                    <span id="captionWidthValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>85%</span>
+                  </div>
                   <input type="range" id="captionWidthSlider" min="30" max="95" defaultValue="85" />
                 </label>
                 <label className="style-field">
                   <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>
                     <span className="style-label" style={{"color": "#ffcc00", "fontWeight": "bold"}}>Sync Offset</span>
                     <span id="captionSyncNum"
-                      style={{"color": "#ffcc00", "fontSize": "0.8rem", "fontFamily": "monospace"}}>0.0s</span>
+                      style={{"color": "#ffcc00", "fontSize": "0.8rem", "fontFamily": "monospace"}}>50% · 0.0s</span>
                   </div>
                   <input type="range" id="captionSyncSlider" min="-15000" max="15000" step="100" defaultValue="0"
                      />
                 </label>
                 <label className="style-field">
-                  <span className="style-label">Stroke Thickness</span>
-                  <input type="range" id="captionStrokeSlider" min="0" max="100" defaultValue="80" />
+                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
+                    <span className="style-label">Stroke Thickness</span>
+                    <span id="captionStrokeValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>0%</span>
+                  </div>
+                  <input type="range" id="captionStrokeSlider" min="0" max="100" defaultValue="0" />
                 </label>
               </div>
 
@@ -1592,6 +1619,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   <div id="captionProgressBarValue" style={{"height": "100%", "width": "0%", "background": "var(--accent-a)", "transition": "width 0.3s ease"}}></div>
               </div>
             </div>
+            <div id="captionExportActions" className="hidden" style={{"marginTop": "10px", "display": "flex", "gap": "8px", "flexWrap": "wrap"}}></div>
 
             <div id="captionVideoContainer" className="hidden"
               style={{"marginTop": "1.5rem", "borderRadius": "8px", "overflow": "hidden", "background": "#000", "position": "relative"}}>

@@ -36,6 +36,22 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 const ROOT    = __dirname;
 const IS_DEV  = !app.isPackaged && process.env.PRESENTATOR_DEV === '1';
 
+const CAPTION_WORK_ROOT = path.join(ROOT, 'caption-work');
+function ensureCaptionWorkDir(...segments) {
+  const dir = path.join(CAPTION_WORK_ROOT, ...segments);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+const groqKeyPath = path.join(ROOT, '.groq_api_key');
+if (!process.env.GROQ_API_KEY && fs.existsSync(groqKeyPath)) {
+  try {
+    process.env.GROQ_API_KEY = fs.readFileSync(groqKeyPath, 'utf8').trim();
+  } catch (e) {
+    console.error('[PP] Failed to read .groq_api_key file:', e.message);
+  }
+}
+
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Main-process crash guard (prevents silent death) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // If any unhandled error slips past, log it but DON'T let the main process die.
 process.on('uncaughtException', (err) => {
@@ -603,6 +619,24 @@ async function createWindow() {
     win.loadURL('app://voice/' + htmlPath);
   }
 
+  // ————————————— IPC: Synchronous Groq API Key retrieval —————————————————————————
+  ipcMain.on('get-groq-api-key', (event) => {
+    event.returnValue = process.env.GROQ_API_KEY || '';
+  });
+
+  // ————————————— IPC: Native OS Notification —————————————————————————————————————
+  ipcMain.handle('show-notification', async (_, { title, body }) => {
+    try {
+      const { Notification } = require('electron');
+      if (Notification.isSupported()) {
+        new Notification({ title, body }).show();
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   // ————————————— IPC: Native Save File Dialog ————————————————————————————————————
   ipcMain.handle('show-save-dialog', async (_, options) => {
     let defaultPath = options.defaultPath;
@@ -706,7 +740,7 @@ async function createWindow() {
     // Use a stable filename based on the video path hash so re-uploads reuse the cached WAV.
     const crypto = require('crypto');
     const videoHash = crypto.createHash('md5').update(videoPath).digest('hex').slice(0, 12);
-    const tmpWav = path.join(os.tmpdir(), 'caption-audio-' + videoHash + '.wav');
+    const tmpWav = path.join(ensureCaptionWorkDir('audio-cache'), 'caption-audio-' + videoHash + '.wav');
 
     try {
       // Skip extraction if cached WAV from the same video already exists
@@ -770,7 +804,7 @@ async function createWindow() {
 //   3. Falls back to HTTP server (port 8428) if Python unavailable
 //   4. Returns { ok, text, segments, words } to renderer
 ipcMain.handle('transcribe-video', async (event, opts) => {
-  const { videoPath } = opts || {};
+  const { videoPath, languageHint } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
 
   // Find FFmpeg
@@ -782,7 +816,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
 
   const FFMPEG = findFFmpeg();
   const stamp  = Date.now();
-  const tmpWav = path.join(os.tmpdir(), 'caption-' + stamp + '.wav');
+  const tmpWav = path.join(ensureCaptionWorkDir('transcribe-audio'), 'caption-' + stamp + '.wav');
 
   try {
     // Step 1: Extract audio from video as 16kHz mono WAV
@@ -809,16 +843,17 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
 
     console.log('[Caption] Running Whisper:', path.basename(scriptPath), 'via', path.basename(pyExe));
 
+    const langParam = languageHint || 'auto';
     const whisperResult = await new Promise((resolve, reject) => {
-      const proc = spawn(pyExe, [scriptPath, tmpWav, 'en'], {
+      const proc = spawn(pyExe, [scriptPath, tmpWav, langParam], {
         stdio: 'pipe',
         windowsHide: true,
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+        env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
       });
       let stdout = '', stderr = '';
       proc.stdout && proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
       proc.stderr && proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
-      const timer = setTimeout(() => { proc.kill(); reject(new Error('Whisper timeout (5min)')); }, 300000);
+      const timer = setTimeout(() => { proc.kill(); reject(new Error('Whisper timeout (30min)')); }, 1800000);
       proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
       proc.on('exit', code => {
         clearTimeout(timer);
@@ -857,20 +892,20 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     }
     return { ok: false, error: err.message };
   } finally {
-    try { fs.unlinkSync(tmpWav); } catch (_) {}
+    console.log('[Caption] Kept transcription WAV:', tmpWav);
   }
 });
 
 // ————————————— Whisper Transcription Helper —————————————————————————————————————
 // Spawns whisper-transcribe.py from .singing-venv (has faster-whisper installed).
 // Far more accurate than Windows Speech Recognition (port 8428) for Indian accents.
-async function runWhisperTranscribe(audioPath, timeoutMs = 300000) {
+async function runWhisperTranscribe(audioPath, timeoutMs = 1800000) {
   return new Promise((resolve, reject) => {
     const py = fs.existsSync(WHISPER_PYTHON) ? WHISPER_PYTHON : 'python';
     const proc = spawn(py, [WHISPER_SCRIPT, audioPath], {
       stdio: 'pipe',
       windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
     });
     let stdout = '', stderr = '';
     if (proc.stdout) proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
@@ -1333,6 +1368,81 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
   }
 });
 
+// ————————————— Native Caption Eraser (delogo blur filter) —————————————
+ipcMain.handle('erase-captions', async (event, opts) => {
+  const { filePath } = opts || {};
+  if (!filePath) return { ok: false, error: 'No file path provided.' };
+
+  const os = require('os');
+  const fs = require('fs');
+  const path = require('path');
+  const { spawn } = require('child_process');
+
+  const tmpDir  = os.tmpdir();
+  const stamp   = Date.now();
+  const baseName = path.basename(filePath, path.extname(filePath));
+  const outputMp4 = path.join(os.homedir(), 'Downloads', baseName + '-erased-' + stamp + '.mp4');
+  const FFMPEG = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+  const FFPROBE = FFMPEG.replace('ffmpeg.exe', 'ffprobe.exe');
+
+  function getVideoDimensions(path_) {
+    return new Promise((resolve) => {
+      const proc = spawn(FFPROBE, [
+        '-v', 'quiet', '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height',
+        '-of', 'csv=s=x:p=0', path_
+      ], { stdio: 'pipe', windowsHide: true });
+      let out = '';
+      proc.stdout.on('data', d => { out += d.toString(); });
+      proc.on('exit', () => {
+        const parts = out.trim().split('x');
+        const w = parseInt(parts[0]) || 1920;
+        const h = parseInt(parts[1]) || 1080;
+        resolve({ width: w, height: h });
+      });
+      proc.on('error', () => resolve({ width: 1920, height: 1080 }));
+    });
+  }
+
+  try {
+    const { width, height } = await getVideoDimensions(filePath);
+    console.log('[PP] Erase: video dimensions ' + width + 'x' + height);
+
+    // Box parameters: cover only the caption line precisely (bottom 5.5% height, 70% width, centered at 88% Y)
+    const boxW = Math.round(width * 0.70);
+    const boxH = Math.round(height * 0.055);
+    const boxX = Math.round((width - boxW) / 2);
+    const boxY = Math.round(height * 0.88);
+
+    const delogoFilter = 'delogo=x=' + boxX + ':y=' + boxY + ':w=' + boxW + ':h=' + boxH;
+    console.log('[PP] Erase: applying delogo filter: ' + delogoFilter);
+
+    await new Promise((resolve, reject) => {
+      const proc = spawn(FFMPEG, [
+        '-y', '-i', filePath,
+        '-vf', delogoFilter,
+        '-c:a', 'copy',
+        outputMp4
+      ], { stdio: 'pipe', windowsHide: true });
+
+      let stderr = '';
+      if (proc.stderr) proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
+      proc.on('exit', code => {
+        if (code === 0) resolve();
+        else reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300)));
+      });
+    });
+
+    console.log('[PP] Erase: caption erasing complete -> ' + outputMp4);
+    return { ok: true, outputPath: outputMp4, fileName: path.basename(outputMp4) };
+
+  } catch (err) {
+    console.error('[PP] Erase: caption erasing error:', err.message);
+    return { ok: false, error: err.message };
+  }
+});
+
 
 // IPC: Merge Narration Audio into Video
 // Mixes a narration WAV/MP3 into a video so Whisper can transcribe the real voice
@@ -1371,6 +1481,44 @@ ipcMain.handle('merge-audio-into-video', async (event, opts) => {
 // Uses FFmpeg to burn subtitle text directly onto video frames.
 // Audio is COPIED (no re-encode) → zero quality loss, instant mux.
 // Saves to Downloads as captioned_video_<timestamp>.mp4
+function findCaptionFFmpegPath() {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('where ffmpeg', { encoding: 'utf8', timeout: 3000 }).trim().split('\n')[0].trim();
+    if (result && require('fs').existsSync(result)) return result;
+  } catch (_) {}
+  const wingetPath = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+  if (require('fs').existsSync(wingetPath)) return wingetPath;
+  throw new Error('FFmpeg not found. Install it via: winget install Gyan.FFmpeg.Essentials');
+}
+
+ipcMain.handle('probe-video-meta', async (event, opts) => {
+  const { videoPath } = opts || {};
+  if (!videoPath) return { ok: false, error: 'No video path provided.' };
+  try {
+    const { execFileSync } = require('child_process');
+    const FFMPEG = findCaptionFFmpegPath();
+    const ffprobe = path.join(path.dirname(FFMPEG), path.basename(FFMPEG).replace('ffmpeg', 'ffprobe'));
+    const raw = execFileSync(ffprobe, [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height:format=duration',
+      '-of', 'json',
+      videoPath,
+    ], { encoding: 'utf8', timeout: 15000 });
+    const parsed = JSON.parse(raw || '{}');
+    const stream = parsed.streams && parsed.streams[0] ? parsed.streams[0] : {};
+    return {
+      ok: true,
+      width: Number(stream.width) || 0,
+      height: Number(stream.height) || 0,
+      duration: Number(parsed.format && parsed.format.duration) || 0,
+    };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.handle('burn-captions', async (event, opts) => {
   const { videoPath, captions, fontSize = 28, position = 'bottom', assContent } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
@@ -1378,21 +1526,14 @@ ipcMain.handle('burn-captions', async (event, opts) => {
 
   // ── Dynamic FFmpeg detection ─────────────────────────────────────────────────
   function findFFmpegPath() {
-    // 1. Try PATH lookup first (fastest)
-    try {
-      const { execSync } = require('child_process');
-      const result = execSync('where ffmpeg', { encoding: 'utf8', timeout: 3000 }).trim().split('\n')[0].trim();
-      if (result && require('fs').existsSync(result)) return result;
-    } catch (_) {}
-    // 2. Known WinGet install path (fallback)
-    const wingetPath = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
-    if (require('fs').existsSync(wingetPath)) return wingetPath;
-    throw new Error('FFmpeg not found. Install it via: winget install Gyan.FFmpeg.Essentials');
+    return findCaptionFFmpegPath();
   }
   const FFMPEG = findFFmpegPath();
-  const tmpDir  = require('os').tmpdir();
+  const tmpDir  = ensureCaptionWorkDir('burn-subtitles');
   const stamp   = Date.now();
-  const outFile = path.join(os.homedir(), 'Downloads', 'captioned_video_' + stamp + '.mp4');
+  const baseName = path.basename(videoPath, path.extname(videoPath));
+  const outFile = path.join(os.homedir(), 'Downloads', baseName + '_captioned.mp4');
+  const partialOutFile = path.join(os.homedir(), 'Downloads', baseName + '_captioned.' + stamp + '.part.mp4');
 
   let assPath = '';
   let srtPath = '';
@@ -1426,8 +1567,20 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       srtPath = path.join(tmpDir, 'captions-' + stamp + '.srt');
       const srtLines = [];
       captions.forEach((c, i) => {
-        const start = Math.max(0, Number(c.start) || 0);
-        const end   = Math.max(start + 0.1, Number(c.end) || start + 2);
+        let start = 0;
+        let end   = 2;
+        if (typeof c.start === 'number' || (typeof c.start === 'string' && c.start !== '')) {
+          start = Number(c.start);
+        } else if (Array.isArray(c.timestamp)) {
+          start = Number(c.timestamp[0]) || 0;
+        }
+        if (typeof c.end === 'number' || (typeof c.end === 'string' && c.end !== '')) {
+          end = Number(c.end);
+        } else if (Array.isArray(c.timestamp)) {
+          end = Number(c.timestamp[1]) || (start + 2);
+        }
+        start = Math.max(0, start || 0);
+        end   = Math.max(start + 0.1, end || start + 2);
         const text  = String(c.text || '').trim().replace(/[<>]/g, '');
         if (!text) return;
         srtLines.push(String(i + 1));
@@ -1444,37 +1597,102 @@ ipcMain.handle('burn-captions', async (event, opts) => {
     }
 
     // ── 2. FFmpeg: burn subtitles onto video, copy audio exactly ──────────────────────
+    // First probe total duration/bitrate so progress is accurate and export
+    // quality is never lower than the source video bitrate.
+    let totalDurationSec = 0;
+    let sourceVideoBitrate = 0;
+    try {
+      const { execSync } = require('child_process');
+      // Safely replace only the file name (ffmpeg.exe -> ffprobe.exe), not parent directory names
+      const ffprobe = path.join(path.dirname(FFMPEG), path.basename(FFMPEG).replace('ffmpeg', 'ffprobe'));
+      const probeOut = execSync(
+        `"${ffprobe}" -v error -select_streams v:0 -show_entries stream=bit_rate:format=duration,bit_rate -of json "${videoPath}"`,
+        { encoding: 'utf8', timeout: 10000 }
+      ).trim();
+      const probe = JSON.parse(probeOut || '{}');
+      totalDurationSec = parseFloat(probe && probe.format && probe.format.duration) || 0;
+      const streamBitrate = Number(probe && probe.streams && probe.streams[0] && probe.streams[0].bit_rate) || 0;
+      const formatBitrate = Number(probe && probe.format && probe.format.bit_rate) || 0;
+      sourceVideoBitrate = Math.max(streamBitrate, formatBitrate);
+    } catch (_) {}
+
     await new Promise((resolve, reject) => {
+      const videoQualityArgs = sourceVideoBitrate > 0
+        ? [
+            '-c:v', 'libx264',
+            '-preset', 'slow',
+            '-b:v', String(Math.ceil(sourceVideoBitrate * 1.15)),
+            '-maxrate', String(Math.ceil(sourceVideoBitrate * 1.75)),
+            '-bufsize', String(Math.ceil(sourceVideoBitrate * 3.5)),
+            '-pix_fmt', 'yuv420p',
+          ]
+        : [
+            '-c:v', 'libx264',
+            '-preset', 'slow',
+            '-crf', '16',
+            '-pix_fmt', 'yuv420p',
+          ];
       const proc = spawn(FFMPEG, [
         '-y', '-i', videoPath,
         '-map', '0:v:0',
         '-map', '0:a?',
         '-vf', subFilter,
-        '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
+        ...videoQualityArgs,
         '-c:a', 'copy',          // ← copy audio stream as-is (no re-encode = perfect audio)
         '-avoid_negative_ts', 'make_zero',
         '-movflags', '+faststart',
-        outFile
+        '-progress', 'pipe:2',   // emit progress lines to stderr
+        partialOutFile
       ], { stdio: 'pipe', windowsHide: true });
 
+      // Kill process if it hangs for more than 30 minutes
+      const hangTimer = setTimeout(() => {
+        try { proc.kill('SIGKILL'); } catch (_) {}
+        reject(new Error('FFmpeg timed out after 30 minutes'));
+      }, 30 * 60 * 1000);
+
       let stderr = '';
-      if (proc.stderr) proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('error', err => reject(new Error('FFmpeg spawn: ' + err.message)));
+      if (proc.stderr) {
+        proc.stderr.on('data', d => {
+          const chunk = d.toString();
+          stderr += chunk;
+          // Parse real progress from FFmpeg -progress output (out_time_us or out_time_ms = XXXXXX microseconds)
+          const m = chunk.match(/out_time_(?:us|ms)=(\d+)/);
+          if (m && totalDurationSec > 0) {
+            const elapsedSec = parseInt(m[1], 10) / 1e6;
+            const pct = Math.min(94, Math.round((elapsedSec / totalDurationSec) * 94));
+            event.sender.send('burn-captions-progress', { videoPath, pct });
+          }
+        });
+      }
+      proc.on('error', err => { clearTimeout(hangTimer); reject(new Error('FFmpeg spawn: ' + err.message)); });
       proc.on('exit', code => {
-        if (code === 0) resolve();
+        clearTimeout(hangTimer);
+        if (code === 0) {
+          event.sender.send('burn-captions-progress', { videoPath, pct: 98, phase: 'finalizing' });
+          resolve();
+        }
         else reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300)));
       });
     });
 
+    try {
+      if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
+      fs.renameSync(partialOutFile, outFile);
+    } catch (moveErr) {
+      throw new Error('Could not finalize captioned video: ' + (moveErr.message || String(moveErr)));
+    }
+
     console.log('[BurnCaptions] Done:', path.basename(outFile));
-    return { ok: true, outputPath: outFile, fileName: path.basename(outFile) };
+    return { ok: true, outputPath: outFile, fileName: path.basename(outFile), assPath, srtPath };
 
   } catch (err) {
+    try { if (partialOutFile && fs.existsSync(partialOutFile)) fs.unlinkSync(partialOutFile); } catch (_) {}
     console.error('[BurnCaptions] Error:', err.message);
     return { ok: false, error: err.message };
   } finally {
-    if (srtPath) { try { require('fs').unlinkSync(srtPath); } catch (_) {} }
-    if (assPath) { try { require('fs').unlinkSync(assPath); } catch (_) {} }
+    if (srtPath) console.log('[BurnCaptions] Kept SRT:', srtPath);
+    if (assPath) console.log('[BurnCaptions] Kept ASS:', assPath);
   }
 });
 

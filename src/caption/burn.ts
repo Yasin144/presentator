@@ -4,6 +4,16 @@ import { CaptionItem, CaptionSettings, WordItem } from './types';
 
 let ff: FFmpeg | null = null;
 
+interface BurnVideoMeta {
+  width?: number;
+  height?: number;
+  duration?: number;
+}
+
+const SPEECH_GAP_SECONDS = 0.75;
+const CAPTION_WORD_LIMIT = 8;
+const CAPTION_BOTTOM_OFFSET_PX = 20;
+
 async function getFFmpeg(): Promise<FFmpeg> {
   if (ff?.loaded) return ff;
   ff = new FFmpeg();
@@ -51,6 +61,10 @@ function shapeCaptionText(text: string, settings: CaptionSettings) {
   return isRtlLanguage(settings.language) ? `\u202B${safe}\u202C` : safe;
 }
 
+function captionBottomSafety(fontSize: number, lineCount = 1) {
+  return CAPTION_BOTTOM_OFFSET_PX;
+}
+
 function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionItem[] {
   const shifted: CaptionItem[] = [];
   for (const cap of caps) {
@@ -82,7 +96,7 @@ function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionI
 
     for (const word of validWords) {
       const previous = group[group.length - 1];
-      if (previous && word.start - previous.end > 0.2) flush();
+      if (previous && word.start - previous.end > SPEECH_GAP_SECONDS) flush();
       group.push(word);
     }
     flush();
@@ -91,7 +105,11 @@ function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionI
 }
 
 function normalizeCaptionTimeline(caps: CaptionItem[], offset: number): CaptionItem[] {
-  const sorted = speechBoundCaptionEvents(caps, offset)
+  // Preserve the user's selected/editor caption cards. Flattening the whole
+  // transcript here makes continuous speech export as one long subtitle line.
+  const speechEvents = speechBoundCaptionEvents(caps, offset);
+
+  const sorted = speechEvents
     .filter(c => c && String(c.text || '').trim() && Number.isFinite(c.start) && Number.isFinite(c.end))
     .map(c => ({
       ...c,
@@ -109,28 +127,61 @@ function normalizeCaptionTimeline(caps: CaptionItem[], offset: number): CaptionI
   for (const current of sorted) {
     const previous = out[out.length - 1];
     if (previous && current.start < previous.end) {
-      // Whisper chunks overlap by design. End the previous event immediately
-      // before the next one so libass can never render two caption rows.
-      previous.end = Math.max(previous.start, current.start - 0.01);
+      current.start = Math.max(previous.end + 0.01, current.start);
       if (previous.words?.length) {
         previous.words = previous.words
-          .filter(w => w.start < previous.end)
           .map(w => ({
             ...w,
             start: Math.max(previous.start, w.start),
-            end: Math.min(previous.end, Math.max(w.start + 0.01, w.end)),
+            end: Math.max(w.start + 0.01, w.end),
           }))
           .filter(w => w.end > w.start);
       }
-      if (previous.end - previous.start < 0.05) out.pop();
+      if (current.words?.length) {
+        current.words = current.words.map(w => ({
+          ...w,
+          start: Math.max(current.start, w.start),
+          end: Math.max(Math.max(current.start, w.start) + 0.01, w.end),
+        }));
+      }
+      current.end = Math.max(current.start + 0.05, current.end);
     }
     out.push(current);
   }
   return out;
 }
 
-function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
-  const timelineCaps = normalizeCaptionTimeline(caps, s.offset || 0);
+function splitCaptionForExport(cap: CaptionItem, maxWords: number): CaptionItem[] {
+  const words = (cap.words?.length
+    ? cap.words
+    : cap.text.trim().split(/\s+/).map((text, i, all) => ({
+        text,
+        start: cap.start + (i / all.length) * (cap.end - cap.start),
+        end: cap.start + ((i + 1) / all.length) * (cap.end - cap.start),
+      })))
+    .filter(w => String(w.text || '').trim() && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const limit = Math.max(1, Math.min(CAPTION_WORD_LIMIT, Math.round(maxWords || CAPTION_WORD_LIMIT)));
+  if (words.length <= limit) return [cap];
+
+  const parts: CaptionItem[] = [];
+  for (let i = 0; i < words.length; i += limit) {
+    const slice = words.slice(i, i + limit);
+    parts.push({
+      start: slice[0].start,
+      end: Math.max(slice[0].start + 0.05, slice[slice.length - 1].end),
+      text: slice.map(w => w.text).join(' '),
+      words: slice,
+    });
+  }
+  return parts;
+}
+
+function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta = {}): string {
+  const exportWordLimit = Math.max(1, Math.min(CAPTION_WORD_LIMIT, Math.round(s.maxWordsPerCaption || CAPTION_WORD_LIMIT)));
+  const timelineCaps = normalizeCaptionTimeline(caps, s.offset || 0)
+    .flatMap(cap => splitCaptionForExport(cap, exportWordLimit));
   // Auto-detect font based on actual text content to prevent missing glyphs (tofu boxes)
   // if the user's language dropdown doesn't match the actual script being rendered.
   const allText = timelineCaps.map(c => c.text).join(' ');
@@ -148,7 +199,9 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
   else if (['Telugu', 'Hindi', 'Tamil'].includes(s.language)) fontName = 'Nirmala UI';
   else if (['Urdu', 'Arabic'].includes(s.language)) fontName = 'Tahoma';
 
-  const fs = Math.round(s.fontSize * 1.75);
+  const playResX = Math.max(1, Math.round(meta.width || 1920));
+  const playResY = Math.max(1, Math.round(meta.height || 1080));
+  const fs = Math.max(10, Math.min(Math.round(playResY * 0.09), Math.round(s.fontSize || 35)));
   
   // Swap primary and secondary colors for standard karaoke behavior:
   // - SecondaryColour (sec) is the inactive/unhighlighted color (normal text, e.g. White).
@@ -175,11 +228,13 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
     shadow = 1; // small drop-shadow so text is readable on bright backgrounds
   } else if (s.style === 'white-yellow') {
     borderStyle = 1;
-    outline = 1; // thin black outline keeps text readable on ANY background
+    outline = 0;
+    shadow = 0;
   } else {
     // 'outline'
     borderStyle = 1;
-    outline = 2;
+    outline = 3; // Thick black outline
+    shadow = 1;  // Subtle drop shadow
   }
 
   // Map BackColour based on s.bgColor
@@ -195,33 +250,53 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings): string {
   }
 
   // Outline color: solid black for any style that renders an outline, transparent for pill (box style)
-  const outColor = s.style === 'pill' ? '&HFF000000' : '&H00000000';
+  const outColor = outline > 0 ? '&H00000000' : '&HFF000000';
 
-  const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${fontName},${fs},${pri},${sec},${outColor},${backColor},-1,0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${align},10,10,60,${encoding}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
+  const marginV = CAPTION_BOTTOM_OFFSET_PX;
+  const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${playResX}\nPlayResY: ${playResY}\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${fontName},${fs},${pri},${sec},${outColor},${backColor},-1,0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${align},10,10,${marginV},${encoding}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
 
-  const x = Math.round(1920 * Math.max(0, Math.min(100, s.xPos)) / 100);
-  const y = Math.round(1080 * Math.max(0, Math.min(100, s.yPos)) / 100);
-  const posPrefix = `{\\an5\\pos(${x},${y})}`;
+  const x = Math.round(playResX * Math.max(0, Math.min(100, s.xPos)) / 100);
+  const anchor = s.position === 'top' ? 8 : 2;
+  const estimateLineCount = (words: WordItem[]) => {
+    if (s.position === 'top') return 1;
+    const text = words.map(w => w.text).join(' ');
+    const availableWidth = Math.max(80, playResX * 0.85);
+    const approxCharsPerLine = Math.max(8, Math.floor(availableWidth / Math.max(8, fs * 0.56)));
+    return Math.max(1, Math.ceil(text.length / approxCharsPerLine));
+  };
+  const posPrefixFor = (words: WordItem[]) => {
+    const y = s.position === 'top'
+      ? Math.round(playResY * Math.max(0, Math.min(100, s.yPos)) / 100)
+      : playResY - captionBottomSafety(fs, estimateLineCount(words));
+    return `{\\an${anchor}\\pos(${x},${y})}`;
+  };
 
   const lines = timelineCaps.flatMap(c => {
     const words: WordItem[] = c.words?.length ? c.words : c.text.trim().split(/\s+/).map((t,i,a)=>({
       text:t, start:c.start+(i/a.length)*(c.end-c.start), end:c.start+((i+1)/a.length)*(c.end-c.start)
     }));
     if (s.style === 'white-yellow') {
-      return words
-        .filter(w => w.end > w.start)
-        .map((word, activeIndex) => {
+      const validWords = words.filter(w => w.end > w.start);
+      const posPrefix = posPrefixFor(words);
+      const activeLines = validWords.map((word, activeIndex) => {
+          const nextWord = validWords[activeIndex + 1];
+          const shortGapEnd = nextWord && nextWord.start > word.end && nextWord.start - word.end <= SPEECH_GAP_SECONDS
+            ? nextWord.start
+            : word.end;
+          const lineEnd = Math.max(word.start + 0.05, Math.min(shortGapEnd, c.end));
           const styledText = words.map((token, tokenIndex) => {
             const color = tokenIndex === activeIndex ? pri : sec;
-            return `{\\1c${color}}${escapeAssText(token.text)}`;
+            return `{\\alpha&H00&\\1c${color}}${escapeAssText(token.text)}`;
           }).join(' ');
           const text = isRtlLanguage(s.language) || hasArabic
             ? `\u202B${styledText}\u202C`
             : styledText;
-          return `Dialogue: 0,${toAss(word.start)},${toAss(word.end)},Default,,0,0,0,,${posPrefix}${text}`;
+          return `Dialogue: 0,${toAss(word.start)},${toAss(lineEnd)},Default,,0,0,0,,${posPrefix}${text}`;
         });
+      return activeLines;
     }
     let kar = '';
+    const posPrefix = posPrefixFor(words);
     let currentTime = c.start;
     for (let i = 0; i < words.length; i++) {
       const w = words[i];
@@ -242,10 +317,9 @@ export async function burnCaptions(
   file: File, caps: CaptionItem[], settings: CaptionSettings,
   onProgress: (p: number) => void,
   signal?: AbortSignal,
+  videoMeta: BurnVideoMeta = {},
 ): Promise<{ blob?: Blob; outputPath?: string; outputFileName?: string }> {
   throwIfAborted(signal);
-
-  const assContent = buildAss(caps, settings);
   
   // Try the ultra-fast native FFmpeg IPC route first
   const api = (window as any).electronAPI;
@@ -253,16 +327,48 @@ export async function burnCaptions(
     const videoPath = api.getPathForFile(file);
     if (videoPath) {
       onProgress(5);
+      let nativeMeta: BurnVideoMeta = videoMeta;
+      if ((!nativeMeta.width || !nativeMeta.height) && api?.probeVideoMeta) {
+        try {
+          const probed = await api.probeVideoMeta({ videoPath });
+          if (probed?.ok) {
+            nativeMeta = {
+              width: probed.width || nativeMeta.width,
+              height: probed.height || nativeMeta.height,
+              duration: probed.duration || nativeMeta.duration,
+            };
+          }
+        } catch {}
+      }
+      const assContent = buildAss(caps, settings, nativeMeta);
 
-      // Smooth progress ticker: 5 → 94 while FFmpeg processes natively.
-      // Ramps quickly at first then slows near the end.
-      let fakeProgress = 5;
-      const ticker = setInterval(() => {
-        const remaining = 94 - fakeProgress;
-        const step = Math.max(0.4, remaining * 0.025);
-        fakeProgress = Math.min(94, fakeProgress + step);
-        onProgress(Math.round(fakeProgress));
-      }, 800);
+      // Listen for real FFmpeg progress events sent from main process via contextBridge.
+      // Keep a gentle heartbeat too, because some FFmpeg builds/files do not emit
+      // useful out_time progress until late in the burn.
+      let ticker: ReturnType<typeof setInterval> | null = null;
+      let shownPct = 5;
+
+      const onRealProgress = (data: any) => {
+        let progressVal = 0;
+        if (typeof data === 'number') {
+          progressVal = data;
+        } else if (data && typeof data === 'object') {
+          if (data.videoPath && data.videoPath !== videoPath) return;
+          progressVal = typeof data.pct === 'number' ? data.pct : 0;
+        }
+        shownPct = Math.max(shownPct, Math.min(98, progressVal));
+        onProgress(shownPct);
+      };
+
+      if (api?.onBurnProgress) {
+        api.onBurnProgress(onRealProgress);
+      }
+      ticker = setInterval(() => {
+        const remaining = 98 - shownPct;
+        if (remaining <= 0.2) return;
+        shownPct = Math.min(98, shownPct + Math.max(0.35, remaining * 0.018));
+        onProgress(Math.round(shownPct));
+      }, 900);
 
       try {
         const result = await api.burnCaptions({
@@ -272,20 +378,23 @@ export async function burnCaptions(
           position: settings.position,
           assContent,
         });
-        clearInterval(ticker);
+        if (ticker) clearInterval(ticker);
+        if (api?.offBurnProgress) api.offBurnProgress(onRealProgress);
         if (result.ok) {
           onProgress(100);
           return { outputPath: result.outputPath, outputFileName: result.fileName };
         }
         throw new Error(result.error || 'Native burn failed');
       } catch (err: any) {
-        clearInterval(ticker);
+        if (ticker) clearInterval(ticker);
+        if (api?.offBurnProgress) api.offBurnProgress(onRealProgress);
         console.warn('[burnCaptions] Native fast-burn failed, falling back to WASM:', err);
       }
     }
   }
 
   // Fallback to WASM FFmpeg
+  const assContent = buildAss(caps, settings, videoMeta);
   const engine = await getFFmpeg();
   const onAbort = () => {
     try { engine.terminate(); } catch {}
@@ -342,8 +451,11 @@ export async function burnCaptions(
     await engine.exec([
       '-i', 'input.mp4',
       '-vf', 'ass=caps.ass:fontsdir=.',
+      '-c:v', 'libx264',
+      '-preset', 'slow',
+      '-crf', '16',
+      '-pix_fmt', 'yuv420p',
       '-c:a', 'copy',
-      '-preset', 'ultrafast',
       '-y', 'out.mp4'
     ]);
     throwIfAborted(signal);

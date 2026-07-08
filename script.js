@@ -1,4 +1,4 @@
-/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
+﻿/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
 function isImageReady(img) {
     if (!img) return false;
     // HTMLVideoElement / HTMLCanvasElement / ImageBitmap are always drawable
@@ -17422,17 +17422,36 @@ function updateCaptionFromVideo() {
     return false;
   }
 
-  let currentTimeMs = state.exportingVideo
-    ? getCaptionExportClockMs()
-    : 0;
+  let currentTimeMs = 0;
+  let activePlaying = false;
 
-  // Narration is the master clock. Stage-video time can loop or start late during export.
-  if (!state.exportingVideo && state.activeAudio && !state.activeAudio.paused) {
-    currentTimeMs = state.activeAudio.currentTime * 1000;
-  } else if (!state.exportingVideo && captionOverlay.videoElement && !captionOverlay.videoElement.paused) {
-    currentTimeMs = captionOverlay.videoElement.currentTime * 1000;
-  } else if (!state.exportingVideo && state.stageVideo.element && !state.stageVideo.element.paused && state.stageVideo.element.currentTime > 0) {
-    currentTimeMs = state.stageVideo.element.currentTime * 1000;
+  if (state.exportingVideo) {
+    currentTimeMs = getCaptionExportClockMs();
+    activePlaying = true;
+  } else {
+    // Only show captions when narration or video is actively playing
+    if (state.activeAudio && !state.activeAudio.paused && !state.activeAudio.ended) {
+      currentTimeMs = state.activeAudio.currentTime * 1000;
+      activePlaying = true;
+    } else if (captionOverlay.videoElement && !captionOverlay.videoElement.paused && !captionOverlay.videoElement.ended) {
+      currentTimeMs = captionOverlay.videoElement.currentTime * 1000;
+      activePlaying = true;
+    } else if (state.stageVideo.element && !state.stageVideo.element.paused && !state.stageVideo.element.ended && state.stageVideo.element.currentTime > 0) {
+      currentTimeMs = state.stageVideo.element.currentTime * 1000;
+      activePlaying = true;
+    }
+  }
+
+  // Hide captions when not actively playing (waiting, paused, loading, generating, ended)
+  if (!activePlaying) {
+    if (captionOverlay.currentText !== "") {
+      captionOverlay.currentText = "";
+      captionOverlay.currentSegmentIndex = -1;
+      captionOverlay.currentTimeMs = 0;
+      captionOverlay.activeWordIndex = -1;
+      return true;
+    }
+    return false;
   }
 
   const previousText = captionOverlay.currentText;
@@ -27397,7 +27416,7 @@ document.addEventListener("click", async (e) => {
           .filter(seg => seg.text && seg.endMs > seg.startMs)
           .sort((a, b) => a.startMs - b.startMs);
         captionOverlay.enabled = true;
-        captionOverlay.currentText = getCaptionTextForTimeMs(0) || (captionOverlay.segments[0]?.text || transcript.substring(0, 60));
+        captionOverlay.currentText = "";
 
         setStatus(`Ã¢Å“â€¦ AI transcription complete! ${segments.length} caption segments created. Drag the caption bar to position it, then export.`);
         markSceneDirty();
@@ -27498,7 +27517,7 @@ document.addEventListener("click", async (e) => {
 
       captionOverlay.segments = segments;
       captionOverlay.enabled = true;
-      captionOverlay.currentText = segments.length > 0 ? segments[0].text : "";
+      captionOverlay.currentText = "";
 
       // Download SRT
       const srt = generateWordLevelSrt(text, durationMs, playbackRate);

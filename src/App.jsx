@@ -8,6 +8,45 @@ const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
 
+class CaptionErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[CaptionBurner] React view crashed:', error, info);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    const message = String(this.state.error?.message || this.state.error || 'Unknown caption error');
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050814', color: '#fff', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
+        <div style={{ width: 'min(560px, 92vw)', border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(127,29,29,0.18)', borderRadius: 18, padding: 22, boxShadow: '0 24px 80px rgba(0,0,0,0.45)' }}>
+          <div style={{ fontSize: 12, fontWeight: 900, color: '#fca5a5', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Caption Burner stopped</div>
+          <div style={{ marginTop: 10, fontSize: 18, fontWeight: 800 }}>The video screen hit an error, but the app is still alive.</div>
+          <pre style={{ marginTop: 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#fecaca', background: 'rgba(0,0,0,0.28)', borderRadius: 10, padding: 12, fontSize: 12 }}>{message}</pre>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <button onClick={() => this.setState({ error: null })} style={{ padding: '9px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>Try Again</button>
+            <button onClick={this.props.onClose} style={{ padding: '9px 14px', borderRadius: 10, border: 0, background: '#6366f1', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>Back to Main App</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
 function loadStyle() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null') || DEFAULTS; }
   catch (_) { return DEFAULTS; }
@@ -26,6 +65,7 @@ function applyToTextarea(vals) {
 function App() {
   const [panelOpen, setPanelOpen]       = useState(false);
   const [captionOpen, setCaptionOpen]   = useState(false);
+  const [captionResetKey, setCaptionResetKey] = useState(0);
   const [style, setStyle]               = useState(loadStyle);
   const [currentModule, setCurrentModule] = useState('presentator'); // 'presentator' | 'errorChecker' | 'presentation'
   const [hideHeader, setHideHeader]     = useState(false);
@@ -55,7 +95,7 @@ function App() {
 
   useEffect(() => {
     // Cache-buster: change this version string any time a legacy JS file changes
-    const _CB = '?v=20260625-canvas-bullets';
+    const _CB = '?v=20260708-caption-alert-preview-match-progress';
     const scriptSources = [
       "../logo-data.js" + _CB,
       "../script.js" + _CB,
@@ -191,13 +231,21 @@ function App() {
       <div style={{ height: '100%' }}>
         {/* ── Full-screen Caption Burner ── */}
         <div style={{ display: captionOpen ? 'block' : 'none', height: '100%' }}>
-          <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0e0e0e',color:'rgba(255,255,255,0.3)',fontSize:'12px'}}>Loading…</div>}>
-            <CaptionBurner onClose={() => setCaptionOpen(false)} />
-          </Suspense>
+          <CaptionErrorBoundary
+            resetKey={captionResetKey}
+            onClose={() => {
+              setCaptionOpen(false);
+              setCaptionResetKey(k => k + 1);
+            }}
+          >
+            <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0e0e0e',color:'rgba(255,255,255,0.3)',fontSize:'12px'}}>Loading…</div>}>
+              <CaptionBurner onClose={() => setCaptionOpen(false)} />
+            </Suspense>
+          </CaptionErrorBoundary>
         </div>
 
         {/* ── Normal Presentator UI ── */}
-        <div style={{ display: (captionOpen || currentModule !== 'presentator') ? 'none' : 'block', height: '100%', paddingTop: !captionOpen ? '50px' : 0, boxSizing: 'border-box' }}>
+        <div style={{ display: (captionOpen || currentModule !== 'presentator') ? 'none' : 'block', height: '100%', paddingTop: !captionOpen ? '50px' : 0, paddingBottom: '140px', boxSizing: 'border-box', overflowY: 'auto', overflowX: 'hidden' }}>
           <main className="app-shell">
             <InputPanel />
             <StagePanel />

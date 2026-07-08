@@ -3,7 +3,7 @@ export interface WordItem { text: string; start: number; end: number; }
 export interface CaptionItem { start: number; end: number; text: string; words?: WordItem[]; }
 export type ItemStatus = 'idle'|'transcribing'|'transcribed'|'exporting'|'completed'|'failed'|'cancelled';
 export interface VideoMeta {
-  name: string; mimeType: string; file?: File; base64?: string; duration?: number;
+  name: string; mimeType: string; file?: File; base64?: string; duration?: number; width?: number; height?: number;
 }
 export interface QueueItem {
   id: string; video: VideoMeta; status: ItemStatus;

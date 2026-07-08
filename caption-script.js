@@ -16,19 +16,36 @@ function isImageReady(img) {
 
 let captionWorker = null;
 let transcriber = null; // Keeping as a placeholder for any lingering references
+const CAPTION_WORD_LIMIT = 8;
+const CAPTION_BOTTOM_OFFSET_PX = 20;
+const SHORT_CAPTION_GAP_SECONDS = 0.75;
 
 function bootCaptionStudio() {
   if (window.__presentatorCaptionStudioBooted) return;
+  const videoInput = document.getElementById('captionVideoInput');
+  if (!videoInput) {
+    return;
+  }
   window.__presentatorCaptionStudioBooted = true;
   try {
-    const videoInput = document.getElementById('captionVideoInput');
     const videoContainer = document.getElementById('captionVideoContainer');
     const sourceVideo = document.getElementById('captionSourceVideo');
     const renderCanvas = document.getElementById('captionRenderCanvas');
     const statusText = document.getElementById('captionStatusText');
     const actionBtn = document.getElementById('captionActionBtn');
     const exportBtn = document.getElementById('captionExportBtn');
+    const previewBtn = document.getElementById('captionPreviewBtn');
+    const exportActions = document.getElementById('captionExportActions');
+    const eraseBtn = document.getElementById('captionEraseBtn');
     const progressBlock = document.getElementById('captionProgress');
+    const queuePanel = document.getElementById('captionQueuePanel');
+    const queueList = document.getElementById('captionQueueList');
+    const queueStatus = document.getElementById('captionQueueStatus');
+    const queueRunBtn = document.getElementById('captionQueueRunBtn');
+    const queueExportAllBtn = document.getElementById('captionQueueExportAllBtn');
+    const queuePrevBtn = document.getElementById('captionQueuePrevBtn');
+    const queueNextBtn = document.getElementById('captionQueueNextBtn');
+    const QUEUE_EXPORT_FONT_SIZE = 50;
     
     // Controls
     const playPauseBtn = document.getElementById('captionPlayPauseBtn');
@@ -46,11 +63,16 @@ function bootCaptionStudio() {
     const sizeSlider = document.getElementById('captionSizeSlider');
     const gapSlider = document.getElementById('captionGapSlider');
     const widthSlider = document.getElementById('captionWidthSlider');
+    const sizeValue = document.getElementById('captionSizeValue');
+    const gapValue = document.getElementById('captionGapValue');
+    const widthValue = document.getElementById('captionWidthValue');
     const translateCheck = document.getElementById('captionTranslateCheck');
     const fontSelect = document.getElementById('captionFontSelect');
     const strokeSlider = document.getElementById('captionStrokeSlider');
+    const strokeValue = document.getElementById('captionStrokeValue');
     const colorPicker = document.getElementById('captionColorPicker');
     const syncSlider = document.getElementById('captionSyncSlider');
+    const syncValue = document.getElementById('captionSyncNum');
     
     // Elite Powers DOM
     const emojiCheck = document.getElementById('captionEmojiCheck');
@@ -68,6 +90,31 @@ function bootCaptionStudio() {
     const watermarkCheck = document.getElementById('captionWatermarkCheck');
     const bgMusicCheck = document.getElementById('captionBgMusicCheck');
     let sharedWatermarkImage = null;
+
+    if (styleSelect) styleSelect.value = 'white-yellow';
+    if (progressCheck) progressCheck.checked = false;
+    if (sizeSlider) sizeSlider.value = '50';
+    if (strokeSlider) strokeSlider.value = '0';
+
+    function sliderPercent(slider) {
+        if (!slider) return 0;
+        const min = Number(slider.min || 0);
+        const max = Number(slider.max || 100);
+        const val = Number(slider.value || min);
+        if (max <= min) return 0;
+        return Math.max(0, Math.min(100, Math.round(((val - min) / (max - min)) * 100)));
+    }
+
+    function updateCaptionStyleValueLabels() {
+        if (sizeSlider && sizeValue) sizeValue.textContent = `${sliderPercent(sizeSlider)}% · ${Math.round(Number(sizeSlider.value))}px`;
+        if (gapSlider && gapValue) gapValue.textContent = `${sliderPercent(gapSlider)}% · ${Math.round(Number(gapSlider.value))}`;
+        if (widthSlider && widthValue) widthValue.textContent = `${Math.round(Number(widthSlider.value))}%`;
+        if (strokeSlider && strokeValue) strokeValue.textContent = `${Math.round(Number(strokeSlider.value))}%`;
+        if (syncSlider && syncValue) {
+            const seconds = (Number(syncSlider.value || 0) / 1000).toFixed(1);
+            syncValue.textContent = `${sliderPercent(syncSlider)}% · ${seconds}s`;
+        }
+    }
 
     if (watermarkInput) {
         watermarkInput.addEventListener('change', (e) => {
@@ -215,16 +262,17 @@ function bootCaptionStudio() {
             const time = sourceVideo.currentTime;
             const currentChunk = generatedCaptions.find(c => time >= c.timestamp[0] && time <= c.timestamp[1]);
             if (currentChunk && currentChunk.text) {
-                const baseFontSize = renderCanvas.height * 0.08;
-                const sizeMult = (sizeSlider ? parseInt(sizeSlider.value) : 80) / 100;
-                const fontSize = Math.floor(baseFontSize * sizeMult);
+                const fontSize = Math.max(12, Math.floor(sizeSlider ? parseInt(sizeSlider.value) : 35));
                 const gapMult = (gapSlider ? parseInt(gapSlider.value) : 120) / 100;
                 const lineHeight = fontSize * gapMult;
                 const maxWBase = renderCanvas.width;
                 const widthMult = (widthSlider ? parseInt(widthSlider.value) : 85) / 100;
                 const maxWidth = maxWBase * widthMult;
                 ctx.font = `900 ${fontSize}px Nunito, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                drawWrappedText(ctx, currentChunk.text.trim(), renderCanvas.width * captionPosX, renderCanvas.height * captionPosY, maxWidth, lineHeight, time - currentChunk.timestamp[0], styleSelect.value);
+                const visibleCaptionText = getVisibleCaptionText(currentChunk.text.trim(), -1, CAPTION_WORD_LIMIT);
+                const wrappedLines = getWrappedCaptionLines(ctx, visibleCaptionText, maxWidth);
+                const anchoredY = getBottomAnchoredCaptionCenterY(renderCanvas.height, fontSize, lineHeight, Math.max(1, wrappedLines.length));
+                drawWrappedText(ctx, currentChunk.text.trim(), renderCanvas.width * captionPosX, anchoredY, maxWidth, lineHeight, time - currentChunk.timestamp[0], styleSelect.value);
             }
         }
     });
@@ -241,6 +289,19 @@ function bootCaptionStudio() {
     let hasDrawnFirstFrame = false;
     let previewFrameHandle = null;
     let previewFrameMode = null;
+    let autoBurnRequested = false;
+    let captionVideoQueue = [];
+    let captionQueueIndex = 0;
+    let captionQueueRunning = false;
+    let captionQueueExporting = false;
+    let captionQueueMode = '';
+
+    if (!document.getElementById('captionQueueSpinStyle')) {
+        const spinStyle = document.createElement('style');
+        spinStyle.id = 'captionQueueSpinStyle';
+        spinStyle.textContent = '@keyframes captionQueueSpin{to{transform:rotate(360deg)}}';
+        document.head.appendChild(spinStyle);
+    }
 
     function formatTime(seconds) {
         if(isNaN(seconds)) return "00:00";
@@ -271,6 +332,67 @@ function bootCaptionStudio() {
         } catch (error) {
             console.warn('[Caption Studio] Notification failed:', error);
         }
+    }
+
+    function alertSingleCaptionExportComplete(fileName) {
+        setTimeout(() => {
+            try {
+                window.alert(`Caption burning completed.\n\nSaved: ${fileName || 'captioned video'}`);
+            } catch (error) {
+                console.warn('[Caption Studio] Completion alert failed:', error);
+            }
+        }, 100);
+    }
+
+    function setCaptionExportActionsVisible(visible) {
+        if (!exportActions) return;
+        exportActions.classList.toggle('hidden', !visible);
+        exportActions.style.display = visible ? 'flex' : 'none';
+    }
+
+    function renderCaptionExportActions(result, options = {}) {
+        if (!exportActions || !result || !result.outputPath) return;
+        const fileName = result.fileName || result.outputFileName || 'captioned video';
+        const index = Number.isInteger(options.queueIndex) ? options.queueIndex : captionQueueIndex;
+        exportActions.innerHTML = '';
+        setCaptionExportActionsVisible(true);
+
+        const makeButton = (label, handler, tone = 'default') => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = label;
+            const palette = tone === 'primary'
+                ? 'background:linear-gradient(135deg,#22c55e,#06b6d4);border-color:rgba(34,197,94,.55);color:#fff'
+                : tone === 'warning'
+                    ? 'background:rgba(250,204,21,.13);border-color:rgba(250,204,21,.45);color:#fde68a'
+                    : 'background:rgba(15,23,42,.72);border-color:rgba(148,163,184,.35);color:#dbeafe';
+            button.style.cssText = `padding:8px 12px;border-radius:7px;border:1px solid;font-weight:900;cursor:pointer;${palette}`;
+            button.addEventListener('click', handler);
+            return button;
+        };
+
+        exportActions.appendChild(makeButton('Play video', () => {
+            if (window.electronAPI && typeof window.electronAPI.openFile === 'function') {
+                window.electronAPI.openFile(result.outputPath);
+            }
+        }, 'primary'));
+        exportActions.appendChild(makeButton('Open folder', () => {
+            if (window.electronAPI && typeof window.electronAPI.showItemInFolder === 'function') {
+                window.electronAPI.showItemInFolder(result.outputPath);
+            }
+        }));
+        exportActions.appendChild(makeButton('Re-export', () => {
+            if (captionVideoQueue.length && captionVideoQueue[index] && captionVideoQueue[index].captions && captionVideoQueue[index].captions.length) {
+                exportQueuedCaptionVideo(index);
+                return;
+            }
+            if (exportBtn) exportBtn.click();
+        }, 'warning'));
+
+        const label = document.createElement('span');
+        label.textContent = `Saved: ${fileName}`;
+        label.style.cssText = 'align-self:center;color:#a7f3d0;font-weight:800;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        exportActions.appendChild(label);
     }
 
     function updatePlayPauseLabel() {
@@ -321,7 +443,9 @@ function bootCaptionStudio() {
         
         if (isRecording && sourceVideo.duration) {
             let pct = Math.floor((sourceVideo.currentTime / sourceVideo.duration) * 100);
-            statusText.innerHTML = `🎬 Rendering High-Quality Video... ${pct}%`;
+            const remainingPct = Math.max(0, 100 - pct);
+            const remainingSec = Math.max(0, sourceVideo.duration - sourceVideo.currentTime);
+            statusText.innerHTML = `🎬 Rendering High-Quality Video... ${pct}% complete · ${remainingPct}% remaining · ${remainingSec.toFixed(1)}s left`;
         }
     });
 
@@ -339,58 +463,303 @@ function bootCaptionStudio() {
             sourceVideo.pause();
         }
     });
+
+    [
+        styleSelect, sizeSlider, gapSlider, widthSlider, fontSelect,
+        strokeSlider, colorPicker, syncSlider, emojiCheck, karaokeCheck,
+        filterSelect, progressCheck, watermarkCheck
+    ].filter(Boolean).forEach(control => {
+        const refreshPreview = () => {
+            updateCaptionStyleValueLabels();
+            if (sourceVideo.src && sourceVideo.paused) renderPreviewNow(sourceVideo.currentTime || 0);
+        };
+        control.addEventListener('input', refreshPreview);
+        control.addEventListener('change', refreshPreview);
+    });
+    updateCaptionStyleValueLabels();
     
     resetBtn.addEventListener('click', () => {
-        sourceVideo.pause(); sourceVideo.src = ''; generatedCaptions = []; hasDrawnFirstFrame = false;
+        sourceVideo.pause();
+        sourceVideo.removeAttribute('src');
+        sourceVideo.load();
+        if (videoUrl) {
+            URL.revokeObjectURL(videoUrl);
+            videoUrl = null;
+        }
+        activeFile = null;
+        generatedCaptions = [];
+        audioDataArray = null;
+        hasDrawnFirstFrame = false;
+        autoBurnRequested = false;
+        captionVideoQueue = [];
+        captionQueueIndex = 0;
+        captionQueueRunning = false;
+        captionQueueExporting = false;
+        renderCaptionQueue();
         videoContainer.classList.add('hidden');
         actionBtn.disabled = true; actionBtn.classList.remove('hidden');
         exportBtn.classList.add('hidden'); editorPanel.classList.add('hidden');
+        if (eraseBtn) eraseBtn.classList.add('hidden');
+        if (previewBtn) previewBtn.classList.add('hidden');
+        setCaptionExportActionsVisible(false);
+        hideSingleCaptionProgress();
         resetBtn.classList.add('hidden'); progressBlock.classList.add('hidden');
         videoInput.value = '';
     });
 
+    if (eraseBtn) {
+        eraseBtn.addEventListener('click', async () => {
+            const videoPath = getCaptionSourcePath();
+            if (!videoPath) {
+                alert('No video file path available. Please re-upload or select a local video.');
+                return;
+            }
+            
+            const pBar = document.getElementById('captionProgressBarValue');
+            let progress = 15;
+            if (pBar) pBar.style.width = '15%';
+            if (progressBlock) progressBlock.classList.remove('hidden');
+            if (typeof window.updateTaskProgressUi === 'function') {
+                window.updateTaskProgressUi(0.15, true, { label: "Erasing hardcoded captions..." });
+            }
+            
+            const interval = setInterval(() => {
+                if (progress < 90) {
+                    progress += Math.floor(Math.random() * 8) + 2;
+                    if (progress > 90) progress = 90;
+                    if (pBar) pBar.style.width = `${progress}%`;
+                    if (typeof window.updateTaskProgressUi === 'function') {
+                        window.updateTaskProgressUi(progress / 100, true, { label: "Erasing hardcoded captions..." });
+                    }
+                }
+            }, 300);
+            
+            try {
+                eraseBtn.disabled = true;
+                eraseBtn.textContent = '🧹 Erasing...';
+                if (statusText) statusText.innerHTML = '🧹 Erasing hardcoded captions/logo from video in progress... please wait, do not close the app.';
+                
+                const res = await window.electronAPI.eraseCaptions({ filePath: videoPath });
+                
+                clearInterval(interval);
+                
+                if (res && res.ok) {
+                    if (pBar) pBar.style.width = '100%';
+                    if (typeof window.updateTaskProgressUi === 'function') {
+                        window.updateTaskProgressUi(1.0, true, { label: "Caption erasing complete!" });
+                        setTimeout(() => {
+                            window.updateTaskProgressUi(0, false);
+                        }, 2000);
+                    }
+                    
+                    if (statusText) {
+                        statusText.innerHTML = `✅ Caption erasing complete! Saved to Downloads: <strong>${res.outputFileName || 'output.mp4'}</strong>.`;
+                    }
+                    speakCaptionStudio('Caption erasing complete');
+                    notifyCaptionStudio('Caption Eraser', `Saved as ${res.outputFileName || 'output.mp4'}`);
+                    
+                    if (window.electronAPI && typeof window.electronAPI.showItemInFolder === 'function') {
+                        window.electronAPI.showItemInFolder(res.outputPath);
+                    }
+                } else {
+                    throw new Error(res ? res.error : 'Unknown error during caption erasing');
+                }
+            } catch (err) {
+                clearInterval(interval);
+                if (pBar) pBar.style.width = '0%';
+                if (typeof window.updateTaskProgressUi === 'function') {
+                    window.updateTaskProgressUi(0, false);
+                }
+                console.error('[Caption Eraser] Error:', err);
+                if (statusText) statusText.innerHTML = `❌ Erasing failed: ${err.message}`;
+                alert(`Erasing failed: ${err.message}`);
+            } finally {
+                eraseBtn.disabled = false;
+                eraseBtn.textContent = '🧹 Erase Captions';
+            }
+        });
+    }
+
     videoInput.addEventListener('click', (e) => { e.target.value = null; });
-    
-    videoInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
+
+    function renderCaptionQueue() {
+        if (!queuePanel || !queueList) return;
+        if (!captionVideoQueue.length) {
+            queuePanel.classList.add('hidden');
+            queueList.innerHTML = '';
+            if (queueStatus) queueStatus.textContent = 'Queue ready.';
+            const live = document.getElementById('captionQueueLiveStatus');
+            if (live) live.remove();
+            return;
+        }
+        queuePanel.classList.remove('hidden');
+        const completedCount = captionVideoQueue.filter(item => item.captions && item.captions.length).length;
+        const exportedCount = captionVideoQueue.filter(item => item.status === 'exported').length;
+        const activeItem = captionVideoQueue.find(item => item.status === 'transcribing' || item.status === 'exporting');
+        const activeIndex = activeItem ? captionVideoQueue.indexOf(activeItem) : -1;
+        const activePct = activeItem ? Math.max(0, Math.min(100, Math.round(activeItem.progress || 0))) : 0;
+        const queuePct = Math.min(100, Math.round(((exportedCount + (activeItem ? activePct / 100 : 0)) / captionVideoQueue.length) * 100));
+        if (queueStatus) {
+            queueStatus.textContent = `${queuePct}% queue progress · Video ${captionQueueIndex + 1} of ${captionVideoQueue.length} · Captions ${completedCount}/${captionVideoQueue.length} · Exported ${exportedCount}/${captionVideoQueue.length}`;
+        }
+        let liveStatus = document.getElementById('captionQueueLiveStatus');
+        if (!liveStatus) {
+            liveStatus = document.createElement('div');
+            liveStatus.id = 'captionQueueLiveStatus';
+            liveStatus.style.cssText = 'display:none;margin:8px 0 10px;padding:12px;border-radius:10px;border:1px solid rgba(14,165,233,0.30);background:linear-gradient(135deg,rgba(14,165,233,0.18),rgba(99,102,241,0.12));box-shadow:0 10px 28px rgba(2,6,23,0.26);color:#fff';
+            queuePanel.insertBefore(liveStatus, queueList);
+        }
+        if (activeItem || captionQueueRunning || captionQueueExporting) {
+            const phase = activeItem && activeItem.status === 'exporting' ? 'Exporting captions' : 'Generating captions';
+            const detail = activeItem
+                ? (activeItem.message || `${activeIndex + 1}/${captionVideoQueue.length} · ${activeItem.file.name}`)
+                : 'Preparing next video...';
+            liveStatus.style.display = 'block';
+            liveStatus.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                    <div style="display:flex;align-items:center;gap:9px;min-width:0">
+                        <span style="width:15px;height:15px;border-radius:999px;border:2px solid ${activeItem && activeItem.status === 'exporting' ? '#fcd34d' : '#7dd3fc'};border-top-color:transparent;display:inline-block;animation:captionQueueSpin 0.9s linear infinite;flex:0 0 auto"></span>
+                        <div style="min-width:0">
+                            <div style="font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:${activeItem && activeItem.status === 'exporting' ? '#fcd34d' : '#7dd3fc'}">Active now</div>
+                            <div style="font-size:11px;font-weight:900;color:#fff;line-height:1.2">${phase}</div>
+                            <div style="font-size:9px;font-weight:700;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${activeItem ? `${activeIndex + 1}/${captionVideoQueue.length} · ${activeItem.file.name}` : 'Queue running'}</div>
+                        </div>
+                    </div>
+                    <div style="text-align:right;flex:0 0 auto">
+                        <div style="font-size:16px;font-weight:900;color:#fff;line-height:1">${activePct}%</div>
+                        <div style="font-size:8px;font-weight:800;color:#94a3b8;margin-top:3px">current video</div>
+                    </div>
+                </div>
+                <div style="font-size:9px;font-weight:700;color:#dbeafe;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${detail}</div>
+                <div style="height:7px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.10);margin-top:8px">
+                    <div style="height:100%;width:${activePct}%;border-radius:999px;background:${activeItem && activeItem.status === 'exporting' ? 'linear-gradient(90deg,#f59e0b,#facc15,#a78bfa)' : 'linear-gradient(90deg,#38bdf8,#818cf8,#22d3ee)'};transition:width .25s ease"></div>
+                </div>
+            `;
+        } else {
+            liveStatus.style.display = 'none';
+        }
+        queueList.innerHTML = '';
+        captionVideoQueue.forEach((item, index) => {
+            const row = document.createElement('div');
+            row.style.cssText = [
+                'display:grid',
+                'grid-template-columns:minmax(0,1fr) auto',
+                'gap:8px',
+                'align-items:center',
+                'text-align:left',
+                'padding:8px 10px',
+                'border-radius:6px',
+                'border:1px solid rgba(255,255,255,0.10)',
+                'cursor:pointer',
+                'color:#fff',
+                index === captionQueueIndex ? 'background:rgba(250,204,21,0.20)' : 'background:rgba(255,255,255,0.05)'
+            ].join(';');
+            const label = document.createElement('button');
+            label.type = 'button';
+            const pctLabel = (item.status === 'transcribing' || item.status === 'exporting') ? ` · ${Math.round(item.progress || 0)}%` : '';
+            label.textContent = `${index + 1}. ${item.file.name} · ${item.status || 'ready'}${pctLabel}`;
+            label.style.cssText = 'min-width:0;text-align:left;background:transparent;border:0;color:#fff;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer';
+            label.addEventListener('click', () => loadQueuedCaptionVideo(index));
+            row.addEventListener('click', () => loadQueuedCaptionVideo(index));
+            row.appendChild(label);
+            if (item.captions && item.captions.length) {
+                const exportOne = document.createElement('button');
+                exportOne.type = 'button';
+                exportOne.textContent = item.status === 'exported' ? 'Re-export' : 'Export';
+                exportOne.style.cssText = 'padding:6px 10px;border-radius:6px;border:1px solid rgba(250,204,21,0.35);background:rgba(250,204,21,0.14);color:#fde68a;font-weight:900;cursor:pointer';
+                exportOne.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    exportQueuedCaptionVideo(index);
+                });
+                row.appendChild(exportOne);
+            }
+            if (item.status === 'transcribing' || item.status === 'exporting') {
+                const bar = document.createElement('div');
+                bar.style.cssText = 'grid-column:1 / -1;height:5px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,0.08)';
+                const fill = document.createElement('div');
+                fill.style.cssText = `height:100%;width:${Math.max(0, Math.min(100, item.progress || 0))}%;border-radius:999px;background:${item.status === 'exporting' ? 'linear-gradient(90deg,#f59e0b,#a78bfa)' : 'linear-gradient(90deg,#38bdf8,#6366f1)'};transition:width .25s ease`;
+                bar.appendChild(fill);
+                row.appendChild(bar);
+            }
+            queueList.appendChild(row);
+        });
+        if (queuePrevBtn) queuePrevBtn.disabled = captionQueueIndex <= 0;
+        if (queueNextBtn) queueNextBtn.disabled = captionQueueIndex >= captionVideoQueue.length - 1;
+        if (queueRunBtn) {
+            const remaining = captionVideoQueue.filter(item => item.status !== 'exported').length;
+            queueRunBtn.disabled = captionQueueRunning || captionQueueExporting || remaining === 0;
+            queueRunBtn.textContent = captionQueueRunning || captionQueueExporting
+                ? `Queue Running ${exportedCount}/${captionVideoQueue.length}`
+                : remaining === 0 ? 'Queue Complete' : `Start Queue (${remaining})`;
+        }
+        if (queueExportAllBtn) {
+            const ready = captionVideoQueue.filter(item => item.status !== 'exported' && item.captions && item.captions.length).length;
+            queueExportAllBtn.disabled = captionQueueRunning || captionQueueExporting || ready === 0;
+            queueExportAllBtn.textContent = captionQueueExporting ? 'Exporting...' : `Export All (${ready})`;
+        }
+    }
+
+    function loadQueuedCaptionVideo(index) {
+        if (!captionVideoQueue.length) return;
+        captionQueueIndex = Math.max(0, Math.min(index, captionVideoQueue.length - 1));
+        const item = captionVideoQueue[captionQueueIndex];
+        const file = item && item.file;
         if (!file) return;
+
         activeFile = file;
+        autoBurnRequested = false;
+        generatedCaptions = item.captions ? JSON.parse(JSON.stringify(item.captions)) : [];
+        audioDataArray = null;
+        hasDrawnFirstFrame = false;
+        clearPreviewFrameHandle();
+        sourceVideo.pause();
+        sourceVideo.removeAttribute('src');
+        sourceVideo.load();
+        if (videoUrl) URL.revokeObjectURL(videoUrl);
         videoUrl = URL.createObjectURL(file);
-        
+
         videoContainer.classList.remove('hidden');
         actionBtn.disabled = false;
+        actionBtn.classList.toggle('hidden', generatedCaptions.length > 0);
+        exportBtn.classList.toggle('hidden', generatedCaptions.length === 0);
+        if (previewBtn) previewBtn.classList.toggle('hidden', generatedCaptions.length === 0);
+        if (generatedCaptions.length && item.outputPath) {
+            renderCaptionExportActions({
+                outputPath: item.outputPath,
+                fileName: item.outputFileName
+            }, { queueIndex: captionQueueIndex });
+        } else {
+            setCaptionExportActionsVisible(false);
+        }
+        editorPanel.classList.toggle('hidden', generatedCaptions.length === 0);
         resetBtn.classList.remove('hidden');
-        actionBtn.textContent = 'Generate Captions';
+        if (eraseBtn) eraseBtn.classList.remove('hidden');
+        actionBtn.textContent = captionVideoQueue.length > 1 ? 'Generate Queue' : 'Generate Captions';
+        if (karaokeCheck) karaokeCheck.checked = true;
+        if (generatedCaptions.length) populateEditor();
 
         sourceVideo.addEventListener('loadedmetadata', () => {
             let vw = sourceVideo.videoWidth;
             let vh = sourceVideo.videoHeight;
-            
-            // Fallback for audio-only uploads or parsed metadata failures
             if (!vw || !vh || vw === 0 || vh === 0) {
                 vw = 1920;
                 vh = 1080;
             }
-
-            const MAX_DIM = 1920; // Ensure 1080p limit
-            let maxDim = Math.max(vw, vh);
-            
-            // Only scale down if it exceeds maximum thresholds, NEVER artificially force scale UP.
-            // Hardware decoding lag is primarily triggered by forcing low-res sources to upscale manually through HTML5 canvas
+            const MAX_DIM = 1920;
+            const maxDim = Math.max(vw, vh);
             if (maxDim > MAX_DIM && vh > 0) {
                 const scale = MAX_DIM / maxDim;
-                vw = vw * scale;
-                vh = vh * scale;
+                vw *= scale;
+                vh *= scale;
             }
-            renderCanvas.width = Math.floor(vw); 
+            renderCanvas.width = Math.floor(vw);
             renderCanvas.height = Math.floor(vh);
         }, { once: true });
-        
+
         sourceVideo.addEventListener('loadeddata', () => {
-            if(!hasDrawnFirstFrame) {
+            if (!hasDrawnFirstFrame) {
                 const ctx = renderCanvas.getContext('2d');
                 ctx.imageSmoothingEnabled = true;
-                
                 const filter = filterSelect ? filterSelect.value : 'none';
                 if (filter === 'darken') ctx.filter = 'brightness(50%)';
                 else if (filter === 'blur') ctx.filter = 'blur(10px)';
@@ -398,17 +767,403 @@ function bootCaptionStudio() {
                 else if (filter === 'sepia') ctx.filter = 'sepia(100%)';
                 else if (filter === 'invert') ctx.filter = 'invert(100%) hue-rotate(180deg)';
                 else ctx.filter = 'none';
-
                 renderPreviewNow(0);
                 hasDrawnFirstFrame = true;
             }
-        });
-        
-        sourceVideo.src = videoUrl;
+        }, { once: true });
 
+        sourceVideo.src = videoUrl;
         progressBlock.classList.remove('hidden');
-        statusText.innerHTML = "Video loaded. Ready.";
+        statusText.innerHTML = generatedCaptions.length
+            ? `Loaded ${captionQueueIndex + 1} of ${captionVideoQueue.length}. Captions ready. Edit, export this video, or Export All.`
+            : `Loaded ${captionQueueIndex + 1} of ${captionVideoQueue.length}. Click Generate Queue when you are ready.`;
+        renderCaptionQueue();
+    }
+
+    if (queuePrevBtn) {
+        queuePrevBtn.addEventListener('click', () => loadQueuedCaptionVideo(captionQueueIndex - 1));
+    }
+    if (queueNextBtn) {
+        queueNextBtn.addEventListener('click', () => loadQueuedCaptionVideo(captionQueueIndex + 1));
+    }
+    
+    videoInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files || []).filter(file => file && file.type && file.type.startsWith('video/'));
+        if (!files.length) return;
+        captionVideoQueue = files.map(file => ({ file, status: 'ready', captions: [] }));
+        captionQueueIndex = 0;
+        loadQueuedCaptionVideo(0);
+        scrollCaptionStudioToWorkSection();
     });
+
+    function setQueueItemState(index, patch) {
+        if (!captionVideoQueue[index]) return;
+        const current = captionVideoQueue[index];
+        const forceStatus = patch && patch.forceStatus;
+        if (current.status === 'exported' && patch && !forceStatus && (patch.status === 'exporting' || patch.status === 'transcribing')) {
+            return;
+        }
+        const cleanPatch = { ...patch };
+        delete cleanPatch.forceStatus;
+        captionVideoQueue[index] = { ...captionVideoQueue[index], ...cleanPatch };
+        renderCaptionQueue();
+    }
+
+    function setCaptionProgressBar(pct) {
+        const captionProgress = document.getElementById('captionProgress');
+        const pBar = document.getElementById('captionProgressBarValue');
+        if (captionProgress) captionProgress.classList.remove('hidden');
+        if (pBar) pBar.style.width = Math.max(0, Math.min(100, Math.round(pct))) + '%';
+    }
+
+    function renderSingleCaptionProgress(pct, phase = 'Working', detail = '') {
+        const captionProgress = document.getElementById('captionProgress');
+        if (!captionProgress) return;
+        let liveStatus = document.getElementById('captionSingleLiveStatus');
+        if (!liveStatus) {
+            liveStatus = document.createElement('div');
+            liveStatus.id = 'captionSingleLiveStatus';
+            liveStatus.style.cssText = 'display:none;margin:8px 0 10px;padding:12px;border-radius:10px;border:1px solid rgba(14,165,233,0.30);background:linear-gradient(135deg,rgba(14,165,233,0.18),rgba(99,102,241,0.12));box-shadow:0 10px 28px rgba(2,6,23,0.26);color:#fff';
+            captionProgress.insertBefore(liveStatus, captionProgress.firstChild);
+        }
+        const shownPct = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+        const isExport = /export|final/i.test(phase);
+        liveStatus.style.display = 'block';
+        liveStatus.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                <div style="display:flex;align-items:center;gap:9px;min-width:0">
+                    <span style="width:15px;height:15px;border-radius:999px;border:2px solid ${isExport ? '#fcd34d' : '#7dd3fc'};border-top-color:transparent;display:inline-block;animation:captionQueueSpin 0.9s linear infinite;flex:0 0 auto"></span>
+                    <div style="min-width:0">
+                        <div style="font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:${isExport ? '#fcd34d' : '#7dd3fc'}">Active now</div>
+                        <div style="font-size:11px;font-weight:900;color:#fff;line-height:1.2">${phase}</div>
+                        <div style="font-size:9px;font-weight:700;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${detail || (activeFile && activeFile.name) || 'Current video'}</div>
+                    </div>
+                </div>
+                <div style="text-align:right;flex:0 0 auto">
+                    <div style="font-size:16px;font-weight:900;color:#fff;line-height:1">${shownPct}%</div>
+                    <div style="font-size:8px;font-weight:800;color:#94a3b8;margin-top:3px">current video</div>
+                </div>
+            </div>
+            <div style="height:7px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.10);margin-top:8px">
+                <div style="height:100%;width:${shownPct}%;border-radius:999px;background:${isExport ? 'linear-gradient(90deg,#f59e0b,#facc15,#a78bfa)' : 'linear-gradient(90deg,#38bdf8,#818cf8,#22d3ee)'};transition:width .25s ease"></div>
+            </div>
+        `;
+    }
+
+    function hideSingleCaptionProgress() {
+        const liveStatus = document.getElementById('captionSingleLiveStatus');
+        if (liveStatus) liveStatus.style.display = 'none';
+    }
+
+    function lockCaptionQueueControls(locked) {
+        const allDone = captionVideoQueue.length > 0 && captionVideoQueue.every(item => item.status === 'exported');
+        if (actionBtn) {
+            actionBtn.disabled = locked || allDone;
+            actionBtn.textContent = locked
+                ? 'Queue Running...'
+                : allDone
+                    ? 'Queue Complete'
+                    : (captionVideoQueue.length > 1 ? 'Generate Queue' : 'Generate Captions');
+        }
+        if (queueRunBtn) queueRunBtn.disabled = locked || allDone;
+        if (queueExportAllBtn) queueExportAllBtn.disabled = locked || allDone;
+        if (exportBtn) exportBtn.disabled = locked;
+        if (queuePrevBtn) queuePrevBtn.disabled = locked || captionQueueIndex <= 0;
+        if (queueNextBtn) queueNextBtn.disabled = locked || captionQueueIndex >= captionVideoQueue.length - 1;
+    }
+
+    function startQueueProgressHeartbeat(index, phaseLabel, startPct, maxPct) {
+        let shownPct = startPct;
+        setCaptionProgressBar(shownPct);
+        setQueueItemState(index, {
+            status: 'transcribing',
+            progress: shownPct,
+            message: `${phaseLabel}... ${shownPct}%`
+        });
+        return setInterval(() => {
+            if (!captionQueueRunning || !captionVideoQueue[index] || captionVideoQueue[index].status !== 'transcribing') return;
+            const remaining = maxPct - shownPct;
+            if (remaining <= 0.4) return;
+            shownPct = Math.min(maxPct, shownPct + Math.max(1, remaining * 0.035));
+            const pct = Math.round(shownPct);
+            setCaptionProgressBar(pct);
+            statusText.innerHTML = `Active now: ${phaseLabel.toLowerCase()} ${index + 1}/${captionVideoQueue.length} · ${pct}% complete · ${100 - pct}% remaining`;
+            setQueueItemState(index, {
+                status: 'transcribing',
+                progress: pct,
+                message: `${phaseLabel}... ${pct}%`
+            });
+        }, 700);
+    }
+
+    function forceQueueExportFontSize() {
+        if (!sizeSlider) return;
+        sizeSlider.value = String(QUEUE_EXPORT_FONT_SIZE);
+        sizeSlider.dispatchEvent(new Event('input', { bubbles: true }));
+        sizeSlider.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function waitForQueueVideoReady() {
+        return new Promise(resolve => {
+            if (sourceVideo.readyState >= 1) {
+                resolve();
+                return;
+            }
+            const done = () => resolve();
+            sourceVideo.addEventListener('loadedmetadata', done, { once: true });
+            setTimeout(done, 2500);
+        });
+    }
+
+    function scrollCaptionStudioToWorkSection() {
+        const target = queuePanel || document.getElementById('captionProgress') || editorPanel || statusText;
+        if (!target) return;
+        setTimeout(() => {
+            const scrollBody = document.querySelector('#aiCaptionSection .caption-burner-body');
+            if (scrollBody) {
+                const baseTop = scrollBody.getBoundingClientRect().top;
+                const targetTop = target.getBoundingClientRect().top;
+                scrollBody.scrollTo({
+                    top: Math.max(0, scrollBody.scrollTop + targetTop - baseTop - 12),
+                    behavior: 'smooth'
+                });
+                return;
+            }
+            try {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (_) {
+                target.scrollIntoView();
+            }
+        }, 120);
+    }
+
+    async function exportActiveCaptionVideoForQueue(index) {
+        const item = captionVideoQueue[index];
+        if (!item || !activeFile || !generatedCaptions.length) {
+            throw new Error('No captions are ready for export.');
+        }
+        forceQueueExportFontSize();
+        lockCaptionQueueControls(true);
+        setCaptionExportActionsVisible(false);
+        setQueueItemState(index, {
+            status: 'exporting',
+            progress: 2,
+            message: `Captions ready. Exporting at ${QUEUE_EXPORT_FONT_SIZE}px...`
+        });
+        statusText.innerHTML = `Active now: exporting captions ${index + 1}/${captionVideoQueue.length} at ${QUEUE_EXPORT_FONT_SIZE}px...`;
+        const pBar = document.getElementById('captionProgressBarValue');
+        setCaptionProgressBar(2);
+
+        const filePath = getCaptionSourcePath();
+        if (!filePath) {
+            throw new Error('Original source file path is unavailable. Re-upload the source video and try again.');
+        }
+        if (!window.electronAPI || typeof window.electronAPI.burnCaptions !== 'function') {
+            throw new Error('Native caption exporter is not available.');
+        }
+
+        const captionsForBurn = getValidatedCaptionBurnList();
+        if (!captionsForBurn.length) {
+            throw new Error('No valid caption timings are available for export.');
+        }
+
+        let burnProgressHandler = null;
+        let shownExportPct = 2;
+        let finalizingTimer = null;
+        const showQueueExportProgress = (pct, messagePrefix = 'Exporting captions') => {
+            shownExportPct = Math.max(shownExportPct, Math.max(2, Math.min(99, Math.round(pct))));
+            setQueueItemState(index, {
+                status: 'exporting',
+                progress: shownExportPct,
+                message: `${messagePrefix} at ${QUEUE_EXPORT_FONT_SIZE}px... ${shownExportPct}%`
+            });
+            statusText.innerHTML = `Active now: ${messagePrefix.toLowerCase()} ${index + 1}/${captionVideoQueue.length} · ${shownExportPct}% complete · ${100 - shownExportPct}% remaining`;
+            setCaptionProgressBar(shownExportPct);
+        };
+        finalizingTimer = setInterval(() => {
+            if (!captionQueueExporting || shownExportPct < 94 || shownExportPct >= 99) return;
+            showQueueExportProgress(shownExportPct + 1, 'Finalizing export');
+        }, 1200);
+        if (typeof window.electronAPI.onBurnProgress === 'function') {
+            burnProgressHandler = data => {
+                let pct = 0;
+                if (typeof data === 'number') pct = data;
+                else if (data && typeof data.pct === 'number') pct = data.pct;
+                const isFinalizing = data && typeof data === 'object' && data.phase === 'finalizing';
+                showQueueExportProgress(pct, isFinalizing || pct >= 94 ? 'Finalizing export' : 'Exporting captions');
+            };
+            window.electronAPI.onBurnProgress(burnProgressHandler);
+        }
+
+        try {
+            const result = await window.electronAPI.burnCaptions({
+                videoPath: filePath,
+                captions: captionsForBurn,
+                style: styleSelect ? styleSelect.value : 'white-yellow',
+                fontSize: QUEUE_EXPORT_FONT_SIZE,
+                position: 'bottom',
+                assContent: buildPreviewMatchedAss()
+            });
+            if (!result || !result.ok) {
+                throw new Error((result && result.error) || 'FFmpeg caption export failed.');
+            }
+            setQueueItemState(index, {
+                status: 'exported',
+                progress: 100,
+                outputPath: result.outputPath,
+                outputFileName: result.fileName,
+                message: `Saved · ${result.fileName || 'captioned video'}`
+            });
+            if (index === captionQueueIndex) {
+                renderCaptionExportActions(result, { queueIndex: index });
+            }
+            if (pBar) pBar.style.width = '100%';
+            return result;
+        } finally {
+            if (finalizingTimer) clearInterval(finalizingTimer);
+            if (burnProgressHandler && typeof window.electronAPI.offBurnProgress === 'function') {
+                window.electronAPI.offBurnProgress(burnProgressHandler);
+            }
+        }
+    }
+
+    async function transcribeCaptionQueueFrom(startIndex = 0) {
+        if (!captionVideoQueue.length || captionQueueRunning || captionQueueExporting) return;
+        captionQueueRunning = true;
+        captionQueueExporting = true;
+        captionQueueMode = 'start';
+        lockCaptionQueueControls(true);
+        renderCaptionQueue();
+        try {
+            const ordered = [];
+            for (let offset = 0; offset < captionVideoQueue.length; offset += 1) {
+                ordered.push((startIndex + offset) % captionVideoQueue.length);
+            }
+            for (const index of ordered) {
+                const item = captionVideoQueue[index];
+                if (!item || item.status === 'exported') continue;
+                captionQueueIndex = index;
+                loadQueuedCaptionVideo(index);
+                await waitForQueueVideoReady();
+                lockCaptionQueueControls(true);
+                setQueueItemState(index, {
+                    status: item.captions && item.captions.length ? 'transcribed' : 'transcribing',
+                    progress: item.captions && item.captions.length ? 100 : 5,
+                    message: item.captions && item.captions.length ? 'Captions already ready.' : 'Generating captions...'
+                });
+                if (!(captionVideoQueue[index].captions && captionVideoQueue[index].captions.length)) {
+                    statusText.innerHTML = `Active now: generating captions ${index + 1}/${captionVideoQueue.length}...`;
+                    const heartbeat = startQueueProgressHeartbeat(index, 'Generating captions', 5, 95);
+                    try {
+                        await transcribeActiveCaptionVideo();
+                    } finally {
+                        clearInterval(heartbeat);
+                    }
+                }
+                if (!(captionVideoQueue[index].captions && captionVideoQueue[index].captions.length)) {
+                    throw new Error(`No captions generated for ${item.file.name}`);
+                }
+                setCaptionProgressBar(100);
+                setQueueItemState(index, {
+                    status: 'transcribed',
+                    progress: 100,
+                    message: 'Captions generated. Starting export...'
+                });
+                generatedCaptions = JSON.parse(JSON.stringify(captionVideoQueue[index].captions));
+                await exportActiveCaptionVideoForQueue(index);
+            }
+            statusText.innerHTML = `Queue complete. Exported ${captionVideoQueue.filter(item => item.status === 'exported').length}/${captionVideoQueue.length} videos.`;
+            speakCaptionStudio('Caption queue complete');
+            notifyCaptionStudio('Caption queue complete', 'All captioned videos finished exporting.');
+        } catch (error) {
+            const current = captionVideoQueue[captionQueueIndex];
+            if (current) {
+                setQueueItemState(captionQueueIndex, {
+                    status: 'failed',
+                    progress: 0,
+                    message: String(error.message || error).slice(0, 100)
+                });
+            }
+            statusText.innerHTML = `Queue stopped: ${error.message || error}`;
+            console.error('[Caption Queue]', error);
+        } finally {
+            captionQueueRunning = false;
+            captionQueueExporting = false;
+            captionQueueMode = '';
+            lockCaptionQueueControls(false);
+            renderCaptionQueue();
+        }
+    }
+
+    async function exportQueuedCaptionVideo(index) {
+        if (!captionVideoQueue[index] || captionQueueRunning || captionQueueExporting) return;
+        captionQueueExporting = true;
+        captionQueueMode = 'single-export';
+        lockCaptionQueueControls(true);
+        try {
+            if (captionVideoQueue[index].status === 'exported') {
+                setQueueItemState(index, {
+                    status: 'transcribed',
+                    progress: 100,
+                    message: 'Re-export queued.',
+                    forceStatus: true
+                });
+            }
+            loadQueuedCaptionVideo(index);
+            await waitForQueueVideoReady();
+            generatedCaptions = JSON.parse(JSON.stringify(captionVideoQueue[index].captions || []));
+            await exportActiveCaptionVideoForQueue(index);
+            statusText.innerHTML = `Exported ${index + 1}/${captionVideoQueue.length}: ${captionVideoQueue[index].file.name}`;
+        } catch (error) {
+            setQueueItemState(index, { status: 'failed', progress: 0, message: String(error.message || error).slice(0, 100) });
+            statusText.innerHTML = `Export failed: ${error.message || error}`;
+        } finally {
+            captionQueueExporting = false;
+            captionQueueMode = '';
+            lockCaptionQueueControls(false);
+            renderCaptionQueue();
+        }
+    }
+
+    async function exportReadyCaptionQueueFrom(startIndex = 0) {
+        if (!captionVideoQueue.length || captionQueueRunning || captionQueueExporting) return;
+        captionQueueExporting = true;
+        captionQueueMode = 'export-ready';
+        lockCaptionQueueControls(true);
+        renderCaptionQueue();
+        try {
+            const ordered = [];
+            for (let offset = 0; offset < captionVideoQueue.length; offset += 1) {
+                ordered.push((startIndex + offset) % captionVideoQueue.length);
+            }
+            for (const index of ordered) {
+                if (
+                    captionVideoQueue[index].status === 'exported' ||
+                    !(captionVideoQueue[index].captions && captionVideoQueue[index].captions.length)
+                ) continue;
+                loadQueuedCaptionVideo(index);
+                await waitForQueueVideoReady();
+                generatedCaptions = JSON.parse(JSON.stringify(captionVideoQueue[index].captions));
+                await exportActiveCaptionVideoForQueue(index);
+            }
+            statusText.innerHTML = `Export ready queue complete. Exported ${captionVideoQueue.filter(item => item.status === 'exported').length}/${captionVideoQueue.length} videos.`;
+        } catch (error) {
+            setQueueItemState(captionQueueIndex, { status: 'failed', progress: 0, message: String(error.message || error).slice(0, 100) });
+            statusText.innerHTML = `Export queue stopped: ${error.message || error}`;
+        } finally {
+            captionQueueExporting = false;
+            captionQueueMode = '';
+            lockCaptionQueueControls(false);
+            renderCaptionQueue();
+        }
+    }
+
+    if (queueRunBtn) {
+        queueRunBtn.addEventListener('click', () => transcribeCaptionQueueFrom(captionQueueIndex));
+    }
+    if (queueExportAllBtn) {
+        queueExportAllBtn.addEventListener('click', () => exportReadyCaptionQueueFrom(captionQueueIndex));
+    }
 
     async function extractAudio(fileToProcess) {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -449,11 +1204,13 @@ function bootCaptionStudio() {
             if (isElectron) {
                 const fs = require('fs');
                 const path = require('path');
-                const os = require('os');
                 const { execSync } = require('child_process');
-                
-                const tempVid = path.join(os.tmpdir(), "presentator_temp_" + Date.now() + ".mp4");
-                const tempWav = path.join(os.tmpdir(), "presentator_wav_" + Date.now() + ".wav");
+                const projectRoot = (typeof process !== 'undefined' && process.cwd) ? process.cwd() : 'D:\\voice';
+                const captionWorkDir = path.join(projectRoot, 'caption-work', 'browser-fallback');
+                fs.mkdirSync(captionWorkDir, { recursive: true });
+
+                const tempVid = path.join(captionWorkDir, "presentator_temp_" + Date.now() + ".mp4");
+                const tempWav = path.join(captionWorkDir, "presentator_wav_" + Date.now() + ".wav");
                 
                 fs.writeFileSync(tempVid, Buffer.from(arrayBuffer));
                 execSync(`ffmpeg -y -i "${tempVid}" -ac 1 -ar 16000 "${tempWav}"`, { stdio: 'ignore' });
@@ -555,7 +1312,7 @@ function bootCaptionStudio() {
         const safeDuration  = Math.min(speechDurationSec, videoDuration);
 
         const chunks = [];
-        const chunkSize = 7;
+        const chunkSize = CAPTION_WORD_LIMIT;
         for (let i = 0; i < words.length; i += chunkSize) {
             const chunkWords = words.slice(i, i + chunkSize);
             const start = (i / words.length) * safeDuration;
@@ -592,8 +1349,8 @@ function bootCaptionStudio() {
         let chunks = [];
 
         if (words.length > 0) {
-            // Build caption chunks from actual per-word timestamps (7 words each)
-            const CHUNK_SIZE = 7;
+            // Build caption chunks from actual per-word timestamps.
+            const CHUNK_SIZE = CAPTION_WORD_LIMIT;
             for (let i = 0; i < words.length; i += CHUNK_SIZE) {
                 const slice = words.slice(i, i + CHUNK_SIZE);
                 const chunkText = slice.map(w => w.word).join(' ').trim();
@@ -822,16 +1579,25 @@ function bootCaptionStudio() {
             statusText.innerHTML = `✅ ${generatedCaptions.length} caption chunks built from ${langLabel} voice text (${narText.length} chars). Edit below if needed.`;
 
             editorPanel.style.display = 'block';
+            editorPanel.classList.remove('hidden');
+            actionBtn.classList.add('hidden');
+            exportBtn.classList.remove('hidden');
+            if (previewBtn) previewBtn.classList.remove('hidden');
+            setCaptionExportActionsVisible(false);
             const pBar = document.getElementById('captionProgressBarValue');
             if (pBar) pBar.style.width = '100%';
             populateEditor();
         });
     }
 
-﻿    actionBtn.addEventListener('click', async () => {
+﻿    async function transcribeActiveCaptionVideo() {
         if (isExtractingText) return;
         isExtractingText = true;
         actionBtn.disabled = true;
+        const showSingleProgress = !captionQueueRunning && !captionQueueExporting;
+        const updateSingleProgress = (pct, phase, detail) => {
+            if (showSingleProgress) renderSingleCaptionProgress(pct, phase, detail);
+        };
 
         // Clear old captions so wrong content never shows
         generatedCaptions = [];
@@ -839,23 +1605,42 @@ function bootCaptionStudio() {
         const pBar = document.getElementById('captionProgressBarValue');
         const captionProgress = document.getElementById('captionProgress');
         if (captionProgress) captionProgress.classList.remove('hidden');
+        updateSingleProgress(0, 'Generating captions', (activeFile && activeFile.name) || 'Current video');
 
         function finaliseCaptions() {
-            for (let i = 0; i < generatedCaptions.length - 1; i++) {
-                if (generatedCaptions[i].timestamp[1] < generatedCaptions[i+1].timestamp[0])
-                    generatedCaptions[i].timestamp[1] = generatedCaptions[i+1].timestamp[0];
+            if (!generatedCaptions.length) {
+                autoBurnRequested = false;
+                statusText.innerHTML = 'No speech was detected in this video, so there are no captions to burn.';
+                actionBtn.textContent = 'Generate Captions';
+                actionBtn.classList.remove('hidden');
+                exportBtn.classList.add('hidden');
+                if (previewBtn) previewBtn.classList.add('hidden');
+                setCaptionExportActionsVisible(false);
+                hideSingleCaptionProgress();
+                return;
             }
-            if (generatedCaptions.length > 0)
-                generatedCaptions[generatedCaptions.length-1].timestamp[1] = sourceVideo.duration || generatedCaptions[generatedCaptions.length-1].timestamp[1] + 5;
             editorPanel.classList.remove('hidden');
             populateEditor();
             actionBtn.classList.add('hidden');
             exportBtn.classList.remove('hidden');
+            if (previewBtn) previewBtn.classList.remove('hidden');
+            setCaptionExportActionsVisible(false);
+            if (captionVideoQueue[captionQueueIndex]) {
+                captionVideoQueue[captionQueueIndex].captions = JSON.parse(JSON.stringify(generatedCaptions));
+                captionVideoQueue[captionQueueIndex].status = 'transcribed';
+                renderCaptionQueue();
+            }
             sourceVideo.pause(); sourceVideo.currentTime = 0;
             clearPreviewFrameHandle(); renderPreviewNow(0); updatePlayPauseLabel();
             const sourceName = activeFile && activeFile.name ? activeFile.name : 'video';
+            updateSingleProgress(100, 'Captions ready', `${generatedCaptions.length} captions generated`);
             speakCaptionStudio(`Captioning complete. ${sourceName}`);
             notifyCaptionStudio('Captioning complete', sourceName);
+            if (autoBurnRequested) {
+                autoBurnRequested = false;
+                exportBtn.textContent = 'Burning Karaoke Captions...';
+                setTimeout(() => exportBtn.click(), 150);
+            }
         }
 
         function showManualCaptionInput() {
@@ -911,8 +1696,8 @@ function bootCaptionStudio() {
                                     const segs2 = Array.isArray(ipc2.segments) ? ipc2.segments : [];
                                     if (words2.length > 0) {
                                         generatedCaptions = [];
-                                        for (let i = 0; i < words2.length; i += 7) {
-                                            const sl = words2.slice(i, i+7);
+                                        for (let i = 0; i < words2.length; i += CAPTION_WORD_LIMIT) {
+                                            const sl = words2.slice(i, i + CAPTION_WORD_LIMIT);
                                             const txt = sl.map(w => w.word).join(' ').trim();
                                             if (txt) generatedCaptions.push({ text: txt, timestamp: [sl[0].start, sl[sl.length-1].end], words: sl.map(w => ({ text: w.word, timestamp: [w.start, w.end] })) });
                                         }
@@ -965,17 +1750,32 @@ function bootCaptionStudio() {
             if (hasIpc && videoPath) {
                 statusText.innerHTML = '\u23f3 Analysing video audio with Whisper AI (30\u201390s)...';
                 if (pBar) pBar.style.width = '10%';
-                const ipc = await window.electronAPI.transcribeVideo({ videoPath });
+                updateSingleProgress(10, 'Generating captions', 'Analyzing video audio with Whisper AI...');
+                let ipcShownPct = 10;
+                const ipcHeartbeat = setInterval(() => {
+                    if (!isExtractingText || ipcShownPct >= 92) return;
+                    ipcShownPct = Math.min(92, ipcShownPct + (ipcShownPct < 45 ? 4 : ipcShownPct < 75 ? 2 : 1));
+                    if (pBar) pBar.style.width = ipcShownPct + '%';
+                    statusText.innerHTML = `Transcribing video audio... ${ipcShownPct}% complete · ${100 - ipcShownPct}% remaining`;
+                    updateSingleProgress(ipcShownPct, 'Generating captions', 'Native Whisper is transcribing audio...');
+                }, 900);
+                let ipc = null;
+                try {
+                    ipc = await window.electronAPI.transcribeVideo({ videoPath });
+                } finally {
+                    clearInterval(ipcHeartbeat);
+                }
 
                 if (ipc && ipc.ok) {
                     if (pBar) pBar.style.width = '100%';
+                    updateSingleProgress(100, 'Captions ready', 'Transcription finished');
 
                     // No speech/audio detected in this video
                     if (!ipc.text || ipc.text.trim().length < 3) {
-                        isExtractingText = false;
-                        actionBtn.disabled = false;
-                        statusText.innerHTML = 'No speech detected in this video audio — type your caption text below:';
-                        showManualCaptionInput();
+                        statusText.innerHTML = 'No speech detected in this video audio. Upload a video with speech to auto-burn synced karaoke captions.';
+                        autoBurnRequested = false;
+                        actionBtn.textContent = 'Generate Captions';
+                        hideSingleCaptionProgress();
                         return;
                     }
 
@@ -983,8 +1783,8 @@ function bootCaptionStudio() {
                     const words    = Array.isArray(ipc.words)    ? ipc.words    : [];
                     const segments = Array.isArray(ipc.segments) ? ipc.segments : [];
                     if (words.length > 0) {
-                        for (let i = 0; i < words.length; i += 7) {
-                            const sl = words.slice(i, i+7);
+                        for (let i = 0; i < words.length; i += CAPTION_WORD_LIMIT) {
+                            const sl = words.slice(i, i + CAPTION_WORD_LIMIT);
                             const txt = sl.map(w => w.word).join(' ').trim();
                             if (txt) generatedCaptions.push({ text: txt, timestamp: [sl[0].start, sl[sl.length-1].end], words: sl.map(w => ({ text: w.word, timestamp: [w.start, w.end] })) });
                         }
@@ -1007,12 +1807,15 @@ function bootCaptionStudio() {
             // PATH 2: HTTP transcription server (port 8428)
             statusText.innerHTML = '⏳ Extracting audio from video...';
             if (pBar) pBar.style.width = '5%';
+            updateSingleProgress(5, 'Generating captions', 'Extracting audio from video...');
             audioDataArray = await extractAudio(activeFile);
             if (pBar) pBar.style.width = '15%';
+            updateSingleProgress(15, 'Generating captions', 'Sending audio to caption engine...');
             try {
                 statusText.innerHTML = '⏳ Sending to Whisper server (port 8428)...';
                 const svr = await transcribeWithLocalServer(audioDataArray);
                 if (pBar) pBar.style.width = '100%';
+                updateSingleProgress(100, 'Captions ready', 'Caption engine finished');
                 if (svr && svr.chunks && svr.chunks.length > 0) {
                     generatedCaptions = svr.chunks;
                     statusText.innerHTML = '✅ ' + generatedCaptions.length + ' captions from video audio';
@@ -1037,12 +1840,14 @@ function bootCaptionStudio() {
                             const pct = Math.round(ev.data.data.progress || 0);
                             statusText.innerHTML = '⏳ Downloading AI model: ' + pct + '%';
                             if (pBar) pBar.style.width = (15 + pct * 0.15) + '%';
+                            updateSingleProgress(15 + pct * 0.15, 'Generating captions', 'Downloading browser AI model...');
                         } else if (ev.data.type === 'error') rej(new Error(ev.data.error || 'init failed'));
                     };
                     captionWorker.postMessage({ type: 'init', modelPath: window.location.origin + '/AI_Models/' });
                 });
             }
             if (pBar) pBar.style.width = '30%';
+            updateSingleProgress(30, 'Generating captions', 'Browser AI is transcribing audio...');
             const opts = { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' };
             const translateCheck = document.getElementById('captionTranslateCheck');
             if (translateCheck && translateCheck.checked) opts.task = 'translate';
@@ -1051,8 +1856,9 @@ function bootCaptionStudio() {
                 captionWorker.onmessage = ev => {
                     if (ev.data.type === 'chunk_progress' && ev.data.chunk && ev.data.chunk.timestamp && ev.data.chunk.timestamp[1] !== null) {
                         const pct = Math.min(Math.round((ev.data.chunk.timestamp[1] / (ev.data.duration || 60)) * 100), 100);
-                        statusText.innerHTML = 'Transcribing... ' + pct + '%';
+                        statusText.innerHTML = 'Transcribing... ' + pct + '% complete · ' + Math.max(0, 100 - pct) + '% remaining';
                         if (pBar) pBar.style.width = pct + '%';
+                        updateSingleProgress(pct, 'Generating captions', 'Transcribing video audio...');
                     } else if (ev.data.type === 'result') { if (pBar) pBar.style.width = '100%'; res(ev.data.result); }
                     else if (ev.data.type === 'error') rej(new Error(ev.data.error || 'failed'));
                 };
@@ -1067,12 +1873,19 @@ function bootCaptionStudio() {
                 if (ts[1]===null) ts[1]=ts[0]+0.5;
                 if (!cur) { cur={text:txt,timestamp:[...ts],words:[{text:txt,timestamp:[...ts]}]}; }
                 else { cur.text+=' '+txt; cur.timestamp[1]=ts[1]; cur.words.push({text:txt,timestamp:[...ts]}); }
-                if (/[.!?]$/.test(txt)||cur.words.length>=12){generatedCaptions.push(cur);cur=null;}
+                if (/[.!?]$/.test(txt)||cur.words.length>=CAPTION_WORD_LIMIT){generatedCaptions.push(cur);cur=null;}
             });
             if (cur) generatedCaptions.push(cur);
             if (generatedCaptions.length === 0 && workerResult.text) {
                 const dur = sourceVideo.duration || 60;
                 generatedCaptions = buildLinearCaptionChunks(workerResult.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim(), dur, { narrationDurationSec: dur });
+            }
+            if (!generatedCaptions.length) {
+                statusText.innerHTML = 'No speech detected in this video audio. Upload a video with speech to auto-burn synced karaoke captions.';
+                autoBurnRequested = false;
+                actionBtn.textContent = 'Generate Captions';
+                hideSingleCaptionProgress();
+                return;
             }
             statusText.innerHTML = '✅ ' + generatedCaptions.length + ' captions from video audio';
             finaliseCaptions();
@@ -1080,37 +1893,81 @@ function bootCaptionStudio() {
         } catch (error) {
             statusText.innerHTML = '❌ ' + (error.message || 'Unknown error');
             console.error('[Caption]', error);
-        } finally { isExtractingText = false; actionBtn.disabled = false; }
+            if (captionVideoQueue[captionQueueIndex]) {
+                captionVideoQueue[captionQueueIndex].status = 'failed';
+                renderCaptionQueue();
+            }
+        } finally {
+            isExtractingText = false;
+            if (!captionQueueRunning && !captionQueueExporting) {
+                actionBtn.disabled = false;
+            }
+        }
+    }
+
+    actionBtn.addEventListener('click', async () => {
+        if (captionQueueRunning || captionQueueExporting) return;
+        if (captionVideoQueue.length > 1) await transcribeCaptionQueueFrom(captionQueueIndex);
+        else await transcribeActiveCaptionVideo();
     });
 
+
+        function getVisibleCaptionText(fullText, activeWordIndex, maxWords = CAPTION_WORD_LIMIT) {
+            const words = String(fullText || '').trim().split(/\s+/).filter(Boolean);
+            if (words.length <= maxWords) return words.join(' ');
+            const safeIndex = activeWordIndex >= 0 ? activeWordIndex : 0;
+            const groupStart = Math.floor(safeIndex / maxWords) * maxWords;
+            return words.slice(groupStart, groupStart + maxWords).join(' ');
+        }
+
+        function getWrappedCaptionLines(ctx, text, maxWidth) {
+            const safeText = String(text || '').trim();
+            if (!safeText) return [];
+            if (!window._textWrapCache) window._textWrapCache = {};
+            const fontStr = ctx.font;
+            const cacheKey = `${safeText}_${maxWidth}_${fontStr}`;
+            if (window._textWrapCache[cacheKey]) return window._textWrapCache[cacheKey];
+            const words = safeText.split(/\s+/);
+            const lines = [];
+            let line = '';
+            for (let n = 0; n < words.length; n += 1) {
+                const testLine = line + words[n] + ' ';
+                if (ctx.measureText(testLine).width > maxWidth && n > 0) {
+                    lines.push(line);
+                    line = words[n] + ' ';
+                } else {
+                    line = testLine;
+                }
+            }
+            if (line.trim()) lines.push(line);
+            window._textWrapCache[cacheKey] = lines;
+            return lines;
+        }
+
+        function getCaptionBottomSafety(fontSize, lineHeight, lineCount = 1) {
+            return CAPTION_BOTTOM_OFFSET_PX;
+        }
+
+        function getBottomAnchoredCaptionCenterY(targetHeight, fontSize, lineHeight, lineCount) {
+            const blockHeight = Math.max(lineHeight, lineCount * lineHeight);
+            return Math.max(blockHeight / 2, targetHeight - getCaptionBottomSafety(fontSize, lineHeight, lineCount) - blockHeight / 2);
+        }
 
         function drawWrappedText(ctx, fullText, x, y, maxWidth, lineHeight, elapsedTime, styleType, activeWordIndex = -1, targetEmoji = null, fontSize = 50, colorOverride = null) {
         let text = fullText;
 
+        if (styleType === 'white-yellow' && activeWordIndex === -1) return;
+        text = getVisibleCaptionText(fullText, activeWordIndex, CAPTION_WORD_LIMIT);
 
-        let lines = [];
-        if (!window._textWrapCache) window._textWrapCache = {};
-        const fontStr = ctx.font;
-        const cacheKey = `${text}_${maxWidth}_${fontStr}`;
-        if (window._textWrapCache[cacheKey]) {
-            lines = window._textWrapCache[cacheKey];
-        } else {
-            const words = text.trim().split(/\s+/); let line = '';
-            for(let n = 0; n < words.length; n++) {
-                const testLine = line + words[n] + ' ';
-                if (ctx.measureText(testLine).width > maxWidth && n > 0) { lines.push(line); line = words[n] + ' '; } 
-                else line = testLine;
-            }
-            lines.push(line);
-            window._textWrapCache[cacheKey] = lines;
-        }
+        let lines = getWrappedCaptionLines(ctx, text, maxWidth);
 
         ctx.save();
         ctx.translate(x, y);
 
         const globalColor = colorOverride || (colorPicker ? colorPicker.value : '#fde047');
         const strokeScale = strokeSlider ? parseInt(strokeSlider.value) / 100 : 0.8;
-        const baseStrokeWidth = Math.max(0, Math.floor(lineHeight * 0.15 * strokeScale));
+        const baseStrokeWidth = styleType === 'white-yellow' ? 0 : Math.max(0, Math.floor(lineHeight * 0.15 * strokeScale));
+        const shouldStroke = baseStrokeWidth > 0 && styleType !== 'glitch' && styleType !== 'retro' && styleType !== 'white-yellow';
 
         let currentY = -(lines.length * lineHeight) / 2 + lineHeight / 2;
         
@@ -1128,7 +1985,7 @@ function bootCaptionStudio() {
         const renderLine = (txt, yPos, wordCursorStart, drawShadowFx) => {
             if (activeWordIndex === -1 || styleType === 'typewriter' || styleType === 'glitch') {
                 if (drawShadowFx) drawShadowFx();
-                if (baseStrokeWidth > 0 && styleType !== 'glitch' && styleType !== 'retro') ctx.strokeText(txt, 0, yPos);
+                if (shouldStroke) ctx.strokeText(txt, 0, yPos);
                 ctx.fillText(txt, 0, yPos);
                 return txt.trim().split(/\s+/).length;
             } else {
@@ -1142,7 +1999,8 @@ function bootCaptionStudio() {
 
                 if (drawShadowFx) drawShadowFx(); // Compute massive canvas shader setup ONCE outside word loops!
                 const wds = txt.trim().split(/\s+/);
-                let cx = -getW(txt) / 2;
+                const measuredLine = wds.join(' ');
+                let cx = -getW(measuredLine) / 2;
                 const spaceW = getW(' ');
 
                 for(let w = 0; w < wds.length; w++) {
@@ -1151,12 +2009,24 @@ function bootCaptionStudio() {
                     const ogAlpha = ctx.globalAlpha;
                     const ogFill = ctx.fillStyle;
                     
-                    if (!isFocus) { ctx.globalAlpha = ogAlpha * 0.3; ctx.fillStyle = '#ffffff'; }
+                    if (!isFocus) {
+                        if (styleType === 'white-yellow') {
+                            ctx.globalAlpha = ogAlpha;
+                            ctx.fillStyle = '#ffffff';
+                        } else {
+                            ctx.globalAlpha = ogAlpha * 0.3;
+                            ctx.fillStyle = '#ffffff';
+                        }
+                    } else {
+                        if (styleType === 'white-yellow') {
+                            ctx.fillStyle = '#fde047';
+                        }
+                    }
                     
-                    if (baseStrokeWidth > 0 && styleType !== 'glitch' && styleType !== 'retro') ctx.strokeText(wds[w], cx + bw/2, yPos);
+                    if (shouldStroke) ctx.strokeText(wds[w], cx + bw/2, yPos);
                     ctx.fillText(wds[w], cx + bw/2, yPos);
                     
-                    if (!isFocus) { ctx.globalAlpha = ogAlpha; ctx.fillStyle = ogFill; }
+                    if (!isFocus || styleType === 'white-yellow') { ctx.globalAlpha = ogAlpha; ctx.fillStyle = ogFill; }
                     cx += bw + spaceW;
                 }
                 return wds.length;
@@ -1165,18 +2035,24 @@ function bootCaptionStudio() {
 
         let wordCursor = 0;
 
-        if (styleType === 'tiktok') {
+        if (styleType === 'tiktok' || styleType === 'white-yellow') {
             let scale = 1.0;
-            if (elapsedTime < 0.15) scale = 0.5 + (Math.sin((elapsedTime / 0.15) * Math.PI / 2) * 0.6); 
-            else if (elapsedTime < 0.25) scale = 1.1 - ((elapsedTime - 0.15) / 0.1) * 0.1;
+            if (styleType !== 'white-yellow') {
+                if (elapsedTime < 0.15) scale = 0.5 + (Math.sin((elapsedTime / 0.15) * Math.PI / 2) * 0.6); 
+                else if (elapsedTime < 0.25) scale = 1.1 - ((elapsedTime - 0.15) / 0.1) * 0.1;
+            }
             ctx.scale(scale, scale);
             
-            ctx.lineWidth = baseStrokeWidth; ctx.lineJoin = 'round';
-            ctx.strokeStyle = '#000000'; ctx.fillStyle = globalColor; 
+            ctx.lineWidth = styleType === 'white-yellow' ? 0 : baseStrokeWidth * 1.5; ctx.lineJoin = 'round';
+            ctx.strokeStyle = '#000000'; ctx.fillStyle = (styleType === 'white-yellow') ? '#fde047' : globalColor; 
             
             for(let i = 0; i < lines.length; i++) {
                 wordCursor += renderLine(lines[i].trim(), currentY, wordCursor, () => {
-                    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
+                    if (styleType === 'white-yellow') {
+                        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+                    } else {
+                        ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
+                    }
                 });
                 currentY += lineHeight;
             }
@@ -1352,9 +2228,7 @@ function bootCaptionStudio() {
                  ctx.restore();
              }
 
-            const baseFontSize = targetHeight * 0.08;
-            const sizeMult = (sizeSlider ? parseInt(sizeSlider.value) : 80) / 100;
-            const fontSize = Math.floor(baseFontSize * sizeMult);
+            const fontSize = Math.max(12, Math.floor(sizeSlider ? parseInt(sizeSlider.value) : 35));
             
             const gapMult = (gapSlider ? parseInt(gapSlider.value) : 120) / 100;
             const lineHeight = fontSize * gapMult;
@@ -1376,13 +2250,18 @@ function bootCaptionStudio() {
                            const end = Number.isFinite(rawEnd) ? rawEnd : (Number.isFinite(start) ? start + 0.2 : NaN);
                            return Number.isFinite(start) && Number.isFinite(end) && adjustedTime >= start && adjustedTime < end;
                        });
-                       if (foundIdx === -1) {
-                           foundIdx = currentChunk.words.findIndex(w => {
-                               const start = Array.isArray(w.timestamp) ? Number(w.timestamp[0]) : NaN;
-                               return Number.isFinite(start) && adjustedTime < start;
+                       if (foundIdx < 0) {
+                           foundIdx = currentChunk.words.findIndex((w, index) => {
+                               const next = currentChunk.words[index + 1];
+                               const rawEnd = Array.isArray(w.timestamp) ? Number(w.timestamp[1]) : NaN;
+                               const nextStart = next && Array.isArray(next.timestamp) ? Number(next.timestamp[0]) : NaN;
+                               return Number.isFinite(rawEnd)
+                                   && adjustedTime >= rawEnd
+                                   && adjustedTime < rawEnd + SHORT_CAPTION_GAP_SECONDS
+                                   && (!Number.isFinite(nextStart) || adjustedTime < nextStart);
                            });
                        }
-                       activeWordIndex = foundIdx !== -1 ? foundIdx : totalWords - 1;
+                       activeWordIndex = foundIdx;
                   } else {
                        const chunkDuration = currentChunk.timestamp[1] - currentChunk.timestamp[0];
                        const elapsedTime = adjustedTime - currentChunk.timestamp[0];
@@ -1392,7 +2271,7 @@ function bootCaptionStudio() {
                   }
                   
                   if (activeWordIndex >= totalWords) activeWordIndex = totalWords - 1;
-                  if (activeWordIndex < 0 || isNaN(activeWordIndex)) activeWordIndex = 0;
+                  if (activeWordIndex < 0 || isNaN(activeWordIndex)) activeWordIndex = -1;
                   
                   if (activeWordIndex !== -1 && activeWordIndex !== lastSfxWordIndex) {
                        const wordObj = currentChunk.text.trim().split(' ')[activeWordIndex];
@@ -1415,8 +2294,11 @@ function bootCaptionStudio() {
 
             const fontFamily = fontSelect ? fontSelect.value : 'Nunito, sans-serif';
             ctx.font = `900 ${fontSize}px ${fontFamily}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            const visibleCaptionText = getVisibleCaptionText(currentChunk.text.trim(), activeWordIndex, CAPTION_WORD_LIMIT);
+            const wrappedLines = getWrappedCaptionLines(ctx, visibleCaptionText, maxWidth);
+            const anchoredY = getBottomAnchoredCaptionCenterY(targetHeight, fontSize, lineHeight, Math.max(1, wrappedLines.length));
             
-            drawWrappedText(ctx, currentChunk.text.trim(), targetWidth * captionPosX, targetHeight * captionPosY, maxWidth, lineHeight, adjustedTime - currentChunk.timestamp[0], styleSelect.value, activeWordIndex, targetEmoji, fontSize, currentChunk.colorOverride);
+            drawWrappedText(ctx, currentChunk.text.trim(), targetWidth * captionPosX, anchoredY, maxWidth, lineHeight, adjustedTime - currentChunk.timestamp[0], styleSelect.value, activeWordIndex, targetEmoji, fontSize, currentChunk.colorOverride);
           } else {
             let useMusic = bgMusicAudio && !bgMusicAudio.paused;
             if (bgMusicCheck && !bgMusicCheck.checked) useMusic = false;
@@ -1488,6 +2370,8 @@ function bootCaptionStudio() {
         for (let index = 0; index < sorted.length - 1; index += 1) {
             if (sorted[index].end > sorted[index + 1].start) {
                 sorted[index].end = Math.max(sorted[index].start + 0.12, sorted[index + 1].start - 0.02);
+            } else if (sorted[index + 1].start - sorted[index].end <= SHORT_CAPTION_GAP_SECONDS) {
+                sorted[index].end = sorted[index + 1].start;
             }
         }
         return sorted;
@@ -1515,25 +2399,102 @@ function bootCaptionStudio() {
         return `&H00${hex.slice(5, 7)}${hex.slice(3, 5)}${hex.slice(1, 3).toUpperCase()}&`;
     }
 
+    function getAssStyleConfig(styleType, fontSize, userColor, strokeValue) {
+        const highlight = styleType === 'white-yellow' ? '#facc15' : userColor;
+        const activeColor = hexToAss(highlight, '#facc15');
+        const inactiveColor = styleType === 'white-yellow'
+            ? '&H00FFFFFF&'
+            : '&H00FFFFFF&';
+        const baseTextColor = styleType === 'white-yellow' ? '&H00FFFFFF&' : activeColor;
+        const outlineBase = Math.max(0, Math.round(fontSize * 0.12 * strokeValue));
+
+        let borderStyle = 1;
+        let outline = outlineBase;
+        let shadow = 4;
+        let backColor = '&H64000000&';
+        let outlineColor = '&H00000000&';
+
+        if (styleType === 'classic' || styleType === 'typewriter') {
+            borderStyle = 3;
+            outline = 0;
+            shadow = 0;
+            backColor = '&H33000000&';
+        } else if (styleType === 'cinematic') {
+            outline = Math.max(1, Math.round(outlineBase * 0.75));
+            shadow = 3;
+            backColor = '&HFF000000&';
+        } else if (styleType === 'neon') {
+            outline = Math.max(1, Math.round(outlineBase * 0.65));
+            shadow = 8;
+            backColor = '&HFF000000&';
+        } else if (styleType === 'glitch') {
+            outline = Math.max(1, outlineBase);
+            shadow = 1;
+            backColor = '&HFF000000&';
+        } else if (styleType === 'retro') {
+            outline = Math.max(2, Math.round(outlineBase * 1.2));
+            shadow = 6;
+            backColor = '&HFF000000&';
+        } else if (styleType === 'white-yellow') {
+            outline = 0;
+            shadow = 0;
+            backColor = '&HFF000000&';
+        } else {
+            outline = Math.max(2, outlineBase);
+            shadow = 4;
+            backColor = '&HFF000000&';
+        }
+
+        return { activeColor, inactiveColor, baseTextColor, outlineColor, backColor, borderStyle, outline, shadow };
+    }
+
     function buildPreviewMatchedAss() {
         const width = sourceVideo.videoWidth || renderCanvas.width || 1920;
         const height = sourceVideo.videoHeight || renderCanvas.height || 1080;
-        const sizeMult = (sizeSlider ? Number(sizeSlider.value) : 80) / 100;
-        const fontSize = Math.max(24, Math.floor(height * 0.08 * sizeMult));
-        const outline = Math.max(0, Math.round(fontSize * 0.12 * ((strokeSlider ? Number(strokeSlider.value) : 80) / 100)));
-        const activeColor = hexToAss(colorPicker ? colorPicker.value : '#fde047', '#fde047');
-        const inactiveColor = '&H00909090&';
+        const fontSize = Math.max(12, Math.round(sizeSlider ? Number(sizeSlider.value) : 35));
+        const selectedStyle = styleSelect ? styleSelect.value : 'white-yellow';
+        const userColor = colorPicker ? colorPicker.value : '#fde047';
+        const strokeValue = (strokeSlider ? Number(strokeSlider.value) : 80) / 100;
+        const assStyle = getAssStyleConfig(selectedStyle, fontSize, userColor, strokeValue);
+        const { activeColor, inactiveColor, baseTextColor, outlineColor, backColor, borderStyle, outline, shadow } = assStyle;
         const x = Math.round(width * captionPosX);
-        const y = Math.round(height * captionPosY);
+        const captionAnchor = 2;
         const widthMult = (widthSlider ? Number(widthSlider.value) : 85) / 100;
         const sideMargin = Math.max(20, Math.round(width * (1 - widthMult) / 2));
+        const marginV = CAPTION_BOTTOM_OFFSET_PX;
         const syncOffset = getCaptionSyncOffsetSeconds();
         const selectedFont = String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
         const isKaraoke = !karaokeCheck || karaokeCheck.checked;
         const useEmoji = emojiCheck && emojiCheck.checked;
+        const measureCanvas = document.createElement('canvas');
+        const measureCtx = measureCanvas.getContext('2d');
+        if (measureCtx) measureCtx.font = `900 ${fontSize}px ${selectedFont}`;
+        const wrapTokensForAss = (tokens) => {
+            if (!measureCtx) return [tokens];
+            const maxWidth = width * widthMult;
+            const lines = [];
+            let line = [];
+            for (const token of tokens) {
+                const testLine = [...line, token].join(' ');
+                if (line.length && measureCtx.measureText(testLine).width > maxWidth) {
+                    lines.push(line);
+                    line = [token];
+                } else {
+                    line.push(token);
+                }
+            }
+            if (line.length) lines.push(line);
+            return lines.length ? lines : [tokens];
+        };
+        const assBottomY = (tokens) => {
+            const lineCount = wrapTokensForAss(tokens).length;
+            const lineHeight = fontSize * 1.2;
+            return height - getCaptionBottomSafety(fontSize, lineHeight, lineCount);
+        };
 
-        const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Preview,${selectedFont},${fontSize},${activeColor},${inactiveColor},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,${outline},4,5,${sideMargin},${sideMargin},20,1\nStyle: Progress,Arial,10,${activeColor},${activeColor},${activeColor},${activeColor},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
+        const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Preview,${selectedFont},${fontSize},${activeColor},${inactiveColor},${outlineColor},${backColor},-1,0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${captionAnchor},${sideMargin},${sideMargin},${marginV},1\nStyle: Progress,Arial,10,${activeColor},${activeColor},${activeColor},${activeColor},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
         const events = [];
+        const exportWordLimit = CAPTION_WORD_LIMIT;
 
         for (const caption of generatedCaptions || []) {
             const textTokens = String(caption.text || '').trim().split(/\s+/).filter(Boolean);
@@ -1554,24 +2515,55 @@ function bootCaptionStudio() {
                     start: capStart + (index / textTokens.length) * (capEnd - capStart),
                     end: capStart + ((index + 1) / textTokens.length) * (capEnd - capStart),
                 }));
+            const captionGroups = [];
+            for (let groupStart = 0; groupStart < textTokens.length; groupStart += exportWordLimit) {
+                const groupTokens = textTokens.slice(groupStart, groupStart + exportWordLimit);
+                const groupWords = sourceWords.slice(groupStart, groupStart + exportWordLimit);
+                const groupStartTime = groupWords[0] ? groupWords[0].start : capStart;
+                const groupEndTime = groupWords[groupWords.length - 1] ? groupWords[groupWords.length - 1].end : capEnd;
+                captionGroups.push({
+                    tokens: groupTokens,
+                    words: groupWords,
+                    start: Math.max(capStart, groupStartTime),
+                    end: Math.max(groupStartTime + 0.1, Math.min(capEnd, groupEndTime)),
+                });
+            }
             const emoji = useEmoji ? getEmojiForText(caption.text) : null;
             const emojiPrefix = emoji
                 ? `{\\fnSegoe UI Emoji\\fs${Math.round(fontSize * 1.5)}\\1c&H00FFFFFF&}${escapeAssCaptionText(emoji)}\\N{\\fn${escapeAssCaptionText(selectedFont)}\\fs${fontSize}}`
                 : '';
 
-            if (!isKaraoke) {
-                const wholeText = textTokens.map(escapeAssCaptionText).join(' ');
-                events.push(`Dialogue: 0,${toAssTimestamp(capStart)},${toAssTimestamp(capEnd)},Preview,,0,0,0,,{\\an5\\pos(${x},${y})\\1c${activeColor}}${emojiPrefix}${wholeText}`);
-                continue;
-            }
+            captionGroups.forEach(group => {
+                if (!group.tokens.length) return;
+                const y = assBottomY(group.tokens);
+                const wrappedTokenLines = wrapTokensForAss(group.tokens);
+                if (!isKaraoke) {
+                    const wholeText = wrappedTokenLines
+                        .map(line => line.map(escapeAssCaptionText).join(' '))
+                        .join('\\N');
+                    events.push(`Dialogue: 0,${toAssTimestamp(group.start)},${toAssTimestamp(group.end)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})\\1c${baseTextColor}}${emojiPrefix}${wholeText}`);
+                    return;
+                }
 
-            sourceWords.forEach((word, activeIndex) => {
-                if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.end <= word.start) return;
-                const styledText = textTokens.map((token, tokenIndex) => {
-                    const color = tokenIndex === activeIndex ? activeColor : inactiveColor;
-                    return `{\\1c${color}}${escapeAssCaptionText(token)}`;
-                }).join(' ');
-                events.push(`Dialogue: 0,${toAssTimestamp(word.start)},${toAssTimestamp(word.end)},Preview,,0,0,0,,{\\an5\\pos(${x},${y})}${emojiPrefix}${styledText}`);
+                group.words.forEach((word, activeIndex) => {
+                    if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.end <= word.start) return;
+                    const nextWord = group.words[activeIndex + 1];
+                    const nextStart = nextWord && Number.isFinite(nextWord.start) ? nextWord.start : null;
+                    const displayEnd = nextStart !== null && nextStart - word.end > 0 && nextStart - word.end <= SHORT_CAPTION_GAP_SECONDS
+                        ? Math.min(group.end, nextStart)
+                        : word.end;
+                    let tokenCursor = 0;
+                    const styledText = wrappedTokenLines.map(lineTokens => {
+                        const lineText = lineTokens.map((token) => {
+                            const tokenIndex = tokenCursor;
+                            tokenCursor += 1;
+                        const color = tokenIndex === activeIndex ? activeColor : inactiveColor;
+                        return `{\\1c${color}}${escapeAssCaptionText(token)}`;
+                        }).join(' ');
+                        return lineText;
+                    }).join('\\N');
+                    events.push(`Dialogue: 0,${toAssTimestamp(word.start)},${toAssTimestamp(displayEnd)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})}${emojiPrefix}${styledText}`);
+                });
             });
         }
 
@@ -1608,9 +2600,77 @@ function bootCaptionStudio() {
         if (!isRecording) renderPreviewNow(sourceVideo.currentTime);
     });
 
+    function seekCaptionPreviewTo(time) {
+        return new Promise(resolve => {
+            const safeTime = Math.max(0, Number(time) || 0);
+            const done = () => resolve();
+            sourceVideo.addEventListener('seeked', done, { once: true });
+            sourceVideo.currentTime = safeTime;
+            setTimeout(done, 900);
+        });
+    }
+
+    if (previewBtn) {
+        previewBtn.addEventListener('click', async () => {
+            if (isRecording || captionQueueExporting || captionQueueRunning) {
+                statusText.innerHTML = 'Preview is paused while export or queue work is running.';
+                return;
+            }
+            if (!sourceVideo.src || !generatedCaptions.length) {
+                statusText.innerHTML = 'Generate captions first, then preview.';
+                return;
+            }
+
+            const duration = Number(sourceVideo.duration) || 0;
+            const firstCaption = generatedCaptions.find(c => Array.isArray(c.timestamp) && Number.isFinite(Number(c.timestamp[0])));
+            const current = Number(sourceVideo.currentTime) || 0;
+            const fallbackStart = firstCaption ? Number(firstCaption.timestamp[0]) : 0;
+            const maxStart = duration > 0 ? Math.max(0, duration - 0.25) : fallbackStart;
+            const start = Math.max(0, Math.min(current || fallbackStart, maxStart));
+            const end = duration > 0 ? Math.min(duration, start + 5) : start + 5;
+            const oldText = previewBtn.textContent;
+
+            try {
+                previewBtn.disabled = true;
+                previewBtn.textContent = 'Previewing 5s...';
+                statusText.innerHTML = `Previewing captions for 5 seconds. Check font, placement, color, and ${CAPTION_WORD_LIMIT}-word grouping before export.`;
+                sourceVideo.pause();
+                await seekCaptionPreviewTo(start);
+                renderPreviewNow(start);
+                await sourceVideo.play().catch(() => {});
+                await new Promise(resolve => {
+                    let finished = false;
+                    const finish = () => {
+                        if (finished) return;
+                        finished = true;
+                        clearInterval(timer);
+                        sourceVideo.removeEventListener('ended', finish);
+                        resolve();
+                    };
+                    const timer = setInterval(() => {
+                        if (sourceVideo.currentTime >= end || sourceVideo.ended || sourceVideo.paused) finish();
+                    }, 120);
+                    sourceVideo.addEventListener('ended', finish, { once: true });
+                    setTimeout(finish, 5600);
+                });
+                sourceVideo.pause();
+                renderPreviewNow(sourceVideo.currentTime || start);
+                statusText.innerHTML = '5-second preview complete. If it looks correct, export the video.';
+            } catch (error) {
+                console.error('[Caption Preview]', error);
+                statusText.innerHTML = 'Preview failed: ' + (error.message || error);
+            } finally {
+                previewBtn.disabled = false;
+                previewBtn.textContent = oldText || 'Preview 5s';
+                updatePlayPauseLabel();
+            }
+        });
+    }
+
     exportBtn.addEventListener('click', async () => {
         if (isRecording) return;
         isRecording = true;
+        setCaptionExportActionsVisible(false);
         exportBtn.textContent = '\u26a1 Express Export...';
         exportBtn.disabled = true;
 
@@ -1640,32 +2700,61 @@ function bootCaptionStudio() {
                 if (!captionsForBurn.length) {
                     throw new Error('No valid caption timings are available for export.');
                 }
-                statusText.innerHTML = '\u26a1 Sync export: rendering preview-matched karaoke captions with FFmpeg...';
-                const _fontSize = Math.max(18, Math.round((Number(sizeSlider && sizeSlider.value) || 80) * 0.55));
-                const _result = typeof window.electronAPI.fastBurnAss === 'function'
-                    ? await window.electronAPI.fastBurnAss({
-                        videoPath: _filePath,
-                        assContent: buildPreviewMatchedAss()
-                    })
-                    : await window.electronAPI.burnCaptions({
+                statusText.innerHTML = '\u26a1 Sync export: 0% complete · 100% remaining';
+                renderSingleCaptionProgress(0, 'Exporting captions', (activeFile && activeFile.name) || 'Current video');
+                let burnProgressHandler = null;
+                let syncShownPct = 0;
+                let syncFinalizingTimer = null;
+                const showSyncExportProgress = (pct, phaseLabel = 'Sync export') => {
+                    syncShownPct = Math.max(syncShownPct, Math.max(0, Math.min(99, Math.round(pct))));
+                    statusText.innerHTML = '\u26a1 ' + phaseLabel + ': ' + syncShownPct + '% complete · ' + (100 - syncShownPct) + '% remaining';
+                    setCaptionProgressBar(syncShownPct);
+                    renderSingleCaptionProgress(syncShownPct, phaseLabel, (activeFile && activeFile.name) || 'Current video');
+                };
+                syncFinalizingTimer = setInterval(() => {
+                    if (!isRecording || syncShownPct < 94 || syncShownPct >= 99) return;
+                    showSyncExportProgress(syncShownPct + 1, 'Finalizing export');
+                }, 1200);
+                if (window.electronAPI && typeof window.electronAPI.onBurnProgress === 'function') {
+                    burnProgressHandler = data => {
+                        let pct = 0;
+                        if (typeof data === 'number') pct = data;
+                        else if (data && typeof data.pct === 'number') pct = data.pct;
+                        const isFinalizing = data && typeof data === 'object' && data.phase === 'finalizing';
+                        showSyncExportProgress(pct, isFinalizing || pct >= 94 ? 'Finalizing export' : 'Sync export');
+                    };
+                    window.electronAPI.onBurnProgress(burnProgressHandler);
+                }
+                const _fontSize = Math.max(12, Math.round(Number(sizeSlider && sizeSlider.value) || 35));
+                let _result = null;
+                try {
+                    _result = await window.electronAPI.burnCaptions({
                         videoPath: _filePath,
                         captions: captionsForBurn,
                         style: _styleName,
                         fontSize: _fontSize,
-                        position: 'bottom'
+                        position: 'bottom',
+                        assContent: buildPreviewMatchedAss()
                     });
+                } finally {
+                    if (syncFinalizingTimer) clearInterval(syncFinalizingTimer);
+                    if (burnProgressHandler && typeof window.electronAPI.offBurnProgress === 'function') {
+                        window.electronAPI.offBurnProgress(burnProgressHandler);
+                    }
+                }
                 if (_result && _result.ok) {
                     const completedFileName = _result.fileName || 'captioned video';
                     statusText.innerHTML = '\u2705 Synced caption export done! Saved to Downloads: <strong>' + completedFileName + '</strong>.';
+                    setCaptionProgressBar(100);
+                    renderSingleCaptionProgress(100, 'Export complete', completedFileName);
+                    renderCaptionExportActions(_result, { queueIndex: captionQueueIndex });
                     exportBtn.textContent = 'Export Result';
                     exportBtn.disabled = false;
                     isRecording = false;
                     console.log('[Caption Export] FFmpeg express export done:', _result.outputPath);
-                    if (window.electronAPI && typeof window.electronAPI.showItemInFolder === 'function' && _result.outputPath) {
-                        window.electronAPI.showItemInFolder(_result.outputPath);
-                    }
                     speakCaptionStudio(`Exporting done. ${completedFileName}`);
                     notifyCaptionStudio('Exporting done', completedFileName);
+                    alertSingleCaptionExportComplete(completedFileName);
                     return;
                 }
                 throw new Error((_result && _result.error) || 'FFmpeg caption export failed.');
@@ -1780,6 +2869,7 @@ function bootCaptionStudio() {
             statusText.innerHTML  = '\u2705 Export complete! <strong>captioned_video.' + _ext + '</strong> saved to Downloads.';
             speakCaptionStudio(`Exporting done. captioned_video.${_ext}`);
             notifyCaptionStudio('Exporting done', `captioned_video.${_ext}`);
+            alertSingleCaptionExportComplete(`captioned_video.${_ext}`);
 
             sourceVideo.pause(); sourceVideo.currentTime = 0;
             sourceVideo.muted = _origMuted; sourceVideo.volume = _origVolume;
@@ -1807,8 +2897,11 @@ function bootCaptionStudio() {
             if (_expDone || !isRecording) return;
             const _ct  = sourceVideo.currentTime;
             const _pct = _duration > 0 ? Math.min(100, Math.round((_ct / _duration) * 100)) : 0;
-            statusText.innerHTML = '\ud83c\udf9e\ufe0f Exporting captioned video: <strong>' + _pct + '%</strong>&nbsp;&nbsp;(' + _ct.toFixed(1) + 's / ' + _duration.toFixed(1) + 's) \u2014 please wait\u2026';
+            const _remainingPct = Math.max(0, 100 - _pct);
+            const _remainingSec = Math.max(0, _duration - _ct);
+            statusText.innerHTML = '\ud83c\udf9e\ufe0f Exporting captioned video: <strong>' + _pct + '%</strong> complete · <strong>' + _remainingPct + '%</strong> remaining&nbsp;&nbsp;(' + _remainingSec.toFixed(1) + 's left / ' + _duration.toFixed(1) + 's total) \u2014 please wait\u2026';
             exportBtn.textContent = '\u23f3 Exporting ' + _pct + '%';
+            renderSingleCaptionProgress(_pct, 'Exporting captions', (activeFile && activeFile.name) || 'Current video');
         }, 500);
 
         // FIX 5: Safety watchdog - force stop if ended event never fires
@@ -1817,7 +2910,7 @@ function bootCaptionStudio() {
             _finishExport();
         }, (_duration + 5) * 1000);
 
-        statusText.innerHTML = '\ud83c\udf9e\ufe0f Exporting captioned video: <strong>0%</strong>&nbsp;&nbsp;(0.0s / ' + _duration.toFixed(1) + 's) \u2014 please wait\u2026';
+        statusText.innerHTML = '\ud83c\udf9e\ufe0f Exporting captioned video: <strong>0%</strong> complete · <strong>100%</strong> remaining&nbsp;&nbsp;(' + _duration.toFixed(1) + 's left / ' + _duration.toFixed(1) + 's total) \u2014 please wait\u2026';
 
         try { await sourceVideo.play(); } catch(_pErr) {
             console.warn('[Caption Export] play() rejected:', _pErr);

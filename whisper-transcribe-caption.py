@@ -42,6 +42,27 @@ def preprocess(input_wav: str) -> str:
         return input_wav  # fall back to original
 
 
+def trim_for_detection(input_wav: str, seconds: int = 30) -> str:
+    """Create a short temp clip for fast language detection."""
+    tmp = tempfile.NamedTemporaryFile(suffix="_cap_detect.wav", delete=False)
+    tmp.close()
+    try:
+        subprocess.run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", input_wav,
+            "-t", str(seconds),
+            "-ac", "1", "-ar", "16000", "-sample_fmt", "s16",
+            tmp.name,
+        ], check=True, capture_output=True)
+        return tmp.name
+    except Exception:
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
+        return input_wav
+
+
 def is_repetition_loop(text: str) -> bool:
     """Detect Whisper hallucination loops (same phrase repeated 5+ times)."""
     if not text or len(text.strip()) < 3:
@@ -124,8 +145,17 @@ try:
         from faster_whisper import WhisperModel
         print("[Whisper] Loading 'small' model for language detection...", flush=True)
         m = WhisperModel("small", device="cpu", compute_type="int8")
-        # Transcribe with duration=30 just to detect language quickly
-        _, info = m.transcribe(norm_path, beam_size=1, duration=30)
+        # Faster-whisper does not support a duration= argument in all versions,
+        # so detect language on a real short audio clip instead.
+        detect_path = trim_for_detection(norm_path, 30)
+        try:
+            _, info = m.transcribe(detect_path, beam_size=1)
+        finally:
+            if detect_path != norm_path:
+                try:
+                    os.unlink(detect_path)
+                except Exception:
+                    pass
         detected_lang = info.language
         print(f"[Whisper] Detected language: {detected_lang} (prob: {info.language_probability:.2f})", flush=True)
         
