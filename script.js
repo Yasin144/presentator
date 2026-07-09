@@ -1,4 +1,4 @@
-﻿/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
+/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
 function isImageReady(img) {
     if (!img) return false;
     // HTMLVideoElement / HTMLCanvasElement / ImageBitmap are always drawable
@@ -24258,12 +24258,13 @@ const sc3Queue = {
   processing: false,
   currentIndex: -1,
 };
-const _sc3QueuePanel   = document.getElementById('sc3QueuePanel');
-const _sc3QueueList    = document.getElementById('sc3QueueList');
-const _sc3QueueCounter = document.getElementById('sc3QueueCounter');
-const _sc3QueueEta     = document.getElementById('sc3QueueEta');
-const _sc3PauseBtn     = document.getElementById('sc3PauseBtn');
-const _sc3StopBtn      = document.getElementById('sc3StopBtn');
+// Lazy DOM getters -- resolved at call time so React has rendered first
+function _sc3QueuePanel()   { return document.getElementById('sc3QueuePanel'); }
+function _sc3QueueList()    { return document.getElementById('sc3QueueList'); }
+function _sc3QueueCounter() { return document.getElementById('sc3QueueCounter'); }
+function _sc3QueueEta()     { return document.getElementById('sc3QueueEta'); }
+function _sc3PauseBtn()     { return document.getElementById('sc3PauseBtn'); }
+function _sc3StopBtn()      { return document.getElementById('sc3StopBtn'); }
 
 const QUEUE_STATUS_META = {
   pending:    { icon: '\u23f3', label: 'Waiting',    color: '#9ca3af', bg: 'rgba(0,0,0,0.2)' },
@@ -24274,21 +24275,21 @@ const QUEUE_STATUS_META = {
 };
 
 function renderQueueList() {
-  if (!_sc3QueueList) return;
+  if (!_sc3QueueList()) return;
   const done  = sc3Queue.items.filter(i => i.status === 'done').length;
   const total = sc3Queue.items.length;
-  if (_sc3QueueCounter) _sc3QueueCounter.textContent = done + ' / ' + total + ' complete';
-  if (_sc3QueuePanel)   _sc3QueuePanel.style.display  = total > 0 ? 'block' : 'none';
+  if (_sc3QueueCounter()) _sc3QueueCounter().textContent = done + ' / ' + total + ' complete';
+  if (_sc3QueuePanel())   _sc3QueuePanel().style.display  = total > 0 ? 'block' : 'none';
 
   // ETA
-  if (_sc3QueueEta) {
+  if (_sc3QueueEta()) {
     const finished = sc3Queue.items.filter(i => i.endedAt && i.startedAt);
     const avgMs = finished.length ? finished.reduce((s,i) => s + (i.endedAt - i.startedAt), 0) / finished.length : 0;
     const remaining = sc3Queue.items.filter(i => i.status === 'pending').length;
-    _sc3QueueEta.textContent = (avgMs && remaining) ? '~' + Math.ceil(avgMs * remaining / 60000) + ' min remaining' : '';
+    _sc3QueueEta().textContent = (avgMs && remaining) ? '~' + Math.ceil(avgMs * remaining / 60000) + ' min remaining' : '';
   }
 
-  _sc3QueueList.innerHTML = sc3Queue.items.map((item, idx) => {
+  _sc3QueueList().innerHTML = sc3Queue.items.map((item, idx) => {
     const m = QUEUE_STATUS_META[item.status] || QUEUE_STATUS_META.pending;
     const isCurrent = item.status === 'processing';
     const dlBtn = (item.status === 'done' && item.resultPath)
@@ -24324,8 +24325,8 @@ async function processVideoQueue() {
   sc3Queue.paused  = false;
   sc3Queue.stopped = false;
 
-  if (_sc3PauseBtn) { _sc3PauseBtn.disabled = false; _sc3PauseBtn.textContent = '\u23f8 Pause'; }
-  if (_sc3StopBtn)  _sc3StopBtn.disabled = false;
+  if (_sc3PauseBtn()) { _sc3PauseBtn().disabled = false; _sc3PauseBtn().textContent = '\u23f8 Pause'; }
+  if (_sc3StopBtn())  _sc3StopBtn().disabled = false;
   if (sc3VideoReplaceBtn) sc3VideoReplaceBtn.disabled = true;
   state.singSong.processing = true;
   resetQueueProgress(); // reset elapsed timer + counters
@@ -24343,8 +24344,8 @@ async function processVideoQueue() {
     item.startedAt = Date.now();
     sc3Queue.currentIndex = sc3Queue.items.indexOf(item);
     renderQueueList();
-    if (_sc3QueueList && _sc3QueueList.children[sc3Queue.currentIndex]) {
-      _sc3QueueList.children[sc3Queue.currentIndex].scrollIntoView({ block: 'nearest' });
+    if (_sc3QueueList() && _sc3QueueList().children[sc3Queue.currentIndex]) {
+      _sc3QueueList().children[sc3Queue.currentIndex].scrollIntoView({ block: 'nearest' });
     }
 
     const pos = sc3Queue.currentIndex + 1, tot = sc3Queue.items.length;
@@ -24419,8 +24420,8 @@ async function processVideoQueue() {
   sc3Queue.processing = false;
   sc3Queue.currentIndex = -1;
   state.singSong.processing = false;
-  if (_sc3PauseBtn) { _sc3PauseBtn.disabled = true; _sc3PauseBtn.textContent = '\u23f8 Pause'; }
-  if (_sc3StopBtn)  _sc3StopBtn.disabled = true;
+  if (_sc3PauseBtn()) { _sc3PauseBtn().disabled = true; _sc3PauseBtn().textContent = '\u23f8 Pause'; }
+  if (_sc3StopBtn())  _sc3StopBtn().disabled = true;
   if (sc3VideoReplaceBtn) sc3VideoReplaceBtn.disabled = false;
 
   const doneC  = sc3Queue.items.filter(i => i.status === 'done').length;
@@ -26538,29 +26539,29 @@ if (sc3VideoReplaceBtn) {
   });
 }
 // Ã¢â€â‚¬Ã¢â€â‚¬ Pause / Resume button Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-if (_sc3PauseBtn) {
-  _sc3PauseBtn.addEventListener('click', () => {
-    if (!sc3Queue.processing) return;
-    sc3Queue.paused = !sc3Queue.paused;
-    _sc3PauseBtn.textContent = sc3Queue.paused ? '\u25b6\ufe0f Resume' : '\u23f8 Pause';
-    _sc3PauseBtn.style.background = sc3Queue.paused
-      ? 'linear-gradient(135deg,#10b981,#059669)'
-      : 'linear-gradient(135deg,#f59e0b,#d97706)';
-    setSingSongStatus(sc3Queue.paused ? 'Queue paused. Click Resume to continue.' : 'Queue resumed...');
-  });
-}
+// Pause/Resume - use event delegation so button doesn't need to exist at script load time
+document.addEventListener('click', function(e) {
+  if (!e.target || e.target.id !== 'sc3PauseBtn') return;
+  if (!sc3Queue.processing) return;
+  sc3Queue.paused = !sc3Queue.paused;
+  e.target.textContent = sc3Queue.paused ? '\u25b6\ufe0f Resume' : '\u23f8 Pause';
+  e.target.style.background = sc3Queue.paused
+    ? 'linear-gradient(135deg,#10b981,#059669)'
+    : 'linear-gradient(135deg,#f59e0b,#d97706)';
+  setSingSongStatus(sc3Queue.paused ? 'Queue paused. Click Resume to continue.' : 'Queue resumed...');
+});
 // Ã¢â€â‚¬Ã¢â€â‚¬ Stop button Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-if (_sc3StopBtn) {
-  _sc3StopBtn.addEventListener('click', () => {
-    if (!sc3Queue.processing) return;
-    if (!confirm('Stop the video queue? Videos already converted are saved. Remaining videos will be marked as skipped.')) return;
-    sc3Queue.stopped = true;
-    sc3Queue.paused  = false;
-    if (_sc3PauseBtn) { _sc3PauseBtn.disabled = true; _sc3PauseBtn.textContent = '\u23f8 Pause'; }
-    _sc3StopBtn.disabled = true;
-    setSingSongStatus('Stopping queue after current video completes...');
-  });
-}
+// Stop - use event delegation so button doesn't need to exist at script load time
+document.addEventListener('click', function(e) {
+  if (!e.target || e.target.id !== 'sc3StopBtn') return;
+  if (!sc3Queue.processing) return;
+  if (!confirm('Stop the video queue? Videos already converted are saved. Remaining videos will be marked as skipped.')) return;
+  sc3Queue.stopped = true;
+  sc3Queue.paused  = false;
+  const pb = _sc3PauseBtn(); if (pb) { pb.disabled = true; pb.textContent = '\u23f8 Pause'; }
+  e.target.disabled = true;
+  setSingSongStatus('Stopping queue after current video completes...');
+});
 if (singSongModelBtn) {
   singSongModelBtn.addEventListener("click", () => {
     void runLockedAction("singSongModel", [singSongProcessBtn, singSongSc3ReplaceBtn, singSongModelBtn, singSongDownloadBtn], replaceSingSongWithSc3SingingModel);
