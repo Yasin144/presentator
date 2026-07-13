@@ -78,6 +78,16 @@ function App() {
     return () => window.removeEventListener('presentation-state-change', handleStateChange);
   }, []);
 
+  useEffect(() => {
+    const openLocalCaptioning = () => {
+      setCaptionOpen(false);
+      setHideHeader(false);
+      setCurrentModule('presentator');
+    };
+    window.addEventListener('presentator-open-ai-video-captioning-local', openLocalCaptioning);
+    return () => window.removeEventListener('presentator-open-ai-video-captioning-local', openLocalCaptioning);
+  }, []);
+
   // Apply on every style change
   useEffect(() => { applyToTextarea(style); saveStyle(style); }, [style]);
 
@@ -104,6 +114,7 @@ function App() {
       "app://voice/vendor/GLTFLoader.js",
       "../3d-engine.js" + _CB,
       "../dubbing-studio.js" + _CB,
+      "../translate-dub-module.js" + _CB,
     ];
 
     const loadScript = (src) =>

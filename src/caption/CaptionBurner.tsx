@@ -188,7 +188,7 @@ export default function CaptionBurner({ onClose }: Props) {
     xPos: 50,
     yPos: 90,
     highlightColor: '#facc15',
-    language: 'Auto-Detect',
+    language: 'English',
     offset: 0,
     maxWordsPerCaption: CAPTION_WORD_LIMIT,
     engine: 'groq',
@@ -198,6 +198,7 @@ export default function CaptionBurner({ onClose }: Props) {
   const vidRef  = useRef<HTMLVideoElement>(null);
   const rafRef  = useRef(0);
   const abortControllersRef = useRef<Record<string, AbortController>>({});
+  const pendingAutoStartIdRef = useRef<string | null>(null);
   const activeItem = useMemo(() => queue.find(i => i.id === activeId), [queue, activeId]);
 
   // RAF preview sync
@@ -369,8 +370,9 @@ export default function CaptionBurner({ onClose }: Props) {
     return { filePath: '', fileName };
   }, []);
 
-  const addFiles = (files: File[]) => {
+  const addFiles = (files: File[], opts: { language?: Language; autoStart?: boolean } = {}) => {
     setError(null);
+    const language = opts.language || S.language;
     const validFiles = files.filter(f => f.type.startsWith('video/')).map(f => ({
       id: uid(),
       video: { name: f.name, mimeType: f.type, file: f },
@@ -378,11 +380,12 @@ export default function CaptionBurner({ onClose }: Props) {
       progress: 0,
       message: 'Ready',
       retryCount: 0,
-      language: S.language,
+      language,
     }));
     if (validFiles.length > 0) {
       setQueue(q => [...q, ...validFiles]);
       if (!activeId) setActiveId(validFiles[0].id);
+      if (opts.autoStart) pendingAutoStartIdRef.current = validFiles[0].id;
     }
   };
 
@@ -536,6 +539,34 @@ export default function CaptionBurner({ onClose }: Props) {
       setProc(Object.keys(abortControllersRef.current).length > 0);
     }
   }, [processSingleItem]);
+
+  useEffect(() => {
+    const receiveCaptionImport = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const files = Array.isArray(detail.files) ? detail.files : [];
+      const language = CAPTION_LANGUAGES.includes(detail.language) ? detail.language as Language : 'English';
+      if (!files.length) return;
+      setS(s => ({ ...s, language }));
+      addFiles(files, { language, autoStart: detail.autoStart !== false });
+    };
+
+    window.addEventListener('presentator-caption-import', receiveCaptionImport as EventListener);
+    const pending = (window as any).__presentatorPendingCaptionImport;
+    if (pending) {
+      delete (window as any).__presentatorPendingCaptionImport;
+      receiveCaptionImport(new CustomEvent('presentator-caption-import', { detail: pending }));
+    }
+    return () => window.removeEventListener('presentator-caption-import', receiveCaptionImport as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const id = pendingAutoStartIdRef.current;
+    if (!id || processing) return;
+    const item = queue.find(q => q.id === id);
+    if (!item || item.status !== 'idle') return;
+    pendingAutoStartIdRef.current = null;
+    runFullProcess(item);
+  }, [queue, processing, runFullProcess]);
 
   const orderQueueFrom = useCallback((items: QueueItem[], startId?: string) => {
     if (!items.length || !startId) return items;

@@ -3,6 +3,7 @@
 .singing-venv/
 __pycache__/
 processed/
+caption-work/
 tmp-video-inspect/
 tmp_video_frames/
 tmp_reference_frames/

@@ -1,4 +1,4 @@
-/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
+﻿/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
 function isImageReady(img) {
     if (!img) return false;
     // HTMLVideoElement / HTMLCanvasElement / ImageBitmap are always drawable
@@ -6,7 +6,7 @@ function isImageReady(img) {
     if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) return true;
     // OffscreenCanvas
     if (typeof OffscreenCanvas !== "undefined" && img instanceof OffscreenCanvas) return true;
-    // HTMLImageElement — must be complete AND have natural size
+    // HTMLImageElement â€” must be complete AND have natural size
     if (img instanceof HTMLImageElement) {
         return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
     }
@@ -106,13 +106,13 @@ function bootCaptionStudio() {
     }
 
     function updateCaptionStyleValueLabels() {
-        if (sizeSlider && sizeValue) sizeValue.textContent = `${sliderPercent(sizeSlider)}% · ${Math.round(Number(sizeSlider.value))}px`;
-        if (gapSlider && gapValue) gapValue.textContent = `${sliderPercent(gapSlider)}% · ${Math.round(Number(gapSlider.value))}`;
+        if (sizeSlider && sizeValue) sizeValue.textContent = `${sliderPercent(sizeSlider)}% Â· ${Math.round(Number(sizeSlider.value))}px`;
+        if (gapSlider && gapValue) gapValue.textContent = `${sliderPercent(gapSlider)}% Â· ${Math.round(Number(gapSlider.value))}`;
         if (widthSlider && widthValue) widthValue.textContent = `${Math.round(Number(widthSlider.value))}%`;
         if (strokeSlider && strokeValue) strokeValue.textContent = `${Math.round(Number(strokeSlider.value))}%`;
         if (syncSlider && syncValue) {
             const seconds = (Number(syncSlider.value || 0) / 1000).toFixed(1);
-            syncValue.textContent = `${sliderPercent(syncSlider)}% · ${seconds}s`;
+            syncValue.textContent = `${sliderPercent(syncSlider)}% Â· ${seconds}s`;
         }
     }
 
@@ -197,40 +197,40 @@ function bootCaptionStudio() {
 
     const emojiDict = {
         // Finance / Tech / Science
-        'money': '💰', 'dollar': '💵', 'cash': '💲', 'buy': '🛍️', 'rich': '🤑', 'sell': '📈', 'business': '🏢',
-        'rocket': '🚀', 'space': '🌌', 'sky': '☁️', 'moon': '🌕', 'star': '⭐', 'magic': '✨', 'sparkle': '✨', 'planet': '🪐',
-        'computer': '💻', 'tech': '🤖', 'robot': '🤖', 'app': '📱', 'phone': '📱', 'internet': '🌐', 'code': '💻', 'ai': '🧠',
+        'money': 'ðŸ’°', 'dollar': 'ðŸ’µ', 'cash': 'ðŸ’²', 'buy': 'ðŸ›ï¸', 'rich': 'ðŸ¤‘', 'sell': 'ðŸ“ˆ', 'business': 'ðŸ¢',
+        'rocket': 'ðŸš€', 'space': 'ðŸŒŒ', 'sky': 'â˜ï¸', 'moon': 'ðŸŒ•', 'star': 'â­', 'magic': 'âœ¨', 'sparkle': 'âœ¨', 'planet': 'ðŸª',
+        'computer': 'ðŸ’»', 'tech': 'ðŸ¤–', 'robot': 'ðŸ¤–', 'app': 'ðŸ“±', 'phone': 'ðŸ“±', 'internet': 'ðŸŒ', 'code': 'ðŸ’»', 'ai': 'ðŸ§ ',
 
         // Emotions / Reactions
-        'happy': '😊', 'smile': '😃', 'love': '❤️', 'heart': '💖', 'good': '👍', 'like': '👍', 'awesome': '😎', 'cool': '😎',
-        'sad': '😢', 'cry': '😭', 'tear': '💧', 'bad': '👎', 'angry': '😠', 'mad': '😡', 'scared': '😱', 'shock': '😲',
-        'laugh': '😂', 'funny': '🤣', 'lol': '😆', 'joke': '🤡', 'silly': '🤪', 'fun': '🥳',
-        'fire': '🔥', 'hot': '🥵', 'burn': '🔥', 'lit': '🔥', 'boom': '💥', 'explosion': '💣', 'crash': '💥',
+        'happy': 'ðŸ˜Š', 'smile': 'ðŸ˜ƒ', 'love': 'â¤ï¸', 'heart': 'ðŸ’–', 'good': 'ðŸ‘', 'like': 'ðŸ‘', 'awesome': 'ðŸ˜Ž', 'cool': 'ðŸ˜Ž',
+        'sad': 'ðŸ˜¢', 'cry': 'ðŸ˜­', 'tear': 'ðŸ’§', 'bad': 'ðŸ‘Ž', 'angry': 'ðŸ˜ ', 'mad': 'ðŸ˜¡', 'scared': 'ðŸ˜±', 'shock': 'ðŸ˜²',
+        'laugh': 'ðŸ˜‚', 'funny': 'ðŸ¤£', 'lol': 'ðŸ˜†', 'joke': 'ðŸ¤¡', 'silly': 'ðŸ¤ª', 'fun': 'ðŸ¥³',
+        'fire': 'ðŸ”¥', 'hot': 'ðŸ¥µ', 'burn': 'ðŸ”¥', 'lit': 'ðŸ”¥', 'boom': 'ðŸ’¥', 'explosion': 'ðŸ’£', 'crash': 'ðŸ’¥',
 
         // Time / Thinking
-        'time': '⏳', 'clock': '🕰️', 'wait': '⌛', 'fast': '⚡', 'slow': '🐢', 'today': '📅', 'tomorrow': '📆', 'now': '⏱️',
-        'idea': '💡', 'brain': '🧠', 'mind': '🧠', 'think': '🤔', 'question': '❓', 'why': '🤷', 'how': '🤷', 'know': '🧠', 'smart': '🤓',
-        'yes': '✅', 'no': '❌', 'stop': '🛑', 'go': '🚦', 'danger': '⚠️', 'warning': '⚠️',
+        'time': 'â³', 'clock': 'ðŸ•°ï¸', 'wait': 'âŒ›', 'fast': 'âš¡', 'slow': 'ðŸ¢', 'today': 'ðŸ“…', 'tomorrow': 'ðŸ“†', 'now': 'â±ï¸',
+        'idea': 'ðŸ’¡', 'brain': 'ðŸ§ ', 'mind': 'ðŸ§ ', 'think': 'ðŸ¤”', 'question': 'â“', 'why': 'ðŸ¤·', 'how': 'ðŸ¤·', 'know': 'ðŸ§ ', 'smart': 'ðŸ¤“',
+        'yes': 'âœ…', 'no': 'âŒ', 'stop': 'ðŸ›‘', 'go': 'ðŸš¦', 'danger': 'âš ï¸', 'warning': 'âš ï¸',
 
         // Nursery Rhymes / Stories / Animals
-        'dog': '🐶', 'cat': '🐱', 'cow': '🐮', 'sheep': '🐑', 'pig': '🐷', 'horse': '🐴', 'bird': '🐦', 'fish': '🐟', 'animal': '🐾', 'mouse': '🐭', 'lion': '🦁', 'tiger': '🐯', 'bear': '🐻', 'monkey': '🐵', 'duck': '🦆', 'frog': '🐸', 'bug': '🐛', 'spider': '🕷️',
-        'baby': '👶', 'boy': '👦', 'girl': '👧', 'man': '👨', 'woman': '👩', 'king': '👑', 'queen': '👑', 'princess': '👸', 'knight': '🤺', 'dragon': '🐉', 'monster': '👹', 'ghost': '👻',
-        'house': '🏠', 'home': '🏡', 'castle': '🏰', 'village': '🏘️', 'bed': '🛌', 'sleep': '😴', 'dream': '💭',
+        'dog': 'ðŸ¶', 'cat': 'ðŸ±', 'cow': 'ðŸ®', 'sheep': 'ðŸ‘', 'pig': 'ðŸ·', 'horse': 'ðŸ´', 'bird': 'ðŸ¦', 'fish': 'ðŸŸ', 'animal': 'ðŸ¾', 'mouse': 'ðŸ­', 'lion': 'ðŸ¦', 'tiger': 'ðŸ¯', 'bear': 'ðŸ»', 'monkey': 'ðŸµ', 'duck': 'ðŸ¦†', 'frog': 'ðŸ¸', 'bug': 'ðŸ›', 'spider': 'ðŸ•·ï¸',
+        'baby': 'ðŸ‘¶', 'boy': 'ðŸ‘¦', 'girl': 'ðŸ‘§', 'man': 'ðŸ‘¨', 'woman': 'ðŸ‘©', 'king': 'ðŸ‘‘', 'queen': 'ðŸ‘‘', 'princess': 'ðŸ‘¸', 'knight': 'ðŸ¤º', 'dragon': 'ðŸ‰', 'monster': 'ðŸ‘¹', 'ghost': 'ðŸ‘»',
+        'house': 'ðŸ ', 'home': 'ðŸ¡', 'castle': 'ðŸ°', 'village': 'ðŸ˜ï¸', 'bed': 'ðŸ›Œ', 'sleep': 'ðŸ˜´', 'dream': 'ðŸ’­',
         
         // Nature / Elements
-        'sun': '☀️', 'day': '🌞', 'light': '☀️', 'morning': '🌅', 'night': '🌙', 'evening': '🌇',
-        'tree': '🌳', 'forest': '🌲', 'flower': '🌸', 'rose': '🌹', 'leaf': '🍃', 'plant': '🌿', 'nature': '🏞️',
-        'water': '💧', 'rain': '🌧️', 'snow': '❄️', 'cold': '🥶', 'ocean': '🌊', 'sea': '🌊', 'wind': '💨', 'storm': '⛈️',
+        'sun': 'â˜€ï¸', 'day': 'ðŸŒž', 'light': 'â˜€ï¸', 'morning': 'ðŸŒ…', 'night': 'ðŸŒ™', 'evening': 'ðŸŒ‡',
+        'tree': 'ðŸŒ³', 'forest': 'ðŸŒ²', 'flower': 'ðŸŒ¸', 'rose': 'ðŸŒ¹', 'leaf': 'ðŸƒ', 'plant': 'ðŸŒ¿', 'nature': 'ðŸžï¸',
+        'water': 'ðŸ’§', 'rain': 'ðŸŒ§ï¸', 'snow': 'â„ï¸', 'cold': 'ðŸ¥¶', 'ocean': 'ðŸŒŠ', 'sea': 'ðŸŒŠ', 'wind': 'ðŸ’¨', 'storm': 'â›ˆï¸',
 
         // General Speaking / Vlog / Education
-        'video': '📹', 'channel': '📺', 'subscribe': '🔔', 'welcome': '👋', 'hello': '👋', 'hi': '👋', 'bye': '👋', 'friends': '👥', 'people': '👥',
-        'learn': '📚', 'study': '📖', 'book': '📕', 'school': '🏫', 'teacher': '👩‍🏫', 'student': '🎒', 'math': '➕', 'science': '🔬', 'history': '📜', 'art': '🎨',
-        'music': '🎵', 'song': '🎵', 'dance': '💃', 'play': '▶️', 'game': '🎮', 'sport': '⚽', 'ball': '🏀', 'run': '🏃', 'walk': '🚶',
+        'video': 'ðŸ“¹', 'channel': 'ðŸ“º', 'subscribe': 'ðŸ””', 'welcome': 'ðŸ‘‹', 'hello': 'ðŸ‘‹', 'hi': 'ðŸ‘‹', 'bye': 'ðŸ‘‹', 'friends': 'ðŸ‘¥', 'people': 'ðŸ‘¥',
+        'learn': 'ðŸ“š', 'study': 'ðŸ“–', 'book': 'ðŸ“•', 'school': 'ðŸ«', 'teacher': 'ðŸ‘©â€ðŸ«', 'student': 'ðŸŽ’', 'math': 'âž•', 'science': 'ðŸ”¬', 'history': 'ðŸ“œ', 'art': 'ðŸŽ¨',
+        'music': 'ðŸŽµ', 'song': 'ðŸŽµ', 'dance': 'ðŸ’ƒ', 'play': 'â–¶ï¸', 'game': 'ðŸŽ®', 'sport': 'âš½', 'ball': 'ðŸ€', 'run': 'ðŸƒ', 'walk': 'ðŸš¶',
 
         // Objects / Food
-        'world': '🌍', 'earth': '🌍', 'global': '🌐', 'map': '🗺️', 'car': '🚗', 'bus': '🚌', 'train': '🚂', 'boat': '⛵', 'plane': '✈️',
-        'food': '🍔', 'eat': '🍽️', 'hungry': '🤤', 'apple': '🍎', 'banana': '🍌', 'pizza': '🍕', 'cake': '🎂', 'cookie': '🍪', 'water': '💧', 'drink': '🥤', 'coffee': '☕',
-        'gift': '🎁', 'box': '📦', 'tool': '🧰', 'hammer': '🔨', 'sword': '⚔️', 'shield': '🛡️'
+        'world': 'ðŸŒ', 'earth': 'ðŸŒ', 'global': 'ðŸŒ', 'map': 'ðŸ—ºï¸', 'car': 'ðŸš—', 'bus': 'ðŸšŒ', 'train': 'ðŸš‚', 'boat': 'â›µ', 'plane': 'âœˆï¸',
+        'food': 'ðŸ”', 'eat': 'ðŸ½ï¸', 'hungry': 'ðŸ¤¤', 'apple': 'ðŸŽ', 'banana': 'ðŸŒ', 'pizza': 'ðŸ•', 'cake': 'ðŸŽ‚', 'cookie': 'ðŸª', 'water': 'ðŸ’§', 'drink': 'ðŸ¥¤', 'coffee': 'â˜•',
+        'gift': 'ðŸŽ', 'box': 'ðŸ“¦', 'tool': 'ðŸ§°', 'hammer': 'ðŸ”¨', 'sword': 'âš”ï¸', 'shield': 'ðŸ›¡ï¸'
     };
 
     let lastEmojiText = ""; let lastEmojiResult = null;
@@ -284,9 +284,29 @@ function bootCaptionStudio() {
     let audioDataArray = null;
     let generatedCaptions = [];
     let isExtractingText = false;
+    let activeCaptionTranscription = null;
+    let captionTranscriptionCancelRequested = false;
     let isRecording = false;
     let transcriber = null;
     let hasDrawnFirstFrame = false;
+
+    function stripIgnoredIntroCaption(value, startSeconds) {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        if (!text || Number(startSeconds) > 12) return text;
+        const normalized = text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        if (/^(?:info|in fo|infor|in fore|and) (?:for |four )?kids$/.test(normalized)) return '';
+        if (/^(?:info|in fo|infor|in fore) kids$/.test(normalized)) return '';
+        return text;
+    }
+
+    function removeIgnoredIntroCaptions(captions) {
+        return (captions || []).map(caption => {
+            const timestamp = Array.isArray(caption.timestamp) ? caption.timestamp : [caption.start, caption.end];
+            const start = Math.max(0, Number(timestamp[0]) || 0);
+            const text = stripIgnoredIntroCaption(caption.text, start);
+            return text ? { ...caption, text } : null;
+        }).filter(Boolean);
+    }
     let previewFrameHandle = null;
     let previewFrameMode = null;
     let autoBurnRequested = false;
@@ -350,12 +370,19 @@ function bootCaptionStudio() {
         exportActions.style.display = visible ? 'flex' : 'none';
     }
 
+    function captionFilePathToUrl(filePath) {
+        const normalized = String(filePath || '').trim();
+        if (!normalized) return '';
+        return 'file:///' + normalized.replace(/\\/g, '/').replace(/^\/+/, '');
+    }
+
     function renderCaptionExportActions(result, options = {}) {
         if (!exportActions || !result || !result.outputPath) return;
         const fileName = result.fileName || result.outputFileName || 'captioned video';
         const index = Number.isInteger(options.queueIndex) ? options.queueIndex : captionQueueIndex;
         exportActions.innerHTML = '';
         setCaptionExportActionsVisible(true);
+        exportActions.style.flexWrap = 'wrap';
 
         const makeButton = (label, handler, tone = 'default') => {
             const button = document.createElement('button');
@@ -393,10 +420,27 @@ function bootCaptionStudio() {
         label.textContent = `Saved: ${fileName}`;
         label.style.cssText = 'align-self:center;color:#a7f3d0;font-weight:800;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
         exportActions.appendChild(label);
+
+        const previewWrap = document.createElement('div');
+        previewWrap.style.cssText = 'flex:1 0 100%;margin-top:10px;border:1px solid rgba(148,163,184,.24);border-radius:8px;background:#020617;padding:10px;min-width:0';
+
+        const previewLabel = document.createElement('div');
+        previewLabel.textContent = `Preview: ${fileName}`;
+        previewLabel.style.cssText = 'margin-bottom:8px;color:#dbeafe;font-weight:900;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        previewWrap.appendChild(previewLabel);
+
+        const previewVideo = document.createElement('video');
+        previewVideo.controls = true;
+        previewVideo.playsInline = true;
+        previewVideo.preload = 'metadata';
+        previewVideo.src = captionFilePathToUrl(result.outputPath);
+        previewVideo.style.cssText = 'display:block;width:100%;max-height:360px;background:#000;border-radius:7px';
+        previewWrap.appendChild(previewVideo);
+        exportActions.appendChild(previewWrap);
     }
 
     function updatePlayPauseLabel() {
-        playPauseBtn.textContent = sourceVideo.paused ? '▶️ Play' : '⏸️ Pause';
+        playPauseBtn.textContent = sourceVideo.paused ? 'â–¶ï¸ Play' : 'â¸ï¸ Pause';
     }
 
     function clearPreviewFrameHandle() {
@@ -445,7 +489,7 @@ function bootCaptionStudio() {
             let pct = Math.floor((sourceVideo.currentTime / sourceVideo.duration) * 100);
             const remainingPct = Math.max(0, 100 - pct);
             const remainingSec = Math.max(0, sourceVideo.duration - sourceVideo.currentTime);
-            statusText.innerHTML = `🎬 Rendering High-Quality Video... ${pct}% complete · ${remainingPct}% remaining · ${remainingSec.toFixed(1)}s left`;
+            statusText.innerHTML = `Rendering high-quality video... ${pct}% complete - ${remainingPct}% remaining - ${remainingSec.toFixed(1)}s left`;
         }
     });
 
@@ -536,8 +580,8 @@ function bootCaptionStudio() {
             
             try {
                 eraseBtn.disabled = true;
-                eraseBtn.textContent = '🧹 Erasing...';
-                if (statusText) statusText.innerHTML = '🧹 Erasing hardcoded captions/logo from video in progress... please wait, do not close the app.';
+                eraseBtn.textContent = 'ðŸ§¹ Erasing...';
+                if (statusText) statusText.innerHTML = 'ðŸ§¹ Erasing hardcoded captions/logo from video in progress... please wait, do not close the app.';
                 
                 const res = await window.electronAPI.eraseCaptions({ filePath: videoPath });
                 
@@ -553,7 +597,7 @@ function bootCaptionStudio() {
                     }
                     
                     if (statusText) {
-                        statusText.innerHTML = `✅ Caption erasing complete! Saved to Downloads: <strong>${res.outputFileName || 'output.mp4'}</strong>.`;
+                        statusText.innerHTML = `âœ… Caption erasing complete! Saved to Downloads: <strong>${res.outputFileName || 'output.mp4'}</strong>.`;
                     }
                     speakCaptionStudio('Caption erasing complete');
                     notifyCaptionStudio('Caption Eraser', `Saved as ${res.outputFileName || 'output.mp4'}`);
@@ -571,11 +615,11 @@ function bootCaptionStudio() {
                     window.updateTaskProgressUi(0, false);
                 }
                 console.error('[Caption Eraser] Error:', err);
-                if (statusText) statusText.innerHTML = `❌ Erasing failed: ${err.message}`;
+                if (statusText) statusText.innerHTML = `âŒ Erasing failed: ${err.message}`;
                 alert(`Erasing failed: ${err.message}`);
             } finally {
                 eraseBtn.disabled = false;
-                eraseBtn.textContent = '🧹 Erase Captions';
+                eraseBtn.textContent = 'ðŸ§¹ Erase Captions';
             }
         });
     }
@@ -600,7 +644,7 @@ function bootCaptionStudio() {
         const activePct = activeItem ? Math.max(0, Math.min(100, Math.round(activeItem.progress || 0))) : 0;
         const queuePct = Math.min(100, Math.round(((exportedCount + (activeItem ? activePct / 100 : 0)) / captionVideoQueue.length) * 100));
         if (queueStatus) {
-            queueStatus.textContent = `${queuePct}% queue progress · Video ${captionQueueIndex + 1} of ${captionVideoQueue.length} · Captions ${completedCount}/${captionVideoQueue.length} · Exported ${exportedCount}/${captionVideoQueue.length}`;
+            queueStatus.textContent = `${queuePct}% queue progress - Video ${captionQueueIndex + 1} of ${captionVideoQueue.length} - Captions ${completedCount}/${captionVideoQueue.length} - Exported ${exportedCount}/${captionVideoQueue.length}`;
         }
         let liveStatus = document.getElementById('captionQueueLiveStatus');
         if (!liveStatus) {
@@ -612,7 +656,7 @@ function bootCaptionStudio() {
         if (activeItem || captionQueueRunning || captionQueueExporting) {
             const phase = activeItem && activeItem.status === 'exporting' ? 'Exporting captions' : 'Generating captions';
             const detail = activeItem
-                ? (activeItem.message || `${activeIndex + 1}/${captionVideoQueue.length} · ${activeItem.file.name}`)
+                ? (activeItem.message || `${activeIndex + 1}/${captionVideoQueue.length} - ${activeItem.file.name}`)
                 : 'Preparing next video...';
             liveStatus.style.display = 'block';
             liveStatus.innerHTML = `
@@ -622,7 +666,7 @@ function bootCaptionStudio() {
                         <div style="min-width:0">
                             <div style="font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:${activeItem && activeItem.status === 'exporting' ? '#fcd34d' : '#7dd3fc'}">Active now</div>
                             <div style="font-size:11px;font-weight:900;color:#fff;line-height:1.2">${phase}</div>
-                            <div style="font-size:9px;font-weight:700;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${activeItem ? `${activeIndex + 1}/${captionVideoQueue.length} · ${activeItem.file.name}` : 'Queue running'}</div>
+                            <div style="font-size:9px;font-weight:700;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${activeItem ? `${activeIndex + 1}/${captionVideoQueue.length} - ${activeItem.file.name}` : 'Queue running'}</div>
                         </div>
                     </div>
                     <div style="text-align:right;flex:0 0 auto">
@@ -656,8 +700,8 @@ function bootCaptionStudio() {
             ].join(';');
             const label = document.createElement('button');
             label.type = 'button';
-            const pctLabel = (item.status === 'transcribing' || item.status === 'exporting') ? ` · ${Math.round(item.progress || 0)}%` : '';
-            label.textContent = `${index + 1}. ${item.file.name} · ${item.status || 'ready'}${pctLabel}`;
+            const pctLabel = (item.status === 'transcribing' || item.status === 'exporting') ? ` - ${Math.round(item.progress || 0)}%` : '';
+            label.textContent = `${index + 1}. ${item.file.name} - ${item.status || 'ready'}${pctLabel}`;
             label.style.cssText = 'min-width:0;text-align:left;background:transparent;border:0;color:#fff;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer';
             label.addEventListener('click', () => loadQueuedCaptionVideo(index));
             row.addEventListener('click', () => loadQueuedCaptionVideo(index));
@@ -715,8 +759,8 @@ function bootCaptionStudio() {
         sourceVideo.pause();
         sourceVideo.removeAttribute('src');
         sourceVideo.load();
-        if (videoUrl) URL.revokeObjectURL(videoUrl);
-        videoUrl = URL.createObjectURL(file);
+        if (videoUrl && videoUrl.startsWith('blob:')) URL.revokeObjectURL(videoUrl);
+        videoUrl = file.path ? captionFilePathToUrl(file.path) : URL.createObjectURL(file);
 
         videoContainer.classList.remove('hidden');
         actionBtn.disabled = false;
@@ -887,7 +931,7 @@ function bootCaptionStudio() {
             shownPct = Math.min(maxPct, shownPct + Math.max(1, remaining * 0.035));
             const pct = Math.round(shownPct);
             setCaptionProgressBar(pct);
-            statusText.innerHTML = `Active now: ${phaseLabel.toLowerCase()} ${index + 1}/${captionVideoQueue.length} · ${pct}% complete · ${100 - pct}% remaining`;
+            statusText.innerHTML = `Active now: ${phaseLabel.toLowerCase()} ${index + 1}/${captionVideoQueue.length} - ${pct}% complete - ${100 - pct}% remaining`;
             setQueueItemState(index, {
                 status: 'transcribing',
                 progress: pct,
@@ -977,7 +1021,7 @@ function bootCaptionStudio() {
                 progress: shownExportPct,
                 message: `${messagePrefix} at ${QUEUE_EXPORT_FONT_SIZE}px... ${shownExportPct}%`
             });
-            statusText.innerHTML = `Active now: ${messagePrefix.toLowerCase()} ${index + 1}/${captionVideoQueue.length} · ${shownExportPct}% complete · ${100 - shownExportPct}% remaining`;
+            statusText.innerHTML = `Active now: ${messagePrefix.toLowerCase()} ${index + 1}/${captionVideoQueue.length} - ${shownExportPct}% complete - ${100 - shownExportPct}% remaining`;
             setCaptionProgressBar(shownExportPct);
         };
         finalizingTimer = setInterval(() => {
@@ -1012,7 +1056,7 @@ function bootCaptionStudio() {
                 progress: 100,
                 outputPath: result.outputPath,
                 outputFileName: result.fileName,
-                message: `Saved · ${result.fileName || 'captioned video'}`
+                message: `Saved - ${result.fileName || 'captioned video'}`
             });
             if (index === captionQueueIndex) {
                 renderCaptionExportActions(result, { queueIndex: index });
@@ -1286,12 +1330,12 @@ function bootCaptionStudio() {
         const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
         if (!words.length) return [];
 
-        // ── Use ACTUAL narration duration so highlights match the voice ──────────
+        // â”€â”€ Use ACTUAL narration duration so highlights match the voice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Priority order:
         //  1. state.narration.durationMs  (measured from the real audio blob)
         //  2. Caller-supplied override   (opts.narrationDurationSec)
         //  3. WPM-based estimate         (140 wpm for SC3/pattan)
-        //  4. Caller-supplied videoDuration  (last resort – usually wrong)
+        //  4. Caller-supplied videoDuration  (last resort â€“ usually wrong)
         const opts = options || {};
         const WPM  = 140;  // SC3 / pattan TTS natural speaking rate
         const wpmEstimateSec = (words.length / WPM) * 60;
@@ -1302,7 +1346,7 @@ function bootCaptionStudio() {
         } else if (Number(opts.narrationDurationSec) > 0.5) {
             speechDurationSec = Number(opts.narrationDurationSec);
         } else {
-            // Estimate from speech rate — far more accurate than video duration
+            // Estimate from speech rate â€” far more accurate than video duration
             speechDurationSec = wpmEstimateSec;
         }
 
@@ -1343,7 +1387,7 @@ function bootCaptionStudio() {
             throw new Error('No speech was recognized from the video audio.');
         }
 
-        // ── Use REAL word-level timestamps from Whisper ──────────────────────
+        // â”€â”€ Use REAL word-level timestamps from Whisper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const words    = Array.isArray(payload.words)    ? payload.words    : [];
         const segments = Array.isArray(payload.segments) ? payload.segments : [];
         let chunks = [];
@@ -1386,6 +1430,7 @@ function bootCaptionStudio() {
     }
     
     function populateEditor() {
+        generatedCaptions = removeIgnoredIntroCaptions(generatedCaptions);
         captionList.innerHTML = '';
         generatedCaptions.forEach((chunk, i) => {
             const div = document.createElement('div');
@@ -1401,7 +1446,7 @@ function bootCaptionStudio() {
                 </div>
                 <input type="text" class="chunk-editor" style="flex-grow: 1; background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.2); padding: 8px; border-radius: 4px; font-family: inherit; font-size: 0.95rem; color: inherit;" value="${chunk.text.replace(/"/g, '&quot;')}" data-index="${i}">
                 <input type="color" class="chunk-color-picker" data-index="${i}" title="Speaker Color Override" style="height:auto; min-height:40px; cursor:pointer; background:none; border:none; padding:0;" value="${chunk.colorOverride || '#fde047'}">
-                <button class="chunk-remove-btn" title="Remove row" style="background:rgba(255,0,0,0.2); border:1px solid rgba(255,0,0,0.4); color:white; padding:0 8px; border-radius:4px; cursor:pointer;" data-index="${i}">✖</button>
+                <button class="chunk-remove-btn" title="Remove row" style="background:rgba(255,0,0,0.2); border:1px solid rgba(255,0,0,0.4); color:white; padding:0 8px; border-radius:4px; cursor:pointer;" data-index="${i}">âœ–</button>
             `;
             captionList.appendChild(div);
         });
@@ -1409,7 +1454,7 @@ function bootCaptionStudio() {
         const addBtn = document.createElement('button');
         addBtn.className = 'primary-btn';
         addBtn.style.cssText = 'width: 100%; margin-top: 10px; padding: 10px; border-radius: 4px; border: 1px dashed rgba(255,255,255,0.3); background: rgba(255,255,255,0.05); color: white; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 6px;';
-        addBtn.innerHTML = '<span>➕</span><span>Add Caption Row</span>';
+        addBtn.innerHTML = '<span>âž•</span><span>Add Caption Row</span>';
         addBtn.onclick = () => {
             const lastChunk = generatedCaptions[generatedCaptions.length - 1];
             let start = lastChunk ? parseFloat(lastChunk.timestamp[1]) : 0;
@@ -1443,16 +1488,16 @@ function bootCaptionStudio() {
         });
     }
 
-    // ── Multi-language Caption Translator ───────────────────────────────────
+    // â”€â”€ Multi-language Caption Translator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const TRANSLATE_SERVER = 'http://127.0.0.1:8434';
 
     async function translateCaptionsTo(targetLang) {
         if (!generatedCaptions || !generatedCaptions.length) {
-            statusText.innerHTML = '⚠️ Generate or load captions first, then translate.';
+            statusText.innerHTML = 'âš ï¸ Generate or load captions first, then translate.';
             return;
         }
-        const langLabel = { en: 'English', hi: 'हिंदी (Hindi)', te: 'తెలుగు (Telugu)' }[targetLang] || targetLang;
-        statusText.innerHTML = `🌐 Translating ${generatedCaptions.length} captions to ${langLabel}...`;
+        const langLabel = { en: 'English', hi: 'à¤¹à¤¿à¤‚à¤¦à¥€ (Hindi)', te: 'à°¤à±†à°²à±à°—à± (Telugu)' }[targetLang] || targetLang;
+        statusText.innerHTML = `ðŸŒ Translating ${generatedCaptions.length} captions to ${langLabel}...`;
 
         // Highlight active button
         ['En','Hi','Te'].forEach(l => {
@@ -1468,7 +1513,7 @@ function bootCaptionStudio() {
             const health = await fetch(`${TRANSLATE_SERVER}/health`, { signal: AbortSignal.timeout(3000) });
             if (!health.ok) throw new Error('Server not ready');
         } catch (e) {
-            statusText.innerHTML = `❌ Translation server not running. Please start <b>Translate-Server.cmd</b> in D:\\voice\\ then try again.`;
+            statusText.innerHTML = `âŒ Translation server not running. Please start <b>Translate-Server.cmd</b> in D:\\voice\\ then try again.`;
             return;
         }
 
@@ -1505,9 +1550,9 @@ function bootCaptionStudio() {
             if (pBar) pBar.style.width = '100%';
             editorPanel.style.display = 'block';
             populateEditor();
-            statusText.innerHTML = `✅ Translated ${results.length} captions to ${langLabel}. Edit if needed, then Export.`;
+            statusText.innerHTML = `âœ… Translated ${results.length} captions to ${langLabel}. Edit if needed, then Export.`;
         } catch(e) {
-            statusText.innerHTML = `❌ Translation failed: ${e.message}`;
+            statusText.innerHTML = `âŒ Translation failed: ${e.message}`;
             if (pBar) pBar.style.width = '0%';
         }
     }
@@ -1520,7 +1565,139 @@ function bootCaptionStudio() {
     if (translateHiBtn) translateHiBtn.addEventListener('click', () => translateCaptionsTo('hi'));
     if (translateTeBtn) translateTeBtn.addEventListener('click', () => translateCaptionsTo('te'));
 
-    // ── "Use Voice Text as Captions" button ─────────────────────────────────
+    const CAPTION_LANGUAGE_TO_CODE = {
+        English: 'en',
+        Hindi: 'hi',
+        Telugu: 'te'
+    };
+
+    async function translateCaptionsForSelectedLanguage(language) {
+        const target = CAPTION_LANGUAGE_TO_CODE[language || 'English'] || 'en';
+        if (target !== 'en') {
+            await translateCaptionsTo(target);
+            return;
+        }
+        ['En','Hi','Te'].forEach(l => {
+            const b = document.getElementById('captionTranslate' + l + 'Btn');
+            if (b) b.style.opacity = l === 'En' ? '1' : '0.5';
+        });
+    }
+
+    function openLocalAiVideoCaptioningSection() {
+        setTimeout(() => {
+            const section = document.getElementById('aiCaptionSection');
+            if (section) {
+                section.setAttribute('open', '');
+                section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else if (videoInput) {
+                videoInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 350);
+    }
+
+    async function importIntoLocalAiVideoCaptioning(detail) {
+        if (isExtractingText) {
+            if (statusText) statusText.innerHTML = 'A caption transcription is already running. Please let it finish; a duplicate job was not started.';
+            return;
+        }
+        const pathFiles = Array.from((detail && detail.filePaths) || [])
+            .map(filePath => {
+                const normalizedPath = String(filePath || '').trim();
+                if (!normalizedPath) return null;
+                return {
+                    name: normalizedPath.split(/[\\/]/).pop() || 'translated-video.mp4',
+                    type: 'video/mp4',
+                    path: normalizedPath
+                };
+            })
+            .filter(Boolean);
+        const files = [
+            ...pathFiles,
+            ...Array.from((detail && detail.files) || [])
+        ].filter(file => file && file.type && file.type.startsWith('video/'));
+        if (!files.length) return;
+        const readyCaptions = Array.isArray(detail.captions)
+            ? detail.captions
+                .map(caption => {
+                    const timestamp = Array.isArray(caption.timestamp) ? caption.timestamp : [caption.start, caption.end];
+                    const start = Math.max(0, Number(timestamp[0]) || 0);
+                    const end = Math.max(start + 0.12, Number(timestamp[1]) || 0);
+                    const text = String(caption.text || '').replace(/\s+/g, ' ').trim();
+                    if (!text) return null;
+                    const words = Array.isArray(caption.words) && caption.words.length
+                        ? caption.words
+                        : text.split(/\s+/).filter(Boolean).map((word, index, all) => ({
+                            text: word,
+                            timestamp: [
+                                start + (index / Math.max(1, all.length)) * (end - start),
+                                start + ((index + 1) / Math.max(1, all.length)) * (end - start)
+                            ]
+                        }));
+                    return { text, timestamp: [start, end], words };
+                })
+                .filter(Boolean)
+            : [];
+        window.__presentatorAiVideoCaptioningHandled = true;
+        openLocalAiVideoCaptioningSection();
+        captionVideoQueue = files.map(file => ({
+            file,
+            status: readyCaptions.length ? 'transcribed' : 'ready',
+            captions: readyCaptions.length ? JSON.parse(JSON.stringify(readyCaptions)) : [],
+            captionLanguage: detail.language || 'English'
+        }));
+        captionQueueIndex = 0;
+        loadQueuedCaptionVideo(0);
+        if (readyCaptions.length) {
+            generatedCaptions = JSON.parse(JSON.stringify(readyCaptions));
+            if (captionVideoQueue[0]) {
+                captionVideoQueue[0].captions = JSON.parse(JSON.stringify(readyCaptions));
+                captionVideoQueue[0].status = 'transcribed';
+            }
+            editorPanel.classList.remove('hidden');
+            editorPanel.style.display = 'block';
+            actionBtn.classList.add('hidden');
+            exportBtn.classList.remove('hidden');
+            if (previewBtn) previewBtn.classList.remove('hidden');
+            if (eraseBtn) eraseBtn.classList.remove('hidden');
+            setCaptionExportActionsVisible(false);
+            const pBar = document.getElementById('captionProgressBarValue');
+            if (pBar) pBar.style.width = '100%';
+            populateEditor();
+            renderCaptionQueue();
+        }
+        if (statusText) {
+            statusText.innerHTML = readyCaptions.length
+                ? `Loaded ${readyCaptions.length} transcribed captions from Translate Audio. Caption language: ${detail.language || 'English'}.`
+                : `Loaded ${files.length} video${files.length === 1 ? '' : 's'} from Translate Audio. Caption language: ${detail.language || 'English'}.`;
+        }
+        if (detail.autoStart !== false) {
+            if (readyCaptions.length) {
+                await translateCaptionsForSelectedLanguage(detail.language || 'English');
+                return;
+            }
+            if (captionVideoQueue.length > 1) {
+                await transcribeCaptionQueueFrom(0);
+                return;
+            }
+            await transcribeActiveCaptionVideo();
+            await translateCaptionsForSelectedLanguage(detail.language || 'English');
+        }
+    }
+
+    window.addEventListener('presentator-open-ai-video-captioning-local', openLocalAiVideoCaptioningSection);
+    window.addEventListener('presentator-ai-video-captioning-import', (event) => {
+        importIntoLocalAiVideoCaptioning(event.detail || {}).catch(error => {
+            console.error('[Caption] Translate Audio handoff failed:', error);
+            if (statusText) statusText.innerHTML = `Caption handoff failed: ${error.message || error}`;
+        });
+    });
+    if (window.__presentatorPendingAiVideoCaptioning) {
+        importIntoLocalAiVideoCaptioning(window.__presentatorPendingAiVideoCaptioning).catch(error => {
+            console.error('[Caption] Pending Translate Audio handoff failed:', error);
+        });
+        window.__presentatorPendingAiVideoCaptioning = null;
+    }
+    // â”€â”€ "Use Voice Text as Captions" button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const voiceTextBtn = document.getElementById('captionUseVoiceTextBtn');
     if (voiceTextBtn) {
         voiceTextBtn.addEventListener('click', () => {
@@ -1539,7 +1716,7 @@ function bootCaptionStudio() {
             );
 
             if (!narText) {
-                statusText.innerHTML = '⚠️ No voice narration found. Generate narration first, then open caption studio.';
+                statusText.innerHTML = 'âš ï¸ No voice narration found. Generate narration first, then open caption studio.';
                 return;
             }
 
@@ -1550,7 +1727,7 @@ function bootCaptionStudio() {
 
 
             if (!chunks.length) {
-                statusText.innerHTML = '⚠️ Could not build captions from voice text.';
+                statusText.innerHTML = 'âš ï¸ Could not build captions from voice text.';
                 return;
             }
 
@@ -1576,7 +1753,7 @@ function bootCaptionStudio() {
                 'hindi': 'Hindi', 'telugu': 'Telugu', 'edge': 'Edge TTS'
             }[narVoice] || narVoice;
 
-            statusText.innerHTML = `✅ ${generatedCaptions.length} caption chunks built from ${langLabel} voice text (${narText.length} chars). Edit below if needed.`;
+            statusText.innerHTML = `âœ… ${generatedCaptions.length} caption chunks built from ${langLabel} voice text (${narText.length} chars). Edit below if needed.`;
 
             editorPanel.style.display = 'block';
             editorPanel.classList.remove('hidden');
@@ -1590,10 +1767,13 @@ function bootCaptionStudio() {
         });
     }
 
-﻿    async function transcribeActiveCaptionVideo() {
+    async function transcribeActiveCaptionVideo() {
         if (isExtractingText) return;
         isExtractingText = true;
-        actionBtn.disabled = true;
+        captionTranscriptionCancelRequested = false;
+        actionBtn.disabled = false;
+        actionBtn.textContent = 'Cancel Transcription';
+        actionBtn.classList.remove('hidden');
         const showSingleProgress = !captionQueueRunning && !captionQueueExporting;
         const updateSingleProgress = (pct, phase, detail) => {
             if (showSingleProgress) renderSingleCaptionProgress(pct, phase, detail);
@@ -1605,7 +1785,8 @@ function bootCaptionStudio() {
         const pBar = document.getElementById('captionProgressBarValue');
         const captionProgress = document.getElementById('captionProgress');
         if (captionProgress) captionProgress.classList.remove('hidden');
-        updateSingleProgress(0, 'Generating captions', (activeFile && activeFile.name) || 'Current video');
+        if (pBar) pBar.style.width = '1%';
+        updateSingleProgress(1, 'Preparing captions', (activeFile && activeFile.name) || 'Current video');
 
         function finaliseCaptions() {
             if (!generatedCaptions.length) {
@@ -1656,7 +1837,7 @@ function bootCaptionStudio() {
             box.style.borderRadius = '14px';
             const lbl = document.createElement('div');
             lbl.style.cssText = 'font-size:13px;font-weight:800;color:#fde047;margin-bottom:10px';
-            lbl.innerHTML = 'No speech found — type captions below (each line = one card):';
+            lbl.innerHTML = 'No speech found â€” type captions below (each line = one card):';
             const ta = document.createElement('textarea');
             ta.id = 'manualCaptionText';
             ta.placeholder = 'Welcome!\nLesson starts here.\nThank you.';
@@ -1668,7 +1849,7 @@ function bootCaptionStudio() {
                         // Audio file picker button
                         const audioPickBtn = document.createElement('button');
                         audioPickBtn.textContent = 'Pick Narration Audio File & Auto-Caption';
-                        audioPickBtn.title = 'Pick a WAV/MP3 narration file — it will be merged into the video and Whisper will transcribe the real voice';
+                        audioPickBtn.title = 'Pick a WAV/MP3 narration file â€” it will be merged into the video and Whisper will transcribe the real voice';
                         audioPickBtn.style.cssText = 'margin-top:10px;padding:11px 22px;border:1px solid rgba(99,179,237,0.7);border-radius:10px;background:rgba(49,130,206,0.25);color:#90cdf4;font-size:13px;font-weight:700;cursor:pointer;display:block';
                         const audioFileInput = document.createElement('input');
                         audioFileInput.type = 'file';
@@ -1679,7 +1860,7 @@ function bootCaptionStudio() {
                             const f = audioFileInput.files[0];
                             if (!f) return;
                             const audioPath = window.electronAPI && typeof window.electronAPI.getPathForFile === 'function' ? window.electronAPI.getPathForFile(f) : (f.path || '');
-                            if (!audioPath) { alert('Cannot get file path — please use a local file'); return; }
+                            if (!audioPath) { alert('Cannot get file path â€” please use a local file'); return; }
                             if (!videoPath) { alert('Load a video first'); return; }
                             box.remove();
                             statusText.innerHTML = 'Merging narration audio into video...';
@@ -1709,7 +1890,7 @@ function bootCaptionStudio() {
                                     statusText.innerHTML = generatedCaptions.length + ' captions from narration audio (Whisper)';
                                     finaliseCaptions();
                                 } else {
-                                    statusText.innerHTML = 'Transcription returned no speech — type captions manually';
+                                    statusText.innerHTML = 'Transcription returned no speech â€” type captions manually';
                                     showManualCaptionInput();
                                 }
                             } catch(mergeErr) {
@@ -1739,31 +1920,51 @@ function bootCaptionStudio() {
         }
 
         try {
-            // PATH 1: Electron IPC — FFmpeg extracts audio, Whisper returns real word timestamps
+            // PATH 1: Electron IPC â€” FFmpeg extracts audio, Whisper returns real word timestamps
             const hasIpc = window.electronAPI && typeof window.electronAPI.transcribeVideo === 'function';
             const videoPath = activeFile
-                ? ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+                ? (activeFile.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
                     ? window.electronAPI.getPathForFile(activeFile)
-                    : (activeFile.path || ''))
+                    : ''))
                 : '';
+            if (/\.part\.mp4$/i.test(videoPath)) {
+                throw new Error('This is an unfinished .part.mp4 export. Use the original video or a completed MP4, then generate captions again.');
+            }
 
             if (hasIpc && videoPath) {
                 statusText.innerHTML = '\u23f3 Analysing video audio with Whisper AI (30\u201390s)...';
-                if (pBar) pBar.style.width = '10%';
-                updateSingleProgress(10, 'Generating captions', 'Analyzing video audio with Whisper AI...');
-                let ipcShownPct = 10;
+                if (pBar) pBar.style.width = '8%';
+                updateSingleProgress(8, 'Preparing audio', 'Checking video and audio stream...');
+                let ipcShownPct = 8;
+                const ipcStartedAt = Date.now();
                 const ipcHeartbeat = setInterval(() => {
-                    if (!isExtractingText || ipcShownPct >= 92) return;
-                    ipcShownPct = Math.min(92, ipcShownPct + (ipcShownPct < 45 ? 4 : ipcShownPct < 75 ? 2 : 1));
+                    if (!isExtractingText) return;
+                    ipcShownPct = Math.min(95, ipcShownPct + (ipcShownPct < 20 ? 2 : ipcShownPct < 45 ? 4 : ipcShownPct < 75 ? 2 : 0.15));
+                    const elapsedMinutes = Math.max(0, (Date.now() - ipcStartedAt) / 60000);
                     if (pBar) pBar.style.width = ipcShownPct + '%';
-                    statusText.innerHTML = `Transcribing video audio... ${ipcShownPct}% complete · ${100 - ipcShownPct}% remaining`;
-                    updateSingleProgress(ipcShownPct, 'Generating captions', 'Native Whisper is transcribing audio...');
+                    statusText.innerHTML = `Whisper is actively transcribing (${elapsedMinutes.toFixed(1)} minutes elapsed). The percentage is estimated; click Cancel Transcription to stop safely.`;
+                    updateSingleProgress(ipcShownPct, ipcShownPct < 20 ? 'Extracting audio' : 'Transcribing captions', `Processing locally — ${elapsedMinutes.toFixed(1)} min elapsed (estimated progress)`);
                 }, 900);
                 let ipc = null;
                 try {
-                    ipc = await window.electronAPI.transcribeVideo({ videoPath });
+                    const queueLanguage = String(captionVideoQueue[captionQueueIndex]?.captionLanguage || '').toLowerCase();
+                    const languageHint = queueLanguage.includes('telugu') ? 'te' : (queueLanguage.includes('hindi') ? 'hi' : (queueLanguage.includes('english') ? 'en' : 'auto'));
+                    activeCaptionTranscription = { videoPath, languageHint };
+                    ipc = await window.electronAPI.transcribeVideo({ videoPath, languageHint });
                 } finally {
                     clearInterval(ipcHeartbeat);
+                    activeCaptionTranscription = null;
+                }
+
+                if ((ipc && ipc.cancelled) || captionTranscriptionCancelRequested) {
+                    statusText.innerHTML = 'Transcription cancelled. The video is still loaded and ready to restart.';
+                    updateSingleProgress(0, 'Cancelled', 'No caption export was started');
+                    if (captionVideoQueue[captionQueueIndex]) {
+                        captionVideoQueue[captionQueueIndex].status = 'ready';
+                        captionVideoQueue[captionQueueIndex].progress = 0;
+                        renderCaptionQueue();
+                    }
+                    return;
                 }
 
                 if (ipc && ipc.ok) {
@@ -1805,30 +2006,30 @@ function bootCaptionStudio() {
             }
 
             // PATH 2: HTTP transcription server (port 8428)
-            statusText.innerHTML = '⏳ Extracting audio from video...';
-            if (pBar) pBar.style.width = '5%';
-            updateSingleProgress(5, 'Generating captions', 'Extracting audio from video...');
+            statusText.innerHTML = 'Extracting audio from video...';
+            if (pBar) pBar.style.width = '8%';
+            updateSingleProgress(8, 'Extracting audio', 'Preparing audio from video...');
             audioDataArray = await extractAudio(activeFile);
-            if (pBar) pBar.style.width = '15%';
-            updateSingleProgress(15, 'Generating captions', 'Sending audio to caption engine...');
+            if (pBar) pBar.style.width = '20%';
+            updateSingleProgress(20, 'Transcribing captions', 'Sending audio to caption engine...');
             try {
-                statusText.innerHTML = '⏳ Sending to Whisper server (port 8428)...';
+                statusText.innerHTML = 'Sending to Whisper server (port 8428)...';
                 const svr = await transcribeWithLocalServer(audioDataArray);
                 if (pBar) pBar.style.width = '100%';
                 updateSingleProgress(100, 'Captions ready', 'Caption engine finished');
                 if (svr && svr.chunks && svr.chunks.length > 0) {
                     generatedCaptions = svr.chunks;
-                    statusText.innerHTML = '✅ ' + generatedCaptions.length + ' captions from video audio';
+                    statusText.innerHTML = generatedCaptions.length + ' captions from video audio';
                     finaliseCaptions(); return;
                 }
             } catch (svrErr) {
                 console.warn('[Caption] HTTP server failed:', svrErr.message);
-                statusText.innerHTML = '⚠️ Server unavailable — using browser AI...';
+                statusText.innerHTML = 'Server unavailable - using browser AI...';
             }
 
             // PATH 3: Browser Whisper worker (offline fallback)
             if (!captionWorker) {
-                statusText.innerHTML = '⏳ Initializing browser AI engine...';
+                statusText.innerHTML = 'Initializing browser AI engine...';
                 const ws = `let p,e,t=null;function s(d){if(!d)return null;try{return JSON.parse(JSON.stringify(d));}catch(x){return{status:d.status,text:d.text||'',timestamp:d.timestamp||null};}}self.onmessage=async(ev)=>{if(ev.data.type==='init'){try{if(!p){const m=await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.1');p=m.pipeline;e=m.env;e.allowLocalModels=true;e.allowRemoteModels=false;e.localModelPath=ev.data.modelPath||'http://127.0.0.1:5173/AI_Models/';e.useBrowserCache=true;}if(!t){t=await p('automatic-speech-recognition','Xenova/whisper-tiny.en',{quantized:true,progress_callback:d=>self.postMessage({type:'progress',data:s(d)})});}self.postMessage({type:'init_done'});}catch(er){self.postMessage({type:'error',error:er.message});}}else if(ev.data.type==='transcribe'){try{const r=await t(ev.data.audioDataArray,{...ev.data.options,chunk_callback:c=>self.postMessage({type:'chunk_progress',chunk:s(c),duration:ev.data.duration})});self.postMessage({type:'result',result:s(r)});}catch(er){self.postMessage({type:'error',error:er.message});}}};`;
                 const blob = new Blob([ws], { type: 'application/javascript' });
                 captionWorker = new Worker(URL.createObjectURL(blob));
@@ -1838,7 +2039,7 @@ function bootCaptionStudio() {
                         if (ev.data.type === 'init_done') res();
                         else if (ev.data.type === 'progress' && ev.data.data && ev.data.data.status === 'downloading') {
                             const pct = Math.round(ev.data.data.progress || 0);
-                            statusText.innerHTML = '⏳ Downloading AI model: ' + pct + '%';
+                            statusText.innerHTML = 'Downloading AI model: ' + pct + '%';
                             if (pBar) pBar.style.width = (15 + pct * 0.15) + '%';
                             updateSingleProgress(15 + pct * 0.15, 'Generating captions', 'Downloading browser AI model...');
                         } else if (ev.data.type === 'error') rej(new Error(ev.data.error || 'init failed'));
@@ -1856,7 +2057,7 @@ function bootCaptionStudio() {
                 captionWorker.onmessage = ev => {
                     if (ev.data.type === 'chunk_progress' && ev.data.chunk && ev.data.chunk.timestamp && ev.data.chunk.timestamp[1] !== null) {
                         const pct = Math.min(Math.round((ev.data.chunk.timestamp[1] / (ev.data.duration || 60)) * 100), 100);
-                        statusText.innerHTML = 'Transcribing... ' + pct + '% complete · ' + Math.max(0, 100 - pct) + '% remaining';
+                        statusText.innerHTML = 'Transcribing... ' + pct + '% complete - ' + Math.max(0, 100 - pct) + '% remaining';
                         if (pBar) pBar.style.width = pct + '%';
                         updateSingleProgress(pct, 'Generating captions', 'Transcribing video audio...');
                     } else if (ev.data.type === 'result') { if (pBar) pBar.style.width = '100%'; res(ev.data.result); }
@@ -1866,7 +2067,7 @@ function bootCaptionStudio() {
             });
             let cur = null;
             (workerResult.chunks || []).forEach(c => {
-                const txt = c.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim();
+                const txt = c.text.replace(/\[.*?\]|\(.*?\)|â™ª|â™«/g,'').trim();
                 if (!txt) return;
                 let ts = Array.isArray(c.timestamp) ? c.timestamp : [0,0];
                 if (ts[0]===null) ts[0]=cur?cur.timestamp[1]:0;
@@ -1878,7 +2079,7 @@ function bootCaptionStudio() {
             if (cur) generatedCaptions.push(cur);
             if (generatedCaptions.length === 0 && workerResult.text) {
                 const dur = sourceVideo.duration || 60;
-                generatedCaptions = buildLinearCaptionChunks(workerResult.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim(), dur, { narrationDurationSec: dur });
+                generatedCaptions = buildLinearCaptionChunks(workerResult.text.replace(/\[.*?\]|\(.*?\)|â™ª|â™«/g,'').trim(), dur, { narrationDurationSec: dur });
             }
             if (!generatedCaptions.length) {
                 statusText.innerHTML = 'No speech detected in this video audio. Upload a video with speech to auto-burn synced karaoke captions.';
@@ -1887,11 +2088,11 @@ function bootCaptionStudio() {
                 hideSingleCaptionProgress();
                 return;
             }
-            statusText.innerHTML = '✅ ' + generatedCaptions.length + ' captions from video audio';
+            statusText.innerHTML = generatedCaptions.length + ' captions from video audio';
             finaliseCaptions();
 
         } catch (error) {
-            statusText.innerHTML = '❌ ' + (error.message || 'Unknown error');
+            statusText.innerHTML = 'Error: ' + (error.message || 'Unknown error');
             console.error('[Caption]', error);
             if (captionVideoQueue[captionQueueIndex]) {
                 captionVideoQueue[captionQueueIndex].status = 'failed';
@@ -1899,13 +2100,34 @@ function bootCaptionStudio() {
             }
         } finally {
             isExtractingText = false;
+            activeCaptionTranscription = null;
+            captionTranscriptionCancelRequested = false;
             if (!captionQueueRunning && !captionQueueExporting) {
                 actionBtn.disabled = false;
+                if (!generatedCaptions.length) {
+                    actionBtn.textContent = captionVideoQueue.length > 1 ? 'Generate Queue' : 'Generate Captions';
+                    actionBtn.classList.remove('hidden');
+                }
             }
         }
     }
 
     actionBtn.addEventListener('click', async () => {
+        if (isExtractingText) {
+            if (captionTranscriptionCancelRequested) return;
+            captionTranscriptionCancelRequested = true;
+            actionBtn.disabled = true;
+            actionBtn.textContent = 'Cancelling...';
+            statusText.innerHTML = 'Cancelling the active local Whisper job...';
+            if (activeCaptionTranscription && window.electronAPI && typeof window.electronAPI.cancelTranscribeVideo === 'function') {
+                try {
+                    await window.electronAPI.cancelTranscribeVideo(activeCaptionTranscription);
+                } catch (error) {
+                    console.error('[Caption] Cancel failed:', error);
+                }
+            }
+            return;
+        }
         if (captionQueueRunning || captionQueueExporting) return;
         if (captionVideoQueue.length > 1) await transcribeCaptionQueueFrom(captionQueueIndex);
         else await transcribeActiveCaptionVideo();
@@ -2334,12 +2556,16 @@ function bootCaptionStudio() {
     function getCaptionSourcePath() {
         try {
             if (!activeFile) return "";
-            if (window.electronAPI && typeof window.electronAPI.getPathForFile === 'function') {
-                return window.electronAPI.getPathForFile(activeFile) || "";
+            const sourcePath = activeFile.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+                ? (window.electronAPI.getPathForFile(activeFile) || "")
+                : "");
+            if (/\.part\.mp4$/i.test(sourcePath)) {
+                throw new Error('This is an unfinished .part.mp4 export. Use the original video or a completed MP4, then generate captions again.');
             }
-            return activeFile.path || "";
+            return sourcePath;
         } catch (error) {
             console.warn('[Caption Export] Could not read source file path:', error);
+            if (statusText) statusText.innerHTML = String(error && error.message ? error.message : error);
             return "";
         }
     }
@@ -2359,7 +2585,7 @@ function bootCaptionStudio() {
                 const rawEnd = Number(timestamp[1]);
                 const end = Math.max(start + 0.12, (Number.isFinite(rawEnd) ? rawEnd : timestamp[0] + 2) + syncOffset);
                 return {
-                    text: String(caption.text || '').replace(/\s+/g, ' ').trim(),
+                    text: stripIgnoredIntroCaption(caption.text, start),
                     start,
                     end: duration > 0 ? Math.min(end, duration) : end
                 };
@@ -2464,7 +2690,9 @@ function bootCaptionStudio() {
         const marginV = CAPTION_BOTTOM_OFFSET_PX;
         const syncOffset = getCaptionSyncOffsetSeconds();
         const selectedFont = String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
-        const isKaraoke = !karaokeCheck || karaokeCheck.checked;
+        // Local AI captions always export as word-by-word karaoke fill.
+        const isKaraoke = true;
+        if (karaokeCheck) karaokeCheck.checked = true;
         const useEmoji = emojiCheck && emojiCheck.checked;
         const measureCanvas = document.createElement('canvas');
         const measureCtx = measureCanvas.getContext('2d');
@@ -2496,7 +2724,7 @@ function bootCaptionStudio() {
         const events = [];
         const exportWordLimit = CAPTION_WORD_LIMIT;
 
-        for (const caption of generatedCaptions || []) {
+        for (const caption of removeIgnoredIntroCaptions(generatedCaptions)) {
             const textTokens = String(caption.text || '').trim().split(/\s+/).filter(Boolean);
             if (!textTokens.length || !Array.isArray(caption.timestamp)) continue;
             const capStart = Math.max(0, Number(caption.timestamp[0]) + syncOffset);
@@ -2545,25 +2773,25 @@ function bootCaptionStudio() {
                     return;
                 }
 
-                group.words.forEach((word, activeIndex) => {
-                    if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.end <= word.start) return;
-                    const nextWord = group.words[activeIndex + 1];
-                    const nextStart = nextWord && Number.isFinite(nextWord.start) ? nextWord.start : null;
-                    const displayEnd = nextStart !== null && nextStart - word.end > 0 && nextStart - word.end <= SHORT_CAPTION_GAP_SECONDS
-                        ? Math.min(group.end, nextStart)
-                        : word.end;
-                    let tokenCursor = 0;
-                    const styledText = wrappedTokenLines.map(lineTokens => {
-                        const lineText = lineTokens.map((token) => {
-                            const tokenIndex = tokenCursor;
-                            tokenCursor += 1;
-                        const color = tokenIndex === activeIndex ? activeColor : inactiveColor;
-                        return `{\\1c${color}}${escapeAssCaptionText(token)}`;
-                        }).join(' ');
-                        return lineText;
-                    }).join('\\N');
-                    events.push(`Dialogue: 0,${toAssTimestamp(word.start)},${toAssTimestamp(displayEnd)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})}${emojiPrefix}${styledText}`);
-                });
+                // True ASS karaoke fill: each \kf duration progressively wipes
+                // PrimaryColour over SecondaryColour for the individual word.
+                let tokenCursor = 0;
+                const karaokeText = wrappedTokenLines.map(lineTokens => {
+                    const lineText = lineTokens.map((token) => {
+                        const wordIndex = tokenCursor;
+                        tokenCursor += 1;
+                        const word = group.words[wordIndex];
+                        const nextWord = group.words[wordIndex + 1];
+                        const wordStart = Number.isFinite(word?.start) ? word.start : group.start;
+                        const wordEnd = Number.isFinite(nextWord?.start)
+                            ? Math.min(group.end, nextWord.start)
+                            : (Number.isFinite(word?.end) ? Math.min(group.end, word.end) : group.end);
+                        const centiseconds = Math.max(1, Math.round((wordEnd - wordStart) * 100));
+                        return `{\\kf${centiseconds}}${escapeAssCaptionText(token)}`;
+                    }).join(' ');
+                    return lineText;
+                }).join('\\N');
+                events.push(`Dialogue: 0,${toAssTimestamp(group.start)},${toAssTimestamp(group.end)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})}${emojiPrefix}${karaokeText}`);
             });
         }
 
@@ -2700,14 +2928,14 @@ function bootCaptionStudio() {
                 if (!captionsForBurn.length) {
                     throw new Error('No valid caption timings are available for export.');
                 }
-                statusText.innerHTML = '\u26a1 Sync export: 0% complete · 100% remaining';
+                statusText.innerHTML = '\u26a1 Sync export: 0% complete - 100% remaining';
                 renderSingleCaptionProgress(0, 'Exporting captions', (activeFile && activeFile.name) || 'Current video');
                 let burnProgressHandler = null;
                 let syncShownPct = 0;
                 let syncFinalizingTimer = null;
                 const showSyncExportProgress = (pct, phaseLabel = 'Sync export') => {
                     syncShownPct = Math.max(syncShownPct, Math.max(0, Math.min(99, Math.round(pct))));
-                    statusText.innerHTML = '\u26a1 ' + phaseLabel + ': ' + syncShownPct + '% complete · ' + (100 - syncShownPct) + '% remaining';
+                    statusText.innerHTML = '\u26a1 ' + phaseLabel + ': ' + syncShownPct + '% complete - ' + (100 - syncShownPct) + '% remaining';
                     setCaptionProgressBar(syncShownPct);
                     renderSingleCaptionProgress(syncShownPct, phaseLabel, (activeFile && activeFile.name) || 'Current video');
                 };
@@ -2899,7 +3127,7 @@ function bootCaptionStudio() {
             const _pct = _duration > 0 ? Math.min(100, Math.round((_ct / _duration) * 100)) : 0;
             const _remainingPct = Math.max(0, 100 - _pct);
             const _remainingSec = Math.max(0, _duration - _ct);
-            statusText.innerHTML = '\ud83c\udf9e\ufe0f Exporting captioned video: <strong>' + _pct + '%</strong> complete · <strong>' + _remainingPct + '%</strong> remaining&nbsp;&nbsp;(' + _remainingSec.toFixed(1) + 's left / ' + _duration.toFixed(1) + 's total) \u2014 please wait\u2026';
+            statusText.innerHTML = 'Exporting captioned video: <strong>' + _pct + '%</strong> complete - <strong>' + _remainingPct + '%</strong> remaining&nbsp;&nbsp;(' + _remainingSec.toFixed(1) + 's left / ' + _duration.toFixed(1) + 's total) - please wait...';
             exportBtn.textContent = '\u23f3 Exporting ' + _pct + '%';
             renderSingleCaptionProgress(_pct, 'Exporting captions', (activeFile && activeFile.name) || 'Current video');
         }, 500);
@@ -2910,7 +3138,7 @@ function bootCaptionStudio() {
             _finishExport();
         }, (_duration + 5) * 1000);
 
-        statusText.innerHTML = '\ud83c\udf9e\ufe0f Exporting captioned video: <strong>0%</strong> complete · <strong>100%</strong> remaining&nbsp;&nbsp;(' + _duration.toFixed(1) + 's left / ' + _duration.toFixed(1) + 's total) \u2014 please wait\u2026';
+        statusText.innerHTML = 'Exporting captioned video: <strong>0%</strong> complete - <strong>100%</strong> remaining&nbsp;&nbsp;(' + _duration.toFixed(1) + 's left / ' + _duration.toFixed(1) + 's total) - please wait...';
 
         try { await sourceVideo.play(); } catch(_pErr) {
             console.warn('[Caption Export] play() rejected:', _pErr);
@@ -2924,7 +3152,7 @@ function bootCaptionStudio() {
     });
 
 
-    // stageCaptionExportBtn is handled by script.js — do not add a second listener here.
+    // stageCaptionExportBtn is handled by script.js â€” do not add a second listener here.
 
 
     if (viralShortBtn) {
@@ -2982,14 +3210,14 @@ function bootCaptionStudio() {
                 const blob = new Blob(recordedChunks, { type: options.mimeType.split(';')[0] });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = `viral_short_clip.${ext}`; a.click(); URL.revokeObjectURL(url);
-                isRecording = false; viralShortBtn.textContent = '✂️ Export 15s Viral Short'; viralShortBtn.disabled = false;
-                statusText.innerHTML = "✅ Viral Short Export completed!";
+                isRecording = false; viralShortBtn.textContent = 'âœ‚ï¸ Export 15s Viral Short'; viralShortBtn.disabled = false;
+                statusText.innerHTML = "âœ… Viral Short Export completed!";
                 speakCaptionStudio(`Exporting done. viral_short_clip.${ext}`);
                 notifyCaptionStudio('Exporting done', `viral_short_clip.${ext}`);
-                sourceVideo.pause(); playPauseBtn.textContent = '▶️ Play';
+                sourceVideo.pause(); playPauseBtn.textContent = 'â–¶ï¸ Play';
                 stream.getTracks().forEach(track => track.stop());
             };
-            recorder.start(); sourceVideo.play(); playPauseBtn.textContent = '⏸️ Pause';
+            recorder.start(); sourceVideo.play(); playPauseBtn.textContent = 'â¸ï¸ Pause';
             
             const checkEnd = setInterval(() => {
                 if (sourceVideo.currentTime >= bestEnd) {

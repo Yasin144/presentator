@@ -3,6 +3,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const burnProgressHandlers = new Map();
+const translateDubProgressHandlers = new Map();
 
 // ─── Expose a secure, limited API to the renderer via window.electronAPI ─────
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -33,6 +34,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // rejecting a valid local WAV response when Windows resets the socket close.
   narrateEdgeTts: (payload) =>
     ipcRenderer.invoke('narrate-edge-tts', payload),
+
+  // Generate SC3 Chatterbox narration for text.
+  narrateSc3Text: (payload) =>
+    ipcRenderer.invoke('narrate-sc3-text', payload),
+
+  // Generate narration with the uploaded video's extracted voice reference.
+  narrateUploadedVideoVoice: (payload) =>
+    ipcRenderer.invoke('narrate-uploaded-video-voice', payload),
 
   // Ask the main process to restart the video export / FFmpeg server
   restartVideoExport: () =>
@@ -73,6 +82,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   transcribeVideo: (opts) =>
     ipcRenderer.invoke('transcribe-video', opts),
 
+  // Cancel the active native Whisper/FFmpeg caption job for a video.
+  cancelTranscribeVideo: (opts) =>
+    ipcRenderer.invoke('cancel-transcribe-video', opts),
+
   // Replace audio file vocal with Chatterbox sc3 voice (Transcribe → Indian English → TTS)
   sc3NarrateAudio: (opts) =>
     ipcRenderer.invoke('sc3-narrate-audio', opts),
@@ -105,6 +118,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Merge narration audio into video (for animation/no-speech videos)
   mergeAudioIntoVideo: (opts) =>
     ipcRenderer.invoke('merge-audio-into-video', opts),
+
+  // Export a video with generated translated audio from the translator module.
+  exportTranslatedVideo: (opts) =>
+    ipcRenderer.invoke('export-translated-video', opts),
+
+  // Export a video with segment-timed translated audio aligned to Whisper timestamps.
+  exportSyncedTranslatedVideo: (opts) =>
+    ipcRenderer.invoke('export-synced-translated-video', opts),
+
+  onTranslateDubProgress: (callback) => {
+    const handler = (_, data) => callback(data);
+    translateDubProgressHandlers.set(callback, handler);
+    ipcRenderer.on('translate-dub-progress', handler);
+  },
+
+  offTranslateDubProgress: (callback) => {
+    const handler = translateDubProgressHandlers.get(callback);
+    if (handler) {
+      ipcRenderer.removeListener('translate-dub-progress', handler);
+      translateDubProgressHandlers.delete(callback);
+    }
+  },
 
   // Desktop notification — alerts user when a task completes
   showNotification: (title, body, opts) =>
