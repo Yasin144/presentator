@@ -64,9 +64,25 @@ def trim_for_detection(input_wav: str, seconds: int = 30) -> str:
 
 
 def is_repetition_loop(text: str) -> bool:
-    """Detect Whisper hallucination loops (same phrase repeated 5+ times)."""
+    """Detect Whisper hallucination loops, including Indic syllable repeats."""
     if not text or len(text.strip()) < 3:
         return False
+    compact = re.sub(r'[\s\W_]+', '', text, flags=re.UNICODE)
+    if len(compact) >= 30:
+        chars = Counter(compact)
+        top_char_count = chars.most_common(1)[0][1]
+        if top_char_count / len(compact) > 0.45:
+            return True
+        if len(chars) <= 4:
+            return True
+        for size in range(1, 7):
+            pattern = compact[:size]
+            if not pattern:
+                continue
+            repeated = pattern * (len(compact) // size)
+            coverage = len(repeated) / max(1, len(compact))
+            if compact.startswith(repeated) and coverage > 0.70 and len(repeated) >= 24:
+                return True
     words = text.split()
     if len(words) < 6:
         return False
@@ -85,15 +101,17 @@ def run_whisper_with_model(m, audio_path: str, lang: str):
     segs, info = m.transcribe(
         audio_path,
         language=lang,
-        beam_size=5,
-        best_of=5,
-        temperature=[0.0, 0.2, 0.4, 0.6],         # multiple temps to avoid loops
+        beam_size=1,
+        best_of=1,
+        temperature=0.0,
         no_speech_threshold=0.6,
         compression_ratio_threshold=2.4,
         condition_on_previous_text=False,           # prevent runaway loops
         word_timestamps=True,                      # real word-level timestamps
         vad_filter=True,
         vad_parameters={
+            # Keep quiet/short opening words instead of trimming them before
+            # Whisper can timestamp the first caption.
             "min_silence_duration_ms": 450,
             "speech_pad_ms": 180,
         },
@@ -108,9 +126,10 @@ def run_whisper_with_model(m, audio_path: str, lang: str):
         t = clean(s.text)
         if not t:
             continue
-        if getattr(s, "no_speech_prob", 0.0) > 0.60:
+        opening_segment = s.start < 20.0
+        if getattr(s, "no_speech_prob", 0.0) > (0.85 if opening_segment else 0.60):
             continue
-        if getattr(s, "avg_logprob", 0.0) < -1.0:
+        if getattr(s, "avg_logprob", 0.0) < (-1.5 if opening_segment else -1.0):
             continue
         if is_repetition_loop(t):
             continue
@@ -127,6 +146,8 @@ def run_whisper_with_model(m, audio_path: str, lang: str):
                     })
 
     full = clean(" ".join(parts))
+    if is_repetition_loop(full):
+        return "", info.language, [], []
     return full, info.language, seg_list, word_list
 
 
@@ -160,15 +181,10 @@ try:
         print(f"[Whisper] Detected language: {detected_lang} (prob: {info.language_probability:.2f})", flush=True)
         
         lang_hint = detected_lang
-        if lang_hint in {"te", "hi", "ta", "ur", "ar"}:
-            print(f"[Whisper] Keeping 'small' model for transcription in {lang_hint}...", flush=True)
-            text, lang, segs, words = run_whisper_with_model(m, norm_path, lang_hint)
-        else:
-            print(f"[Whisper] Switching to 'tiny' model for transcription in {lang_hint}...", flush=True)
-            del m
-            import gc
-            gc.collect()
-            text, lang, segs, words = run_whisper("tiny", norm_path, lang_hint)
+        # Reuse the already-loaded small model for the full local transcript.
+        # Tiny Whisper was dropping short opening phrases after detection.
+        print(f"[Whisper] Keeping 'small' model for transcription in {lang_hint}...", flush=True)
+        text, lang, segs, words = run_whisper_with_model(m, norm_path, lang_hint)
     else:
         primary_model = "small" if lang_hint in {"te", "hi", "ta", "ur", "ar"} else "tiny"
         fallback_model = "tiny" if primary_model == "small" else "small"

@@ -23,6 +23,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemInfo: () =>
     ipcRenderer.invoke('get-system-info'),
 
+  // Autonomous Presentator agent. Model credentials stay in the main process.
+  presentatorAgentThink: (payload) =>
+    ipcRenderer.invoke('presentator-agent-think', payload),
+
+  presentatorAgentRestartServer: (serverName) =>
+    ipcRenderer.invoke('presentator-agent-restart-server', serverName),
+
+  presentatorAgentReadDiagnostics: () =>
+    ipcRenderer.invoke('presentator-agent-read-diagnostics'),
+
+  presentatorAgentLoadData: () =>
+    ipcRenderer.invoke('presentator-agent-load-data'),
+
+  presentatorAgentSaveData: (data) =>
+    ipcRenderer.invoke('presentator-agent-save-data', data),
+
+  presentatorAgentInspectCode: (request) =>
+    ipcRenderer.invoke('presentator-agent-inspect-code', request),
+
+  presentatorAgentApplyPatch: (request) =>
+    ipcRenderer.invoke('presentator-agent-apply-patch', request),
+
+  presentatorAgentRestartApp: () =>
+    ipcRenderer.invoke('presentator-agent-restart-app'),
+
+  presentatorAgentGenerateImage: (request) =>
+    ipcRenderer.invoke('presentator-agent-generate-image', request),
+
+  presentatorAgentCreateVideo: (request) =>
+    ipcRenderer.invoke('presentator-agent-create-video', request),
+
+  presentatorAgentImportReference: (request) =>
+    ipcRenderer.invoke('presentator-agent-import-reference', request),
+
   // ── Server management ──────────────────────────────────────────────────────
 
   // Ask the main process to restart the Anjali AI server
@@ -72,6 +106,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Renderer never loads video bytes → no OOM crash on large videos.
   transcribeVideo: (opts) =>
     ipcRenderer.invoke('transcribe-video', opts),
+
+  transcribeVideoGroq: (opts) =>
+    ipcRenderer.invoke('transcribe-video-groq', opts),
 
   // Replace audio file vocal with Chatterbox sc3 voice (Transcribe → Indian English → TTS)
   sc3NarrateAudio: (opts) =>

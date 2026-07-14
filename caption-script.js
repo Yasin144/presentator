@@ -17,7 +17,7 @@ function isImageReady(img) {
 let captionWorker = null;
 let transcriber = null; // Keeping as a placeholder for any lingering references
 const CAPTION_WORD_LIMIT = 8;
-const CAPTION_BOTTOM_OFFSET_PX = 20;
+const CAPTION_BOTTOM_OFFSET_PX = 25;
 const SHORT_CAPTION_GAP_SECONDS = 0.75;
 
 function bootCaptionStudio() {
@@ -332,16 +332,6 @@ function bootCaptionStudio() {
         } catch (error) {
             console.warn('[Caption Studio] Notification failed:', error);
         }
-    }
-
-    function alertSingleCaptionExportComplete(fileName) {
-        setTimeout(() => {
-            try {
-                window.alert(`Caption burning completed.\n\nSaved: ${fileName || 'captioned video'}`);
-            } catch (error) {
-                console.warn('[Caption Studio] Completion alert failed:', error);
-            }
-        }, 100);
     }
 
     function setCaptionExportActionsVisible(visible) {
@@ -1042,39 +1032,53 @@ function bootCaptionStudio() {
             for (const index of ordered) {
                 const item = captionVideoQueue[index];
                 if (!item || item.status === 'exported') continue;
-                captionQueueIndex = index;
-                loadQueuedCaptionVideo(index);
-                await waitForQueueVideoReady();
-                lockCaptionQueueControls(true);
-                setQueueItemState(index, {
-                    status: item.captions && item.captions.length ? 'transcribed' : 'transcribing',
-                    progress: item.captions && item.captions.length ? 100 : 5,
-                    message: item.captions && item.captions.length ? 'Captions already ready.' : 'Generating captions...'
-                });
-                if (!(captionVideoQueue[index].captions && captionVideoQueue[index].captions.length)) {
-                    statusText.innerHTML = `Active now: generating captions ${index + 1}/${captionVideoQueue.length}...`;
-                    const heartbeat = startQueueProgressHeartbeat(index, 'Generating captions', 5, 95);
-                    try {
-                        await transcribeActiveCaptionVideo();
-                    } finally {
-                        clearInterval(heartbeat);
+                try {
+                    captionQueueIndex = index;
+                    loadQueuedCaptionVideo(index);
+                    await waitForQueueVideoReady();
+                    lockCaptionQueueControls(true);
+                    setQueueItemState(index, {
+                        status: item.captions && item.captions.length ? 'transcribed' : 'transcribing',
+                        progress: item.captions && item.captions.length ? 100 : 5,
+                        message: item.captions && item.captions.length ? 'Captions already ready.' : 'Generating captions...'
+                    });
+                    if (!(captionVideoQueue[index].captions && captionVideoQueue[index].captions.length)) {
+                        statusText.innerHTML = `Active now: generating captions ${index + 1}/${captionVideoQueue.length}...`;
+                        const heartbeat = startQueueProgressHeartbeat(index, 'Generating captions', 5, 95);
+                        try {
+                            await transcribeActiveCaptionVideo();
+                        } finally {
+                            clearInterval(heartbeat);
+                        }
                     }
+                    if (!(captionVideoQueue[index].captions && captionVideoQueue[index].captions.length)) {
+                        throw new Error(`No captions generated for ${item.file.name}`);
+                    }
+                    setCaptionProgressBar(100);
+                    setQueueItemState(index, {
+                        status: 'transcribed',
+                        progress: 100,
+                        message: 'Captions generated. Starting export...'
+                    });
+                    generatedCaptions = JSON.parse(JSON.stringify(captionVideoQueue[index].captions));
+                    await exportActiveCaptionVideoForQueue(index);
+                } catch (itemError) {
+                    setQueueItemState(index, {
+                        status: 'failed',
+                        progress: 0,
+                        message: String(itemError.message || itemError).slice(0, 100)
+                    });
+                    console.error(`[Caption Queue] Video ${index + 1} failed:`, itemError);
                 }
-                if (!(captionVideoQueue[index].captions && captionVideoQueue[index].captions.length)) {
-                    throw new Error(`No captions generated for ${item.file.name}`);
-                }
-                setCaptionProgressBar(100);
-                setQueueItemState(index, {
-                    status: 'transcribed',
-                    progress: 100,
-                    message: 'Captions generated. Starting export...'
-                });
-                generatedCaptions = JSON.parse(JSON.stringify(captionVideoQueue[index].captions));
-                await exportActiveCaptionVideoForQueue(index);
             }
-            statusText.innerHTML = `Queue complete. Exported ${captionVideoQueue.filter(item => item.status === 'exported').length}/${captionVideoQueue.length} videos.`;
+            const exportedCount = captionVideoQueue.filter(item => item.status === 'exported').length;
+            const failedCount = captionVideoQueue.filter(item => item.status === 'failed').length;
+            statusText.innerHTML = `Queue complete. Exported ${exportedCount}/${captionVideoQueue.length} videos${failedCount ? ` · Failed ${failedCount}` : ''}.`;
             speakCaptionStudio('Caption queue complete');
-            notifyCaptionStudio('Caption queue complete', 'All captioned videos finished exporting.');
+            notifyCaptionStudio(
+                'Caption queue complete',
+                failedCount ? `Exported ${exportedCount}. Failed ${failedCount}.` : 'All captioned videos finished exporting.'
+            );
         } catch (error) {
             const current = captionVideoQueue[captionQueueIndex];
             if (current) {
@@ -1323,6 +1327,118 @@ function bootCaptionStudio() {
             });
         }
         return chunks;
+    }
+
+    function inferCaptionLanguageCode(text) {
+        const counts = {};
+        for (const ch of String(text || '')) {
+            const p = ch.codePointAt(0) || 0;
+            if (p >= 0x0C00 && p <= 0x0C7F) counts.te = (counts.te || 0) + 1;
+            else if (p >= 0x0900 && p <= 0x097F) counts.hi = (counts.hi || 0) + 1;
+            else if (p >= 0x0B80 && p <= 0x0BFF) counts.ta = (counts.ta || 0) + 1;
+            else if (p >= 0x0600 && p <= 0x06FF) counts.ar = (counts.ar || 0) + 1;
+        }
+        const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        return best && best[1] > 3 ? best[0] : '';
+    }
+
+    function normalizeCaptionLanguageCode(value) {
+        const lang = String(value || '').trim().toLowerCase();
+        if (!lang) return '';
+        if (lang === 'telugu' || lang === 'te') return 'te';
+        if (lang === 'hindi' || lang === 'hi') return 'hi';
+        if (lang === 'tamil' || lang === 'ta') return 'ta';
+        if (lang === 'urdu' || lang === 'ur') return 'ur';
+        if (lang === 'arabic' || lang === 'ar') return 'ar';
+        if (lang === 'english' || lang === 'en') return 'en';
+        return lang.slice(0, 2);
+    }
+
+    function isIndicCaptionLanguage(code) {
+        return ['te', 'hi', 'ta', 'ur', 'ar'].includes(normalizeCaptionLanguageCode(code));
+    }
+
+    function likelyIndicCaptionFileName(file) {
+        const name = String((file && file.name) || '').toLowerCase();
+        if (/\btelugu\b|తెలుగు/.test(name)) return 'te';
+        if (/\bhindi\b|हिंदी/.test(name)) return 'hi';
+        if (/\btamil\b|தமிழ்/.test(name)) return 'ta';
+        if (/\burdu\b|اردو/.test(name)) return 'ur';
+        return '';
+    }
+
+    function isCaptionRepetitionLoop(text) {
+        const compact = String(text || '').replace(/[\s\W_]+/gu, '');
+        if (compact.length >= 30) {
+            const counts = {};
+            for (const ch of Array.from(compact)) counts[ch] = (counts[ch] || 0) + 1;
+            const values = Object.values(counts);
+            if (Math.max(...values) / compact.length > 0.45) return true;
+            if (values.length <= 4) return true;
+        }
+        const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+        if (words.length < 6) return false;
+        const wordCounts = {};
+        for (const word of words) wordCounts[word] = (wordCounts[word] || 0) + 1;
+        return Math.max(...Object.values(wordCounts)) / words.length > 0.6;
+    }
+
+    function buildCaptionChunksFromTranscription(result, duration) {
+        const words = Array.isArray(result && result.words) ? result.words : [];
+        const segments = Array.isArray(result && result.segments) ? result.segments : [];
+        const chunks = [];
+        if (words.length > 0) {
+            for (let i = 0; i < words.length; i += CAPTION_WORD_LIMIT) {
+                const sl = words.slice(i, i + CAPTION_WORD_LIMIT);
+                const txt = sl.map(w => String(w.word || w.text || '').trim()).filter(Boolean).join(' ').trim();
+                if (txt) {
+                    chunks.push({
+                        text: txt,
+                        timestamp: [Number(sl[0].start || 0), Number(sl[sl.length - 1].end || (Number(sl[0].start || 0) + 0.5))],
+                        words: sl.map(w => ({
+                            text: String(w.word || w.text || '').trim(),
+                            timestamp: [Number(w.start || 0), Number(w.end || (Number(w.start || 0) + 0.25))]
+                        })).filter(w => w.text)
+                    });
+                }
+            }
+        } else if (segments.length > 0) {
+            return segments.filter(s => s.text && String(s.text).trim()).map(s => ({
+                text: String(s.text).trim(),
+                timestamp: [Number(s.start || 0), Number(s.end || (Number(s.start || 0) + 0.5))],
+                words: String(s.text).trim().split(/\s+/).map((w, i, a) => ({
+                    text: w,
+                    timestamp: [
+                        Number(s.start || 0) + (i / a.length) * (Number(s.end || 0) - Number(s.start || 0)),
+                        Number(s.start || 0) + ((i + 1) / a.length) * (Number(s.end || 0) - Number(s.start || 0))
+                    ]
+                }))
+            }));
+        } else if (result && result.text) {
+            return buildLinearCaptionChunks(String(result.text), duration || 60, { narrationDurationSec: duration || 60 });
+        }
+        return chunks;
+    }
+
+    async function transcribeVideoWithGroqForIndic(videoPath, languageHint, detail, progressFn) {
+        if (!window.electronAPI || typeof window.electronAPI.transcribeVideoGroq !== 'function') {
+            throw new Error('High-accuracy Telugu/Hindi caption engine is not available.');
+        }
+        statusText.innerHTML = `Using high-accuracy Whisper for ${detail || 'Telugu/Hindi'} captions...`;
+        const pBar = document.getElementById('captionProgressBarValue');
+        if (pBar) pBar.style.width = '18%';
+        if (typeof progressFn === 'function') {
+            progressFn(18, 'Generating captions', `High-accuracy Whisper is transcribing ${detail || 'Indic'} audio...`);
+        }
+        const groq = await window.electronAPI.transcribeVideoGroq({ videoPath, languageHint: languageHint || 'auto' });
+        if (!groq || !groq.ok) {
+            throw new Error((groq && groq.error) || 'High-accuracy Whisper failed.');
+        }
+        const text = String(groq.text || '');
+        if (isCaptionRepetitionLoop(text)) {
+            throw new Error('High-accuracy Whisper returned a repeated caption loop.');
+        }
+        return groq;
     }
 
     async function transcribeWithLocalServer(extractedAudio) {
@@ -1748,6 +1864,34 @@ function bootCaptionStudio() {
                 : '';
 
             if (hasIpc && videoPath) {
+                const fileLangHint = likelyIndicCaptionFileName(activeFile);
+                if (fileLangHint && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
+                    try {
+                        const langName = fileLangHint === 'te' ? 'Telugu' : fileLangHint === 'hi' ? 'Hindi' : 'Auto-Detect';
+                        const groq = await transcribeVideoWithGroqForIndic(videoPath, fileLangHint || 'auto', langName, updateSingleProgress);
+                        generatedCaptions = buildCaptionChunksFromTranscription(groq, sourceVideo.duration || 60);
+                        if (generatedCaptions.length) {
+                            if (pBar) pBar.style.width = '100%';
+                            updateSingleProgress(100, 'Captions ready', `${generatedCaptions.length} fast Groq captions generated`);
+                            statusText.innerHTML = '\u2705 ' + generatedCaptions.length + ` captions generated with Groq API (Fast)`;
+                            finaliseCaptions(); return;
+                        }
+                        throw new Error('Groq API returned no usable speech captions.');
+                    } catch (groqFirstErr) {
+                        const groqMessage = groqFirstErr && groqFirstErr.message
+                            ? groqFirstErr.message
+                            : String(groqFirstErr || 'Groq API is unavailable.');
+                        console.warn('[Caption] Groq transcription stopped:', groqFirstErr);
+                        statusText.innerHTML = `&#9888; Caution: Groq API (Fast) could not generate captions. ${groqMessage}`;
+                        updateSingleProgress(0, 'Caption generation stopped', groqMessage);
+                        throw new Error(`Caution: Groq API (Fast) is required. ${groqMessage}`);
+                    }
+                } else if (fileLangHint) {
+                    statusText.innerHTML = '&#9888; Caution: Groq API (Fast) is unavailable. Caption generation was stopped.';
+                    updateSingleProgress(0, 'Caption generation stopped', 'Groq API is unavailable.');
+                    throw new Error('Caution: Groq API (Fast) is unavailable.');
+                }
+
                 statusText.innerHTML = '\u23f3 Analysing video audio with Whisper AI (30\u201390s)...';
                 if (pBar) pBar.style.width = '10%';
                 updateSingleProgress(10, 'Generating captions', 'Analyzing video audio with Whisper AI...');
@@ -1777,6 +1921,22 @@ function bootCaptionStudio() {
                         actionBtn.textContent = 'Generate Captions';
                         hideSingleCaptionProgress();
                         return;
+                    }
+
+                    const localLangCode = normalizeCaptionLanguageCode(ipc.language) || inferCaptionLanguageCode(ipc.text);
+                    if (isIndicCaptionLanguage(localLangCode) && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
+                        try {
+                            const langName = localLangCode === 'te' ? 'Telugu' : localLangCode === 'hi' ? 'Hindi' : 'Indic';
+                            statusText.innerHTML = `Local Whisper detected ${langName}; switching to high-accuracy captions...`;
+                            const groq = await transcribeVideoWithGroqForIndic(videoPath, localLangCode, langName, updateSingleProgress);
+                            generatedCaptions = buildCaptionChunksFromTranscription(groq, sourceVideo.duration || 60);
+                            if (generatedCaptions.length) {
+                                statusText.innerHTML = '\u2705 ' + generatedCaptions.length + ` ${langName} captions from high-accuracy Whisper`;
+                                finaliseCaptions(); return;
+                            }
+                        } catch (groqErr) {
+                            console.warn('[Caption] High-accuracy Indic retry failed, using local result:', groqErr);
+                        }
                     }
 
                     // Real speech found
@@ -2754,7 +2914,6 @@ function bootCaptionStudio() {
                     console.log('[Caption Export] FFmpeg express export done:', _result.outputPath);
                     speakCaptionStudio(`Exporting done. ${completedFileName}`);
                     notifyCaptionStudio('Exporting done', completedFileName);
-                    alertSingleCaptionExportComplete(completedFileName);
                     return;
                 }
                 throw new Error((_result && _result.error) || 'FFmpeg caption export failed.');
@@ -2869,7 +3028,6 @@ function bootCaptionStudio() {
             statusText.innerHTML  = '\u2705 Export complete! <strong>captioned_video.' + _ext + '</strong> saved to Downloads.';
             speakCaptionStudio(`Exporting done. captioned_video.${_ext}`);
             notifyCaptionStudio('Exporting done', `captioned_video.${_ext}`);
-            alertSingleCaptionExportComplete(`captioned_video.${_ext}`);
 
             sourceVideo.pause(); sourceVideo.currentTime = 0;
             sourceVideo.muted = _origMuted; sourceVideo.volume = _origVolume;

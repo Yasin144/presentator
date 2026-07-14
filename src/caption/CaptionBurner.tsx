@@ -14,6 +14,8 @@ const uid    = () => Math.random().toString(36).slice(2, 10);
 const sanify = (n: string) => n.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 28) || 'video';
 const QUEUE_EXPORT_FONT_SIZE = 50;
 const CAPTION_WORD_LIMIT = 8;
+const CAPTION_BOTTOM_OFFSET_PX = 25;
+const SHORT_CAPTION_GAP_SECONDS = 0.75;
 
 function dlBlob(blob: Blob, name: string) {
   const u = URL.createObjectURL(blob);
@@ -199,6 +201,9 @@ export default function CaptionBurner({ onClose }: Props) {
   const rafRef  = useRef(0);
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const activeItem = useMemo(() => queue.find(i => i.id === activeId), [queue, activeId]);
+  const activeVideoHeight = activeItem?.video.height || 1080;
+  const previewFontSize = `calc(${S.fontSize} * 100cqh / ${activeVideoHeight})`;
+  const previewBottomOffset = `calc(${CAPTION_BOTTOM_OFFSET_PX}px * 100cqh / ${activeVideoHeight})`;
 
   // RAF preview sync
   useEffect(() => {
@@ -1052,7 +1057,13 @@ export default function CaptionBurner({ onClose }: Props) {
                   {previewCap && (
                     <div
                       className="absolute pointer-events-none z-50 text-center"
-                      style={{ left: `${S.xPos}%`, top: `${S.yPos}%`, transform: 'translate(-50%, -50%)', width: '90%' }}
+                      style={{
+                        left: `${S.xPos}%`,
+                        bottom: S.position === 'bottom' ? previewBottomOffset : undefined,
+                        top: S.position === 'bottom' ? undefined : `${S.yPos}%`,
+                        transform: S.position === 'bottom' ? 'translateX(-50%)' : 'translate(-50%, -50%)',
+                        width: '85%',
+                      }}
                     >
                       {/* DEMO badge — only shown before transcription */}
                       {!activeItem?.captions?.length && (
@@ -1066,9 +1077,9 @@ export default function CaptionBurner({ onClose }: Props) {
                         </div>
                       )}
                       <div
-                        className={`px-5 py-2.5 font-black flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 mx-auto w-fit leading-tight max-w-[90%] ${S.style === 'pill' ? 'backdrop-blur-sm' : ''}`}
+                        className={`px-0 py-0 font-black flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 mx-auto w-fit leading-tight max-w-full ${S.style === 'pill' ? 'backdrop-blur-sm px-5 py-2.5' : ''}`}
                         style={{
-                          fontSize: `${S.fontSize}px`,
+                          fontSize: previewFontSize,
                           color: S.style === 'white-yellow' ? '#ffffff' : sc(S.fontColor),
                           borderRadius: S.style === 'pill' ? '9999px' : '10px',
                           background: S.style === 'pill' ? sc(S.bgColor) : 'transparent',
@@ -1084,13 +1095,18 @@ export default function CaptionBurner({ onClose }: Props) {
                         {(() => {
                           const allWords = getWords(previewCap);
                           const t = Math.max(0, curTime - S.offset);
-                          const activeIndex = allWords.findIndex(w => t >= w.start && t <= w.end);
+                          let activeIndex = allWords.findIndex(w => t >= w.start && t <= w.end);
+                          if (activeIndex < 0) {
+                            activeIndex = allWords.findIndex((w, index) => {
+                              const next = allWords[index + 1];
+                              return t >= w.end
+                                && t < w.end + SHORT_CAPTION_GAP_SECONDS
+                                && (!next || t < next.start);
+                            });
+                          }
                           const groupStart = activeIndex >= 0 ? Math.floor(activeIndex / CAPTION_WORD_LIMIT) * CAPTION_WORD_LIMIT : 0;
                           const wordsToShow = allWords.slice(groupStart, groupStart + CAPTION_WORD_LIMIT);
-                          return wordsToShow.filter((_, __, words) => {
-                          if (S.style !== 'white-yellow') return true;
-                          return words.some(w => t >= w.start && t <= w.end);
-                        }).map((w, i) => {
+                          return wordsToShow.map((w, i) => {
                             const lit = t >= w.start && t <= w.end;
                             return (
                               <span

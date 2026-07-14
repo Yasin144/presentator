@@ -20,6 +20,10 @@
         // Give preload a tiny tick to inject electronAPI, then check
         function checkAccess() {
           if (window.electronAPI && window.electronAPI.isElectron) return; // ✅ allowed
+          const isLocalPreview =
+            ['127.0.0.1', 'localhost'].includes(window.location.hostname) &&
+            new URLSearchParams(window.location.search).get('preview') === '1';
+          if (isLocalPreview) return; // local UI QA only; Electron tools remain unavailable
 
           // ── Not running inside Electron — show lock screen ──────────────
           document.documentElement.style.cssText =
@@ -48,9 +52,9 @@
         setTimeout(checkAccess, 0);
       })();
     </script>
-    <script type="module" crossorigin src="./assets/index-DRc_ZbxN.js"></script>
+    <script type="module" crossorigin src="./assets/index-JvGmHh63.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/chunk-jRWAZmH_.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-CJ3wijXe.css">
+    <link rel="stylesheet" crossorigin href="./assets/index-CvBIlNoO.css">
   </head>
   <body>
     <div id="root"></div>

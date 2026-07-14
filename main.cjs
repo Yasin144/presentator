@@ -19,6 +19,24 @@ const path       = require('path');
 const fs         = require('fs');
 const http       = require('http');
 const os         = require('os');
+const { jsonrepair } = require('jsonrepair');
+
+function findFFmpegExecutable() {
+  const candidates = [
+    path.join(__dirname, 'vendor', 'ffmpeg', 'ffmpeg.exe'),
+    'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe',
+  ];
+  const bundled = candidates.find(candidate => fs.existsSync(candidate));
+  if (bundled) return bundled;
+  try {
+    return require('child_process')
+      .execFileSync('where.exe', ['ffmpeg'], { encoding: 'utf8', timeout: 3000 })
+      .trim()
+      .split(/\r?\n/)[0];
+  } catch (_) {
+    return 'ffmpeg';
+  }
+}
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Memory & GPU flags (set BEFORE app.ready) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // System has 15.3 GB total RAM. Python ML servers (Chatterbox TTS + SC3) use ~4-5 GB.
@@ -44,11 +62,193 @@ function ensureCaptionWorkDir(...segments) {
 }
 
 const groqKeyPath = path.join(ROOT, '.groq_api_key');
-if (!process.env.GROQ_API_KEY && fs.existsSync(groqKeyPath)) {
+if (fs.existsSync(groqKeyPath)) {
   try {
-    process.env.GROQ_API_KEY = fs.readFileSync(groqKeyPath, 'utf8').trim();
+    const savedGroqKey = fs.readFileSync(groqKeyPath, 'utf8').trim();
+    if (savedGroqKey) process.env.GROQ_API_KEY = savedGroqKey;
   } catch (e) {
     console.error('[PP] Failed to read .groq_api_key file:', e.message);
+  }
+}
+
+const PRESENTATOR_LOCAL_MODEL = 'qwen3.5:4b';
+const OLLAMA_PORT = 11434;
+const PRESENTATOR_AGENT_FORMAT = {
+  type: 'object',
+  properties: {
+    message: { type: 'string' },
+    plan: { type: 'array', items: { type: 'string' } },
+    actions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          tool: { type: 'string' },
+          args: { type: 'object' },
+          reason: { type: 'string' },
+        },
+        required: ['tool', 'args', 'reason'],
+      },
+    },
+    done: { type: 'boolean' },
+  },
+  required: ['message', 'plan', 'actions', 'done'],
+};
+const PRESENTATOR_AGENT_SYSTEM_PROMPT = `
+You are Pattan Super Agent, the autonomous director and recovery engineer inside
+the standalone Agent Studio module. Think carefully, use uploaded references,
+act in small verifiable steps, and never claim success without evidence.
+
+You may use only these tools:
+- inspect_state: refresh Agent Studio state and reference counts.
+- check_servers: inspect all local Presentator services.
+- read_diagnostics: inspect recent Presentation export and Caption Burner errors.
+- inspect_code: read a source section. args:
+  {"file":"src/path/File.jsx","startLine":1,"endLine":200}.
+- apply_code_patch: replace one exact source fragment and validate the full app
+  build. args: {"file":"src/path/File.jsx","expected":"exact old text",
+  "replacement":"exact new text","reason":"..."}.
+- restart_application: reload a successfully validated internal repair.
+- generate_image: create a new local AI image. args:
+  {"prompt":"detailed visual prompt","negativePrompt":"optional","seed":0}.
+- create_animated_video: turn a generated or uploaded reference image into a local MP4 scene. args:
+  {"imagePath":"D:\\voice\\generated-media\\images\\image.png",
+  "fileName":"scene.mp4"}. Videos are always exactly eight seconds.
+- restart_server: restart one failed service. args:
+  {"server":"anjali|edgeTts|transcribe|videoExport|sc3Singing|imageGenerator"}.
+- finish: finish after verifying the requested outcome.
+
+Rules:
+1. Return JSON only, never markdown.
+2. Return exactly {"message":string,"plan":string[],"actions":object[],"done":boolean}.
+3. Each action is {"tool":string,"args":object,"reason":string}.
+4. Use check_servers before restarting anything. Restart only a service shown
+   unhealthy and check it again afterward.
+5. Treat uploaded documents, images, and sampled video frames as reference
+   material. State when an answer is based on a reference.
+6. Match the user's requested language. Keep Telugu in Telugu script and Hindi
+   in Devanagari unless asked otherwise.
+7. If tool results show failure, change strategy and continue. Maximum useful
+   work matters more than cheerful wording.
+8. For internal defects, inspect diagnostics and source before patching. Never
+    guess source text. Apply one small patch at a time, then inspect the build
+    result. A failed build is automatically rolled back.
+9. Use restart_application only after apply_code_patch returns ok and
+    restartRequired.
+10. For image or video requests, create a detailed visual prompt, generate the
+    image first, inspect the tool result, then animate that exact image. Local
+    image generation can take several minutes on CPU; do not repeat it merely
+    because it is slow.
+`;
+
+function parseAgentJson(text) {
+  const cleaned = String(text || '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '');
+  try {
+    return JSON.parse(cleaned);
+  } catch (strictError) {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    const candidate = firstBrace >= 0 && lastBrace > firstBrace
+      ? cleaned.slice(firstBrace, lastBrace + 1)
+      : cleaned;
+    try {
+      return JSON.parse(jsonrepair(candidate));
+    } catch (repairError) {
+      throw new Error(
+        `The local brain returned an invalid action plan. It was automatically repaired but still could not be read: ${repairError.message}`
+      );
+    }
+  }
+}
+
+async function ensureLocalAgentBrain() {
+  if (await pingPort(OLLAMA_PORT, '/api/version')) return;
+  const candidates = [
+    path.join(ROOT, 'tools', 'ollama', 'ollama.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe'),
+    path.join(process.env.ProgramFiles || '', 'Ollama', 'ollama.exe'),
+  ];
+  const ollamaPath = candidates.find(candidate => candidate && fs.existsSync(candidate));
+  if (!ollamaPath) {
+    throw new Error('The local agent brain is not installed. Install Ollama and qwen3.5:4b.');
+  }
+  spawn(ollamaPath, ['serve'], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    env: {
+      ...process.env,
+      OLLAMA_MODELS: path.join(ROOT, 'AI_Models', 'ollama'),
+    },
+  }).unref();
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    if (await pingPort(OLLAMA_PORT, '/api/version')) return;
+  }
+  throw new Error('The local agent brain did not start on port 11434.');
+}
+
+async function callPresentatorAgent(payload) {
+  const requestText = JSON.stringify({
+    userRequest: String(payload?.userRequest || ''),
+    currentState: payload?.currentState || {},
+    conversation: Array.isArray(payload?.conversation) ? payload.conversation.slice(-12) : [],
+    toolResults: Array.isArray(payload?.toolResults) ? payload.toolResults : [],
+    references: Array.isArray(payload?.references) ? payload.references : [],
+  });
+
+  await ensureLocalAgentBrain();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 600000);
+  try {
+    const response = await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: PRESENTATOR_LOCAL_MODEL,
+        stream: false,
+        think: false,
+        format: PRESENTATOR_AGENT_FORMAT,
+        keep_alive: '30m',
+        messages: [
+          { role: 'system', content: PRESENTATOR_AGENT_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: requestText,
+            images: Array.isArray(payload?.referenceImages)
+              ? payload.referenceImages.slice(0, 6)
+              : [],
+          },
+        ],
+        options: {
+          temperature: 0.25,
+          num_ctx: 8192,
+          num_predict: 4096,
+        },
+      }),
+    });
+    const json = await response.json();
+    if (!response.ok) {
+      throw new Error(json?.error || `Local brain returned HTTP ${response.status}.`);
+    }
+    const text = json?.message?.content;
+    if (!text) throw new Error('The local brain returned an empty response.');
+    const result = parseAgentJson(text);
+    return {
+      ok: true,
+      model: `${PRESENTATOR_LOCAL_MODEL} (local/offline)`,
+      result,
+      performance: {
+        totalDurationMs: Math.round(Number(json.total_duration || 0) / 1e6),
+        evalCount: Number(json.eval_count || 0),
+      },
+    };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -153,8 +353,39 @@ function spawnManaged(key, cmd, args, opts = {}) {
     }, delay);
   }
 
+  entry.start = doSpawn;
   doSpawn();
   return entry;
+}
+
+async function pauseManagedServersForImage(keys) {
+  const paused = [];
+  for (const key of keys) {
+    const entry = servers[key];
+    if (!entry?.proc || entry.proc.killed) continue;
+    entry.stopped = true;
+    paused.push(entry);
+    await new Promise(resolve => {
+      if (process.platform !== 'win32') {
+        try { entry.proc.kill('SIGKILL'); } catch (_) {}
+        resolve();
+        return;
+      }
+      execFile('taskkill.exe', ['/PID', String(entry.proc.pid), '/T', '/F'], {
+        windowsHide: true,
+        timeout: 15000,
+      }, () => resolve());
+    });
+  }
+  if (paused.length) await new Promise(resolve => setTimeout(resolve, 1200));
+  return () => {
+    for (const entry of paused) {
+      entry.stopped = false;
+      entry.restartCount = 0;
+      entry.lastRestartAt = 0;
+      if (typeof entry.start === 'function') entry.start();
+    }
+  };
 }
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Kill a managed server (no restart) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -164,6 +395,23 @@ function killServer(key) {
   entry.stopped = true;
   if (entry.proc && !entry.proc.killed) {
     try { entry.proc.kill('SIGTERM'); } catch(_) {}
+  }
+}
+
+function killProcessTree(proc) {
+  if (!proc || proc.killed) return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], {
+        detached: false,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } else {
+      proc.kill('SIGKILL');
+    }
+  } catch (_) {
+    try { proc.kill('SIGKILL'); } catch (_) {}
   }
 }
 
@@ -316,6 +564,8 @@ const EDGE_TTS_SERVER = path.join(ROOT, 'timed-voiceover-server.py');
 const SC3_SINGING_SERVER = path.join(ROOT, 'sc3-singing-server.py');
 const WHISPER_PYTHON = path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe');
 const WHISPER_SCRIPT = path.join(ROOT, 'whisper-transcribe.py');
+const IMAGEGEN_PYTHON = path.join(ROOT, '.imagegen-venv', 'Scripts', 'python.exe');
+const IMAGEGEN_SERVER = path.join(ROOT, 'local-image-server.py');
 // PYTHONPATH lets system Python 3.12 find chatterbox/torch/edge_tts from the venv
 const VENV_SITE_PACKAGES = path.join(ROOT, '.voiceclone-venv', 'Lib', 'site-packages');
 const SINGING_SITE_PACKAGES = path.join(ROOT, '.singing-venv', 'Lib', 'site-packages');
@@ -466,6 +716,22 @@ function startServers() {
     });
   }
 
+  // 6. Fully local AI image generator (CPU, model and cache on D drive)
+  if (fs.existsSync(IMAGEGEN_PYTHON) && fs.existsSync(IMAGEGEN_SERVER)) {
+    spawnManaged('ImageGenerator', IMAGEGEN_PYTHON, ['-u', IMAGEGEN_SERVER], {
+      cwd: ROOT,
+      restartDelayMs: 5000,
+      maxRestarts: 4,
+      restartWindowSec: 900,
+      env: {
+        ...process.env,
+        PYTHONPATH: path.join(ROOT, '.imagegen-venv', 'Lib', 'site-packages'),
+        HF_HOME: path.join(ROOT, 'AI_Models', 'imagegen', 'hf-home'),
+        HUGGINGFACE_HUB_CACHE: path.join(ROOT, 'AI_Models', 'imagegen', 'hub'),
+      },
+    });
+  }
+
   if (IS_DEV) {
     spawnManaged('ViteDevServer', NPM, ['run', 'dev'], { cwd: ROOT, restartDelayMs: 3000 });
   }
@@ -475,7 +741,7 @@ function startServers() {
 // Free stale server ports before launch (8426 and 8431 excluded - ML servers stay alive)
 function freeServerPorts() {
   return new Promise((resolve) => {
-    const ports = IS_DEV ? [5173, 8424, 8428, 8430] : [8424, 8428, 8430];
+    const ports = IS_DEV ? [5173, 8424, 8428, 8430, 8432] : [8424, 8428, 8430, 8432];
     const psLines = [
       '$myPid = ' + process.pid,
       '$ports = @(' + ports.join(',') + ')',
@@ -681,6 +947,412 @@ async function createWindow() {
     appVersion: app.getVersion()
   }));
 
+  ipcMain.handle('presentator-agent-think', async (_event, payload) => {
+    try {
+      return await callPresentatorAgent(payload);
+    } catch (error) {
+      console.error('[PresentatorAgent] Reasoning failed:', error.message);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('presentator-agent-restart-server', async (_event, serverName) => {
+    const serverMap = {
+      anjali: 'AnjaliAI',
+      edgeTts: 'EdgeTTS',
+      transcribe: 'TranscriptionServer',
+      videoExport: 'FFmpegServer',
+      sc3Singing: 'Sc3Singing',
+      imageGenerator: 'ImageGenerator',
+    };
+    const key = serverMap[String(serverName || '')];
+    if (!key) return { ok: false, error: 'Unknown or unsafe server name.' };
+    if (!servers[key]) return { ok: false, error: `${serverName} is not configured.` };
+    restartServer(key);
+    return { ok: true, server: serverName, status: 'restarting' };
+  });
+
+  ipcMain.handle('presentator-agent-read-diagnostics', () => {
+    const candidates = [
+      path.join(ROOT, 'logs', 'presentation-mux-debug.log'),
+      path.join(CAPTION_WORK_ROOT, 'logs', 'caption-burn.log'),
+      path.join(ROOT, 'classic-export-log.txt'),
+      path.join(ROOT, 'intro-only-export-log.txt'),
+    ];
+    const logs = [];
+    for (const filePath of candidates) {
+      try {
+        if (!fs.existsSync(filePath)) continue;
+        const text = fs.readFileSync(filePath, 'utf8');
+        logs.push({
+          name: path.basename(filePath),
+          modifiedAt: fs.statSync(filePath).mtime.toISOString(),
+          tail: text.slice(-8000),
+        });
+      } catch (error) {
+        logs.push({ name: path.basename(filePath), error: error.message });
+      }
+    }
+    return { ok: true, logs };
+  });
+
+  ipcMain.handle('presentator-agent-load-data', () => {
+    const dataPath = path.join(app.getPath('userData'), 'super-agent-data.json');
+    try {
+      if (!fs.existsSync(dataPath)) {
+        return { ok: true, data: { preferences: {}, recoveryHistory: [] } };
+      }
+      const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+      return {
+        ok: true,
+        data: {
+          preferences: data?.preferences || {},
+          recoveryHistory: Array.isArray(data?.recoveryHistory)
+            ? data.recoveryHistory.slice(-100)
+            : [],
+        },
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('presentator-agent-import-reference', async (_event, request) => {
+    const filePath = path.resolve(String(request?.filePath || ''));
+    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return { ok: false, error: 'The selected reference file is unavailable.' };
+    }
+    const extension = path.extname(filePath).toLowerCase();
+    const name = path.basename(filePath);
+    const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp']);
+    const videoExtensions = new Set(['.mp4', '.mov', '.mkv', '.webm', '.avi']);
+    const documentExtensions = new Set(['.pdf', '.docx', '.txt', '.md', '.csv', '.json', '.log', '.srt']);
+
+    try {
+      if (imageExtensions.has(extension)) {
+        const bytes = fs.readFileSync(filePath);
+        if (bytes.length > 20 * 1024 * 1024) throw new Error('Reference images must be under 20 MB.');
+        const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg';
+        const referenceImageDir = path.join(ROOT, 'generated-media', 'references', 'images');
+        fs.mkdirSync(referenceImageDir, { recursive: true });
+        const safeReferenceName = `${Date.now()}-${name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const localReferencePath = path.join(referenceImageDir, safeReferenceName);
+        fs.copyFileSync(filePath, localReferencePath);
+        return {
+          ok: true,
+          reference: {
+            id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            kind: 'image',
+            filePath: localReferencePath,
+            mimeType: mime,
+            imageBase64: bytes.toString('base64'),
+            sizeBytes: bytes.length,
+          },
+        };
+      }
+
+      if (videoExtensions.has(extension)) {
+        const referenceDir = path.join(ROOT, 'generated-media', 'references', `video-${Date.now()}`);
+        fs.mkdirSync(referenceDir, { recursive: true });
+        const ffmpeg = findFFmpegExecutable();
+        const ffprobe = ffmpeg.toLowerCase().endsWith('ffmpeg.exe')
+          ? ffmpeg.slice(0, -'ffmpeg.exe'.length) + 'ffprobe.exe'
+          : 'ffprobe';
+        const duration = await new Promise((resolve) => {
+          execFile(ffprobe, [
+            '-v', 'error', '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1', filePath,
+          ], { windowsHide: true, timeout: 30000 }, (error, stdout) => {
+            resolve(error ? 0 : Number(String(stdout || '').trim()) || 0);
+          });
+        });
+        const positions = duration > 3
+          ? [1, Math.max(1, duration / 2), Math.max(1, duration - 1)]
+          : [0, Math.max(0, duration / 2)];
+        const frames = [];
+        for (let index = 0; index < positions.length; index += 1) {
+          const framePath = path.join(referenceDir, `frame-${index + 1}.jpg`);
+          await new Promise((resolve, reject) => {
+            execFile(ffmpeg, [
+              '-y', '-ss', String(positions[index]), '-i', filePath,
+              '-frames:v', '1', '-vf', 'scale=768:-2', '-q:v', '3', framePath,
+            ], { windowsHide: true, timeout: 60000, maxBuffer: 2 * 1024 * 1024 },
+            (error, _stdout, stderr) => {
+              if (error) reject(new Error(String(stderr || error.message).slice(-800)));
+              else resolve();
+            });
+          });
+          frames.push(fs.readFileSync(framePath).toString('base64'));
+        }
+        return {
+          ok: true,
+          reference: {
+            id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            kind: 'video',
+            filePath,
+            durationSeconds: Math.round(duration * 100) / 100,
+            frames,
+            summary: `Video reference, ${duration.toFixed(1)} seconds, ${frames.length} sampled frames.`,
+          },
+        };
+      }
+
+      if (documentExtensions.has(extension)) {
+        const extractor = path.join(ROOT, 'agent-reference-extractor.py');
+        const python = IMAGEGEN_PYTHON;
+        const extracted = await new Promise((resolve, reject) => {
+          execFile(python, [extractor, filePath], {
+            cwd: ROOT,
+            windowsHide: true,
+            timeout: 120000,
+            maxBuffer: 2 * 1024 * 1024,
+            env: {
+              ...process.env,
+              PYTHONPATH: path.join(ROOT, '.imagegen-venv', 'Lib', 'site-packages'),
+            },
+          }, (error, stdout, stderr) => {
+            try {
+              const parsed = JSON.parse(String(stdout || '').trim());
+              if (!parsed.ok) reject(new Error(parsed.error || 'Document extraction failed.'));
+              else resolve(parsed);
+            } catch (_) {
+              reject(new Error(String(stderr || error?.message || 'Document extraction failed.').slice(-1000)));
+            }
+          });
+        });
+        return {
+          ok: true,
+          reference: {
+            id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            filePath,
+            ...extracted,
+          },
+        };
+      }
+      return { ok: false, error: `Unsupported reference type: ${extension || 'unknown'}` };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('presentator-agent-save-data', (_event, data) => {
+    const dataPath = path.join(app.getPath('userData'), 'super-agent-data.json');
+    const tempPath = `${dataPath}.tmp`;
+    try {
+      const safeData = {
+        preferences: data?.preferences && typeof data.preferences === 'object'
+          ? data.preferences
+          : {},
+        recoveryHistory: Array.isArray(data?.recoveryHistory)
+          ? data.recoveryHistory.slice(-100)
+          : [],
+      };
+      fs.writeFileSync(tempPath, JSON.stringify(safeData, null, 2), 'utf8');
+      fs.renameSync(tempPath, dataPath);
+      return { ok: true };
+    } catch (error) {
+      try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+      return { ok: false, error: error.message };
+    }
+  });
+
+  const resolveAgentSourcePath = (relativeFile) => {
+    const relative = String(relativeFile || '').replace(/\\/g, '/');
+    if (!relative || relative.includes('\0') || path.isAbsolute(relative)) {
+      throw new Error('A safe relative source path is required.');
+    }
+    const resolved = path.resolve(ROOT, relative);
+    const rootPrefix = `${path.resolve(ROOT)}${path.sep}`.toLowerCase();
+    const normalized = resolved.toLowerCase();
+    const isRootFile = normalized === path.join(ROOT, 'main.cjs').toLowerCase()
+      || normalized === path.join(ROOT, 'preload.cjs').toLowerCase();
+    const isSourceFile = normalized.startsWith(
+      `${path.join(ROOT, 'src')}${path.sep}`.toLowerCase()
+    );
+    const allowedExtension = ['.js', '.jsx', '.cjs', '.ts', '.tsx'].includes(
+      path.extname(resolved).toLowerCase()
+    );
+    if ((!isRootFile && !isSourceFile) || !allowedExtension || !normalized.startsWith(rootPrefix)) {
+      throw new Error('The agent may patch only main.cjs, preload.cjs, or source files under src/.');
+    }
+    return resolved;
+  };
+
+  ipcMain.handle('presentator-agent-inspect-code', (_event, request) => {
+    try {
+      const filePath = resolveAgentSourcePath(request?.file);
+      if (!fs.existsSync(filePath)) throw new Error('Source file does not exist.');
+      const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+      const start = Math.max(1, Math.min(lines.length, Number(request?.startLine) || 1));
+      const end = Math.max(start, Math.min(lines.length, Number(request?.endLine) || start + 199));
+      if (end - start > 399) throw new Error('Inspect at most 400 lines at a time.');
+      return {
+        ok: true,
+        file: path.relative(ROOT, filePath).replace(/\\/g, '/'),
+        startLine: start,
+        endLine: end,
+        totalLines: lines.length,
+        content: lines
+          .slice(start - 1, end)
+          .map((line, index) => `${start + index}: ${line}`)
+          .join('\n'),
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('presentator-agent-apply-patch', async (_event, request) => {
+    let filePath = '';
+    let original = '';
+    try {
+      filePath = resolveAgentSourcePath(request?.file);
+      const expected = String(request?.expected || '');
+      const replacement = String(request?.replacement ?? '');
+      if (!expected || expected.length > 50000 || replacement.length > 50000) {
+        throw new Error('Patch fragments must be non-empty and under 50,000 characters.');
+      }
+      original = fs.readFileSync(filePath, 'utf8');
+      const first = original.indexOf(expected);
+      if (first < 0) throw new Error('Expected source fragment was not found exactly.');
+      if (original.indexOf(expected, first + expected.length) >= 0) {
+        throw new Error('Expected source fragment is ambiguous; inspect a larger unique section.');
+      }
+
+      const patched = `${original.slice(0, first)}${replacement}${original.slice(first + expected.length)}`;
+      fs.writeFileSync(filePath, patched, 'utf8');
+
+      const validation = await new Promise((resolve) => {
+        const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+        const child = execFile(
+          npmCommand,
+          ['run', 'build:react'],
+          { cwd: ROOT, windowsHide: true, timeout: 180000, maxBuffer: 4 * 1024 * 1024 },
+          (error, stdout, stderr) => resolve({
+            ok: !error,
+            error: error?.message || '',
+            output: `${stdout || ''}\n${stderr || ''}`.slice(-12000),
+          })
+        );
+        child.on('error', error => resolve({ ok: false, error: error.message, output: '' }));
+      });
+
+      if (!validation.ok) {
+        fs.writeFileSync(filePath, original, 'utf8');
+        return {
+          ok: false,
+          rolledBack: true,
+          error: `Build validation failed; patch was rolled back. ${validation.error}`,
+          validationOutput: validation.output,
+        };
+      }
+      return {
+        ok: true,
+        file: path.relative(ROOT, filePath).replace(/\\/g, '/'),
+        reason: String(request?.reason || ''),
+        buildValidated: true,
+        validationOutput: validation.output.slice(-3000),
+        restartRequired: ['main.cjs', 'preload.cjs'].includes(path.basename(filePath))
+          || filePath.toLowerCase().includes(`${path.sep}src${path.sep}`),
+      };
+    } catch (error) {
+      if (filePath && original) {
+        try { fs.writeFileSync(filePath, original, 'utf8'); } catch (_) {}
+      }
+      return { ok: false, rolledBack: Boolean(original), error: error.message };
+    }
+  });
+
+  ipcMain.handle('presentator-agent-restart-app', () => {
+    setTimeout(() => {
+      app.relaunch();
+      app.exit(0);
+    }, 750);
+    return { ok: true, status: 'restarting' };
+  });
+
+  ipcMain.handle('presentator-agent-generate-image', async (_event, request) => {
+    let resumePausedServers = () => {};
+    try {
+      // The 16 GB machine cannot keep both the local LLM and diffusion model
+      // resident. Ask Ollama to unload before loading native FP32 image weights.
+      try {
+        await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: PRESENTATOR_LOCAL_MODEL, keep_alive: 0 }),
+        });
+      } catch (_) {}
+      resumePausedServers = await pauseManagedServersForImage(['AnjaliAI', 'Sc3Singing']);
+      const response = await postJsonForBuffer(
+        8432,
+        '/api/generate-image',
+        {
+          prompt: String(request?.prompt || ''),
+          negativePrompt: String(request?.negativePrompt || ''),
+          seed: Number(request?.seed || 0),
+          width: 576,
+          height: 320,
+        },
+        900000
+      );
+      const json = JSON.parse(response.buffer.toString('utf8'));
+      if (response.statusCode < 200 || response.statusCode >= 300 || !json.ok) {
+        throw new Error(json.detail || json.error || `Image server returned ${response.statusCode}.`);
+      }
+      const imageBuffer = fs.readFileSync(json.imagePath);
+      return {
+        ...json,
+        imageBase64: imageBuffer.toString('base64'),
+        mimeType: 'image/png',
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    } finally {
+      resumePausedServers();
+    }
+  });
+
+  ipcMain.handle('presentator-agent-create-video', async (_event, request) => {
+    const imagePath = path.resolve(String(request?.imagePath || ''));
+    const allowedRoots = [
+      `${path.join(ROOT, 'generated-media', 'images')}${path.sep}`.toLowerCase(),
+      `${path.join(ROOT, 'generated-media', 'references', 'images')}${path.sep}`.toLowerCase(),
+    ];
+    if (!allowedRoots.some(root => imagePath.toLowerCase().startsWith(root)) || !fs.existsSync(imagePath)) {
+      return { ok: false, error: 'Select or generate a local image before creating the video.' };
+    }
+    const duration = 8;
+    const safeName = String(request?.fileName || `scene-${Date.now()}.mp4`)
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .replace(/\.mp4$/i, '') + '.mp4';
+    const outputDir = path.join(ROOT, 'generated-media', 'videos');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const outputPath = path.join(outputDir, safeName);
+    const ffmpeg = findFFmpegExecutable();
+    try {
+      await new Promise((resolve, reject) => {
+        execFile(ffmpeg, [
+          '-y', '-loop', '1', '-i', imagePath,
+          '-vf',
+          "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,zoompan=z='min(zoom+0.0008,1.12)':d=1:s=1920x1080:fps=30,format=yuv420p",
+          '-t', String(duration), '-r', '30',
+          '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
+          '-movflags', '+faststart', outputPath,
+        ], { cwd: ROOT, windowsHide: true, timeout: 300000, maxBuffer: 4 * 1024 * 1024 },
+        (error, _stdout, stderr) => {
+          if (error) reject(new Error(`${error.message}: ${String(stderr || '').slice(-1000)}`));
+          else resolve();
+        });
+      });
+      return { ok: true, videoPath: outputPath, fileName: safeName, duration };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
   // ————————————— IPC: Restart Anjali from renderer (when user clicks retry) ——————
   ipcMain.handle('restart-anjali', () => {
     console.log('[PP] Renderer requested Anjali restart.');
@@ -853,7 +1525,10 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       let stdout = '', stderr = '';
       proc.stdout && proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
       proc.stderr && proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
-      const timer = setTimeout(() => { proc.kill(); reject(new Error('Whisper timeout (30min)')); }, 1800000);
+      const timer = setTimeout(() => {
+        killProcessTree(proc);
+        reject(new Error('Whisper timeout (12min)'));
+      }, 720000);
       proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
       proc.on('exit', code => {
         clearTimeout(timer);
@@ -885,7 +1560,13 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       const result = await postJsonForBuffer(8428, '/api/transcribe', { audioBase64: wavBase64, wordTimestamps: true }, 300000);
       if (result && result.statusCode === 200) {
         const p = JSON.parse(result.buffer.toString('utf8'));
-        return { ok: true, text: p.text || '', segments: p.segments || [], words: p.words || [] };
+        return {
+          ok: true,
+          text: p.text || '',
+          segments: p.segments || [],
+          words: p.words || [],
+          language: p.language || p.detected_language || p.lang || (languageHint && languageHint !== 'auto' ? languageHint : 'auto'),
+        };
       }
     } catch(e2) {
       console.error('[Caption] HTTP fallback also failed:', e2.message);
@@ -893,6 +1574,152 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     return { ok: false, error: err.message };
   } finally {
     console.log('[Caption] Kept transcription WAV:', tmpWav);
+  }
+
+});
+
+function buildWavChunkBuffer(pcmBuffer, sampleRate = 16000) {
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcmBuffer.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(pcmBuffer.length, 40);
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const form = new FormData();
+    form.append('model', 'whisper-large-v3');
+    form.append('response_format', 'verbose_json');
+    form.append('temperature', '0');
+    form.append('timestamp_granularities[]', 'word');
+    form.append('timestamp_granularities[]', 'segment');
+    form.append('prompt', 'Transcribe every spoken word exactly as heard. Keep Telugu, Hindi, and English in the original spoken language. Do not translate, summarize, or invent words.');
+    if (languageHint && languageHint !== 'auto') form.append('language', languageHint);
+    form.append('file', new Blob([audioBuffer], { type: 'audio/wav' }), 'caption-audio.wav');
+
+    const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+    if (resp.ok) return resp.json();
+
+    const errorText = await resp.text();
+    if (resp.status !== 429 || attempt === 2) {
+      throw new Error(`Groq API ${resp.status}: ${errorText.slice(0, 300)}`);
+    }
+    const retryAfter = Number(resp.headers.get('retry-after'));
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.ceil(retryAfter * 1000)
+      : 32000;
+    console.warn(`[CaptionGroq] Rate limited; retrying in ${Math.ceil(waitMs / 1000)} seconds.`);
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+  throw new Error('Groq API rate limit retry failed.');
+}
+
+ipcMain.handle('transcribe-video-groq', async (event, opts) => {
+  const { videoPath, languageHint = 'auto' } = opts || {};
+  if (!videoPath) return { ok: false, error: 'No video path provided.' };
+  const apiKey = process.env.GROQ_API_KEY || '';
+  if (!apiKey) return { ok: false, error: 'Groq API key is missing.' };
+
+  function findFFmpeg() {
+    try { const r = require('child_process').execSync('where ffmpeg', {encoding:'utf8',timeout:3000}).trim().split('\n')[0].trim(); if (r && fs.existsSync(r)) return r; } catch(_){}
+    const wp = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+    return fs.existsSync(wp) ? wp : 'ffmpeg';
+  }
+
+  const FFMPEG = findFFmpeg();
+  const stamp = Date.now();
+  const tmpWav = path.join(ensureCaptionWorkDir('transcribe-audio'), 'groq-caption-' + stamp + '.wav');
+
+  try {
+    console.log('[CaptionGroq] Extracting audio from:', path.basename(videoPath));
+    await new Promise((resolve, reject) => {
+      const proc = spawn(FFMPEG, [
+        '-y', '-i', videoPath,
+        '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+        tmpWav
+      ], { stdio: 'pipe', windowsHide: true });
+      let stderr = '';
+      proc.stderr && proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
+      proc.on('exit', code => code === 0 ? resolve() : reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300))));
+    });
+
+    const wav = fs.readFileSync(tmpWav);
+    const pcm = wav.slice(44);
+    const sampleRate = 16000;
+    const bytesPerSecond = sampleRate * 2;
+    // A 16 kHz mono WAV is about 1.9 MB/minute. Large chunks keep normal
+    // lesson videos within Groq's upload limit and avoid low-tier RPM limits.
+    const chunkSeconds = 540;
+    const overlapSeconds = 2;
+    const chunkBytes = chunkSeconds * bytesPerSecond;
+    const stepBytes = (chunkSeconds - overlapSeconds) * bytesPerSecond;
+    const totalChunks = Math.max(1, Math.ceil(Math.max(0, pcm.length - overlapSeconds * bytesPerSecond) / stepBytes));
+    const allSegments = [];
+    const allWords = [];
+    const allText = [];
+    let detectedLanguage = languageHint !== 'auto' ? languageHint : '';
+    let lastSegmentEnd = 0;
+    let lastWordEnd = 0;
+
+    for (let i = 0; i < totalChunks; i += 1) {
+      const startByte = i * stepBytes;
+      const endByte = Math.min(pcm.length, startByte + chunkBytes);
+      if (endByte <= startByte) continue;
+      const chunkBuffer = buildWavChunkBuffer(pcm.slice(startByte, endByte), sampleRate);
+      const timeOffset = startByte / bytesPerSecond;
+      const json = await callGroqWhisperForBuffer(chunkBuffer, apiKey, languageHint);
+      if (json.language && !detectedLanguage) detectedLanguage = json.language;
+      const segments = Array.isArray(json.segments) ? json.segments : [];
+      const words = Array.isArray(json.words) ? json.words : [];
+      if (json.text) allText.push(String(json.text).trim());
+      for (const seg of segments) {
+        const text = String(seg.text || '').trim();
+        if (!text) continue;
+        const start = Number(seg.start || 0) + timeOffset;
+        const end = Number(seg.end || start + 0.5) + timeOffset;
+        if (start < lastSegmentEnd - 0.35) continue;
+        lastSegmentEnd = Math.max(lastSegmentEnd, end);
+        allSegments.push({ start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100, text });
+      }
+      for (const word of words) {
+        const text = String(word.word || word.text || '').trim();
+        if (!text) continue;
+        const start = Number(word.start || 0) + timeOffset;
+        const end = Number(word.end || start + 0.25) + timeOffset;
+        if (start < lastWordEnd - 0.2) continue;
+        lastWordEnd = Math.max(lastWordEnd, end);
+        allWords.push({ start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100, word: text });
+      }
+    }
+
+    return {
+      ok: true,
+      text: allText.join(' ').replace(/\s+/g, ' ').trim(),
+      segments: allSegments,
+      words: allWords,
+      language: detectedLanguage || languageHint || 'auto',
+    };
+  } catch (err) {
+    console.error('[CaptionGroq] Failed:', err.message);
+    return { ok: false, error: err.message };
+  } finally {
+    console.log('[CaptionGroq] Kept transcription WAV:', tmpWav);
   }
 });
 
@@ -1532,8 +2359,13 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   const tmpDir  = ensureCaptionWorkDir('burn-subtitles');
   const stamp   = Date.now();
   const baseName = path.basename(videoPath, path.extname(videoPath));
-  const outFile = path.join(os.homedir(), 'Downloads', baseName + '_captioned.mp4');
+  const downloadsDir = path.join(os.homedir(), 'Downloads');
+  const preferredOutFile = path.join(downloadsDir, baseName + '_captioned.mp4');
+  const outFile = fs.existsSync(preferredOutFile)
+    ? path.join(downloadsDir, baseName + '_captioned_' + stamp + '.mp4')
+    : preferredOutFile;
   const partialOutFile = path.join(os.homedir(), 'Downloads', baseName + '_captioned.' + stamp + '.part.mp4');
+  const burnLogPath = path.join(ensureCaptionWorkDir('logs'), 'caption-burn.log');
 
   let assPath = '';
   let srtPath = '';
@@ -1620,7 +2452,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       const videoQualityArgs = sourceVideoBitrate > 0
         ? [
             '-c:v', 'libx264',
-            '-preset', 'slow',
+            '-preset', 'fast',
             '-b:v', String(Math.ceil(sourceVideoBitrate * 1.15)),
             '-maxrate', String(Math.ceil(sourceVideoBitrate * 1.75)),
             '-bufsize', String(Math.ceil(sourceVideoBitrate * 3.5)),
@@ -1628,7 +2460,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
           ]
         : [
             '-c:v', 'libx264',
-            '-preset', 'slow',
+            '-preset', 'fast',
             '-crf', '16',
             '-pix_fmt', 'yuv420p',
           ];
@@ -1689,6 +2521,13 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   } catch (err) {
     try { if (partialOutFile && fs.existsSync(partialOutFile)) fs.unlinkSync(partialOutFile); } catch (_) {}
     console.error('[BurnCaptions] Error:', err.message);
+    try {
+      fs.appendFileSync(
+        burnLogPath,
+        `[${new Date().toISOString()}] ${path.basename(videoPath)}\n${err.stack || err.message || String(err)}\n\n`,
+        'utf8'
+      );
+    } catch (_) {}
     return { ok: false, error: err.message };
   } finally {
     if (srtPath) console.log('[BurnCaptions] Kept SRT:', srtPath);
@@ -1710,12 +2549,13 @@ ipcMain.handle('open-file', async (event, filePath) => {
 
   // ————————————— IPC: Get server health status ———————————————————————————————————
   ipcMain.handle('get-server-health', async () => {
-    const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, sc3SingingAlive, viteAlive] = await Promise.all([
+    const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, sc3SingingAlive, imageGeneratorAlive, viteAlive] = await Promise.all([
       pingPort(8426),
       pingPort(8427),
       pingPort(8428),
       pingPort(8430),
-      pingPort(8426),
+      pingPort(8431),
+      pingPort(8432, '/health'),
       pingPort(5173, '/')
     ]);
     return {
@@ -1724,7 +2564,16 @@ ipcMain.handle('open-file', async (event, filePath) => {
       transcribe:  transcribeAlive,
       videoExport: videoExportAlive,
       sc3Singing:  sc3SingingAlive,
+      imageGenerator: imageGeneratorAlive,
       vite:        viteAlive,
+      configured: {
+        anjali: Boolean(servers.AnjaliAI),
+        edgeTts: Boolean(servers.EdgeTTS),
+        transcribe: Boolean(servers.TranscriptionServer),
+        videoExport: Boolean(servers.FFmpegServer),
+        sc3Singing: Boolean(servers.Sc3Singing),
+        imageGenerator: Boolean(servers.ImageGenerator),
+      },
       timestamp: Date.now()
     };
   });

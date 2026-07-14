@@ -12,7 +12,7 @@ interface BurnVideoMeta {
 
 const SPEECH_GAP_SECONDS = 0.75;
 const CAPTION_WORD_LIMIT = 8;
-const CAPTION_BOTTOM_OFFSET_PX = 20;
+const CAPTION_BOTTOM_OFFSET_PX = 25;
 
 async function getFFmpeg(): Promise<FFmpeg> {
   if (ff?.loaded) return ff;
@@ -257,12 +257,34 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
 
   const x = Math.round(playResX * Math.max(0, Math.min(100, s.xPos)) / 100);
   const anchor = s.position === 'top' ? 8 : 2;
+  const wrapWordsForAss = (words: WordItem[]) => {
+    if (!words.length) return [] as WordItem[][];
+    const availableWidth = Math.max(80, playResX * 0.85);
+    let measure: CanvasRenderingContext2D | null = null;
+    if (typeof document !== 'undefined') {
+      const canvas = document.createElement('canvas');
+      measure = canvas.getContext('2d');
+      if (measure) measure.font = `900 ${fs}px ${fontName}`;
+    }
+
+    const lines: WordItem[][] = [];
+    let line: WordItem[] = [];
+    for (const word of words) {
+      const testText = [...line, word].map(w => w.text).join(' ');
+      const width = measure ? measure.measureText(testText).width : testText.length * fs * 0.56;
+      if (line.length && width > availableWidth) {
+        lines.push(line);
+        line = [word];
+      } else {
+        line.push(word);
+      }
+    }
+    if (line.length) lines.push(line);
+    return lines;
+  };
   const estimateLineCount = (words: WordItem[]) => {
     if (s.position === 'top') return 1;
-    const text = words.map(w => w.text).join(' ');
-    const availableWidth = Math.max(80, playResX * 0.85);
-    const approxCharsPerLine = Math.max(8, Math.floor(availableWidth / Math.max(8, fs * 0.56)));
-    return Math.max(1, Math.ceil(text.length / approxCharsPerLine));
+    return Math.max(1, wrapWordsForAss(words).length);
   };
   const posPrefixFor = (words: WordItem[]) => {
     const y = s.position === 'top'
@@ -284,10 +306,14 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
             ? nextWord.start
             : word.end;
           const lineEnd = Math.max(word.start + 0.05, Math.min(shortGapEnd, c.end));
-          const styledText = words.map((token, tokenIndex) => {
-            const color = tokenIndex === activeIndex ? pri : sec;
-            return `{\\alpha&H00&\\1c${color}}${escapeAssText(token.text)}`;
-          }).join(' ');
+          let tokenCursor = 0;
+          const styledText = wrapWordsForAss(words).map(line => (
+            line.map((token) => {
+              const color = tokenCursor === activeIndex ? pri : sec;
+              tokenCursor += 1;
+              return `{\\alpha&H00&\\1c${color}}${escapeAssText(token.text)}`;
+            }).join(' ')
+          )).join('\\N');
           const text = isRtlLanguage(s.language) || hasArabic
             ? `\u202B${styledText}\u202C`
             : styledText;
@@ -297,9 +323,15 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
     }
     let kar = '';
     const posPrefix = posPrefixFor(words);
+    const wrappedLines = wrapWordsForAss(words);
+    const wrappedLineStarts = new Set<WordItem>();
+    wrappedLines.forEach(line => {
+      if (line[0]) wrappedLineStarts.add(line[0]);
+    });
     let currentTime = c.start;
     for (let i = 0; i < words.length; i++) {
       const w = words[i];
+      if (i > 0 && wrappedLineStarts.has(w)) kar += '\\N';
       const gap = w.start - currentTime;
       if (gap > 0.01) {
         kar += `{\\k${Math.round(gap * 100)}}`;

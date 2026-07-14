@@ -10,6 +10,7 @@ interface HFResponse {
 }
 
 const CAPTION_SILENCE_GAP_SECONDS = 0.75;
+const INDIC_CAPTION_CODES = new Set(['te', 'hi', 'ta', 'ur', 'ar']);
 
 function getLanguageCode(language: Language): string | undefined {
   if (language === 'Auto-Detect') return undefined;
@@ -92,9 +93,14 @@ async function transcribeWithLocalWhisper(
     String(result.text || ''),
     ...(Array.isArray(result.segments) ? result.segments.map((s: any) => String(s?.text || '')) : []),
   ].join(' ');
+  if (isCaptionRepetitionLoop(resultText)) {
+    throw new Error('Local Whisper produced a repeated caption loop. Retrying with fallback transcription.');
+  }
   // Script detection is more reliable than stale/incorrect engine metadata for
   // the scripts supported by Caption Burner.
-  const detectedCode = inferLangFromScript(resultText) || String(result.language || '').trim() || undefined;
+  const detectedCode = inferLangFromScript(resultText)
+    || normalizeLangCode(result.language)
+    || (language !== 'Auto-Detect' ? targetCode : undefined);
   const detectedLang = getLanguageName(detectedCode, language === 'Auto-Detect' ? 'Auto-Detect' : language);
 
   let captions: CaptionItem[] = [];
@@ -116,6 +122,10 @@ async function transcribeWithLocalWhisper(
 
   if (!captions.length) {
     throw new Error('Local Whisper returned no speech');
+  }
+
+  if (isCaptionRepetitionLoop(captions.map(c => c.text).join(' '))) {
+    throw new Error('Local Whisper produced repeated captions. Retrying with fallback transcription.');
   }
 
   return { captions, detectedLang, detectedCode };
@@ -513,6 +523,30 @@ function inferLangFromScript(text: string): string | null {
   return best[1] > 3 ? best[0] : null;
 }
 
+function isCaptionRepetitionLoop(text: string): boolean {
+  const compact = text.replace(/[\s\p{P}\p{S}_]+/gu, '');
+  if (compact.length >= 30) {
+    const counts = new Map<string, number>();
+    for (const ch of Array.from(compact)) counts.set(ch, (counts.get(ch) || 0) + 1);
+    const topCount = Math.max(...counts.values());
+    if (topCount / compact.length > 0.45) return true;
+    if (counts.size <= 4) return true;
+    for (let size = 1; size <= 6; size += 1) {
+      const pattern = compact.slice(0, size);
+      const repeated = pattern.repeat(Math.floor(compact.length / size));
+      if (repeated.length >= 24 && compact.startsWith(repeated) && repeated.length / compact.length > 0.70) {
+        return true;
+      }
+    }
+  }
+
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 6) return false;
+  const counts = new Map<string, number>();
+  for (const word of words) counts.set(word, (counts.get(word) || 0) + 1);
+  return Math.max(...counts.values()) / words.length > 0.6;
+}
+
 function assertCaptionLanguage(captions: CaptionItem[], targetCode: string, language: Language) {
   const text = captions.map(c => c.text).join(' ');
   const letters = Array.from(text).filter(ch => /\p{L}/u.test(ch));
@@ -649,7 +683,7 @@ async function buildWavChunkFromPcm(audio: WavHandle, pcmStart: number, pcmBytes
 }
 
 // ── Transcription checkpoint (resume on re-upload) ────────────────────────
-const CHECKPOINT_PREFIX = 'cb_checkpoint_';
+const CHECKPOINT_PREFIX = 'cb_checkpoint_v2_';
 
 interface Checkpoint {
   numChunks:     number;
@@ -836,15 +870,19 @@ export async function transcribeWithHuggingFace(
   hfToken:            string,
   maxWordsPerCaption: number,
   onProgress:         (msg: string, pct: number) => void,
-  engine:             'auto' | 'local' | 'groq' = 'auto',
+  engine:             'auto' | 'local' | 'groq' = 'groq',
   signal?:            AbortSignal,
 ): Promise<{ captions: CaptionItem[]; detectedLang: string }> {
 
   throwIfAborted(signal);
   const targetCode = getLanguageCode(language);
+  const preferCloudWhisper =
+    engine === 'auto' &&
+    (language === 'Auto-Detect' || (targetCode ? INDIC_CAPTION_CODES.has(targetCode) : false));
 
-  // Try local Whisper if engine is 'auto' or 'local'
-  if (engine === 'auto' || engine === 'local') {
+  // Local tiny/small Whisper is fast for English, but it can hallucinate Indic
+  // narration. Use Groq large-v3 first for Auto-Detect and Indic languages.
+  if (engine === 'local' || (engine === 'auto' && !preferCloudWhisper)) {
     try {
       const local = await transcribeWithLocalWhisper(file, language, maxWordsPerCaption, onProgress, signal);
       if (local?.captions?.length) {
@@ -866,6 +904,8 @@ export async function transcribeWithHuggingFace(
       console.warn('[CB] Local Whisper failed, falling back to Groq:', err);
       onProgress('Local Whisper failed, trying Groq...', 10);
     }
+  } else if (preferCloudWhisper) {
+    onProgress('Using high-accuracy Whisper for Telugu/Hindi auto-detect...', 6);
   }
 
   if (engine === 'local') {
@@ -992,6 +1032,11 @@ export async function transcribeWithHuggingFace(
   const finalCaptions = needsTranslation
     ? await translateCaptionsToLanguage(all, language, onProgress, maxWordsPerCaption, signal)
     : all;
+
+  if (isCaptionRepetitionLoop(finalCaptions.map(c => c.text).join(' '))) {
+    clearCheckpoint(file);
+    throw new Error('Transcription produced repeated Telugu/Hindi caption loops. Please retry with clearer audio or Groq selected.');
+  }
 
   // ✅ Transcription complete — clear checkpoint so it doesn't resume next time
   clearCheckpoint(file);

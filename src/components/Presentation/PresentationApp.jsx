@@ -1601,6 +1601,8 @@ export default function PresentationApp() {
           setPosterFileName={setPosterFileName}
           posterDuration={posterDuration}
           setPosterDuration={setPosterDuration}
+          setPosterImage={setPosterImage}
+          setPosterFileName={setPosterFileName}
         />
       </div>
 

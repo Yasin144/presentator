@@ -3,6 +3,7 @@ import InputPanel from './components/InputPanel';
 import StagePanel from './components/StagePanel';
 import ErrorCheckerApp from './components/ErrorChecker/ErrorCheckerApp';
 import PresentationApp from './components/Presentation/PresentationApp';
+import AgentStudio from './components/AgentStudio/AgentStudio';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
@@ -67,7 +68,7 @@ function App() {
   const [captionOpen, setCaptionOpen]   = useState(false);
   const [captionResetKey, setCaptionResetKey] = useState(0);
   const [style, setStyle]               = useState(loadStyle);
-  const [currentModule, setCurrentModule] = useState('presentator'); // 'presentator' | 'errorChecker' | 'presentation'
+  const [currentModule, setCurrentModule] = useState('presentator'); // presentator | errorChecker | presentation | agent
   const [hideHeader, setHideHeader]     = useState(false);
 
   useEffect(() => {
@@ -95,7 +96,7 @@ function App() {
 
   useEffect(() => {
     // Cache-buster: change this version string any time a legacy JS file changes
-    const _CB = '?v=20260708-caption-alert-preview-match-progress';
+    const _CB = '?v=20260714-local-caption-opening-fix';
     const scriptSources = [
       "../logo-data.js" + _CB,
       "../script.js" + _CB,
@@ -159,7 +160,7 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '0 24px',
+          padding: '0 12px',
           background: '#090d16',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           height: '50px',
@@ -171,9 +172,9 @@ function App() {
           zIndex: 9999
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '15px', fontWeight: 800, color: '#f97316', letterSpacing: '0.5px', fontFamily: "system-ui" }}>🎤 PATTAN PRESENTATOR</span>
+            <span style={{ fontSize: '13px', fontWeight: 800, color: '#f97316', letterSpacing: '0.3px', fontFamily: "system-ui" }}>🎤 PATTAN</span>
           </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '2px' }}>
             <button
               onClick={() => setCurrentModule('presentator')}
               style={{
@@ -189,7 +190,7 @@ function App() {
                 boxShadow: currentModule === 'presentator' ? '0 4px 12px rgba(99,102,241,0.25)' : 'none',
                 fontFamily: "system-ui"
               }}
-            >Voice Presentator</button>
+            >Presentator</button>
             <button
               onClick={() => setCurrentModule('errorChecker')}
               style={{
@@ -205,7 +206,7 @@ function App() {
                 boxShadow: currentModule === 'errorChecker' ? '0 4px 12px rgba(99,102,241,0.25)' : 'none',
                 fontFamily: "system-ui"
               }}
-            >Error Checker</button>
+            >Checker</button>
             <button
               onClick={() => setCurrentModule('presentation')}
               style={{
@@ -222,8 +223,24 @@ function App() {
                 fontFamily: "system-ui"
               }}
             >Presentation</button>
+            <button
+              onClick={() => { setCaptionOpen(false); setCurrentModule('agent'); }}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '20px',
+                border: 'none',
+                background: currentModule === 'agent' ? 'linear-gradient(135deg,#10b981,#06b6d4)' : 'transparent',
+                color: currentModule === 'agent' ? '#fff' : 'rgba(255,255,255,0.5)',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: currentModule === 'agent' ? '0 4px 12px rgba(16,185,129,0.25)' : 'none',
+                fontFamily: "system-ui"
+              }}
+            >Super Agent</button>
           </div>
-          <div style={{ width: '130px' }}></div> {/* Spacer to keep tabs centered */}
+          <div style={{ width: '12px' }}></div>
         </header>
       )}
 
@@ -387,6 +404,11 @@ function App() {
         {/* ── Presentation UI ── */}
         <div style={{ display: (!captionOpen && currentModule === 'presentation') ? 'block' : 'none', height: '100%', paddingTop: (!captionOpen && !hideHeader) ? '50px' : 0, boxSizing: 'border-box' }}>
           <PresentationApp />
+        </div>
+
+        {/* ── Standalone Super Agent Studio ── */}
+        <div style={{ display: (!captionOpen && currentModule === 'agent') ? 'block' : 'none', height: '100%', paddingTop: '50px', boxSizing: 'border-box' }}>
+          <AgentStudio />
         </div>
       </div>
     </>
