@@ -164,8 +164,10 @@ def _unique_download_path(file_name):
 def _ensure_converter(device="cpu", voice="sc3"):
     global _CONVERTER, _TARGET_SE_MAP, _CONVERTER_ERROR
     voice = str(voice or "sc3").strip().lower()
-    voice_key = "sc3" if voice in ("sc3", "anjali") else "pattan"
-    voice_file = "voice-reference-sc3.wav" if voice_key == "sc3" else "voice-reference-pattan.wav"
+    voice_key = "sc3" if voice in ("sc3", "anjali") else voice
+    if voice_key not in ("sc3", "pattan", "uploaded"):
+        voice_key = "pattan"
+    voice_file = f"voice-reference-{voice_key}.wav"
     ref_voice_path = ROOT / voice_file
 
     if not ref_voice_path.exists():

@@ -221,6 +221,7 @@ def generate_timed(
     voice: str   = VOICE_NAME,
     pitch: str   = "+0Hz",
     volume: str  = "+0%",
+    max_rate_pct: float = RATE_MAX,
 ) -> dict:
     """
     Generate a WAV that fits within `target_s` seconds.
@@ -269,8 +270,9 @@ def generate_timed(
     # Approximate: rate_pct ≈ (base_dur / target_s − 1) * 100
     # Use this as a starting midpoint to converge faster.
     estimated_pct = (base_dur / target_s - 1.0) * 100.0
-    lo = max(0.0, estimated_pct - 20)
-    hi = min(float(RATE_MAX), estimated_pct + 40)
+    safe_rate_max = max(0.0, min(float(RATE_MAX), float(max_rate_pct)))
+    lo = max(0.0, min(safe_rate_max, estimated_pct - 20))
+    hi = min(safe_rate_max, estimated_pct + 40)
 
     best_wav  = base_wav
     best_rate = "+0%"
@@ -394,6 +396,7 @@ class Handler(BaseHTTPRequestHandler):
             voice        = str(payload.get("voice",  VOICE_NAME))
             pitch        = str(payload.get("pitch",  "+0Hz"))
             volume       = str(payload.get("volume", "+0%"))
+            max_rate_pct = float(payload.get("maxRatePercent", RATE_MAX))
 
             if not text:
                 self._json({"error": "text is required."}, 400)
@@ -407,7 +410,7 @@ class Handler(BaseHTTPRequestHandler):
                 voice = VOICE_NAME
 
             try:
-                result = generate_timed(text, target_s, voice=voice, pitch=pitch, volume=volume)
+                result = generate_timed(text, target_s, voice=voice, pitch=pitch, volume=volume, max_rate_pct=max_rate_pct)
             except Exception as exc:
                 self._json({"error": str(exc), "traceback": traceback.format_exc(3)}, 500)
                 return

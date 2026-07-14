@@ -338,7 +338,9 @@ _CONVERTER_LOCK = threading.Lock()
 def _ensure_converter(device="cpu", voice="sc3"):
     global _CONVERTER, _TARGET_SE_MAP
     voice = str(voice or "sc3").strip().lower()
-    voice_key = "sc3" if voice in ("sc3", "anjali") else "pattan"
+    voice_key = "sc3" if voice in ("sc3", "anjali") else voice
+    if voice_key not in ("sc3", "pattan", "uploaded"):
+        voice_key = "pattan"
     ref_voice_path = PROJECT_ROOT / f"voice-reference-{voice_key}.wav"
 
     if not ref_voice_path.exists():
@@ -371,7 +373,10 @@ def _ensure_converter(device="cpu", voice="sc3"):
 def _convert_voice_color(wav_bytes: bytes, voice: str) -> bytes:
     import tempfile
     import subprocess
-    voice_key = "sc3" if voice in ("sc3", "anjali") else "pattan"
+    voice = str(voice or "sc3").strip().lower()
+    voice_key = "sc3" if voice in ("sc3", "anjali") else voice
+    if voice_key not in ("sc3", "pattan", "uploaded"):
+        voice_key = "pattan"
     
     # Run tone color conversion in a thread-safe way
     with _CONVERTER_LOCK:
@@ -554,8 +559,8 @@ os.environ["HUGGINGFACE_HUB_CACHE"] = _HF_CACHE + r"\hub"
 os.environ["HF_HUB_CACHE"]          = _HF_CACHE + r"\hub"
 os.environ["TRANSFORMERS_CACHE"]    = _HF_CACHE + r"\hub"
 # Prevent any network call — use local files only
-os.environ["HF_HUB_OFFLINE"]        = "1"
-os.environ["TRANSFORMERS_OFFLINE"]  = "1"
+os.environ["HF_HUB_OFFLINE"]        = os.environ.get("HF_HUB_OFFLINE", "0")
+os.environ["TRANSFORMERS_OFFLINE"]  = os.environ.get("TRANSFORMERS_OFFLINE", "0")
 print(f"[Voice] HF cache → {_HF_CACHE}", flush=True)
 
 
@@ -568,6 +573,7 @@ VOICE_MAP = {
     "sc3":    str(PROJECT_ROOT / "voice-reference-sc3.wav"),
     "anjali": str(PROJECT_ROOT / "voice-reference-sc3.wav"),
     "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav"),
+    "uploaded": str(PROJECT_ROOT / "voice-reference-uploaded.wav"),
 }
 CURRENT_VOICE = "sc3"
 

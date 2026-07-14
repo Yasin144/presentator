@@ -187,11 +187,12 @@ function Invoke-WhisperTranscription {
   )
 
   # Find Python in .singing-venv or system
-  $root = Split-Path $PSScriptRoot -Parent
+  $root = $PSScriptRoot
   if (-not $root) { $root = "D:\voice" }
-  $venvPy  = Join-Path $root ".singing-venv\Scripts\python.exe"
+  $singingPy = Join-Path $root ".singing-venv\Scripts\python.exe"
+  $voicePy = Join-Path $root ".voiceclone-venv\Scripts\python.exe"
   $script  = Join-Path $root "whisper-transcribe-caption.py"
-  $py      = if (Test-Path $venvPy) { $venvPy } else { "python" }
+  $py      = if (Test-Path $singingPy) { $singingPy } elseif (Test-Path $voicePy) { $voicePy } else { "python" }
 
   # Use caption-specific script (VAD ON, stricter anti-hallucination)
   if (-not (Test-Path $script)) { $script = Join-Path $root "whisper-transcribe.py" }

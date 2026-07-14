@@ -87,7 +87,14 @@ def translate_text(text, target, source="auto"):
             result = engine(text, target, source) or text
             _cache[cache_key] = result
             if target == "te":
-                print(f"[Translate] Telugu via {engine.__name__}: {text[:40]} -> {result[:40]}", flush=True)
+                src_preview = text if len(text) <= 80 else text[:80] + "..."
+                result_preview = result if len(result) <= 120 else result[:120] + "..."
+                print(
+                    f"[Translate] Telugu via {engine.__name__}: "
+                    f"src_len={len(text)} out_len={len(result)} | "
+                    f"{src_preview!r} -> {result_preview!r}",
+                    flush=True
+                )
             return result
         except Exception as e:
             last_error = e

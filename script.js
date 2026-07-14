@@ -12181,8 +12181,11 @@ async function getIntroExportBlob() {
       fallbackType: "audio/wav",
       fileName: "default-intro.wav"
     });
-    if (directAudioBlob?.size) {
+    if (directAudioBlob?.size && await isAudioBlobAudible(directAudioBlob)) {
       return directAudioBlob;
+    }
+    if (directAudioBlob?.size) {
+      throw new Error("The bundled default intro audio is silent.");
     }
   } catch (error) {
     console.error(error);
@@ -12212,10 +12215,13 @@ async function getIntroExportBlob() {
           { type: blob.type || "video/mp4" }
         );
         const decodedBlob = await decodeAudioFileToWav(introFile);
-        if (decodedBlob?.size) {
+        if (decodedBlob?.size && await isAudioBlobAudible(decodedBlob)) {
           state.introPlayback.url = candidate.fileName;
           state.introPlayback.fileName = candidate.fileName;
           return decodedBlob;
+        }
+        if (decodedBlob?.size) {
+          decodeErrors.push(`${candidate.fileName} decoded to silent audio.`);
         }
       } catch (error) {
         decodeErrors.push(error?.message || `${candidate.fileName} has no decodable audio.`);
@@ -23231,39 +23237,8 @@ async function exportVideo(options = {}) {
           : "The intro clip and its audio will be included before the Anjali lesson narration.");
       } catch (error) {
         console.error(error);
-        const silentPosterGapBlob = shouldUsePosterPreroll
-          ? createSilentWavBlob(getIntroPosterDurationMs())
-          : null;
-        audioBlob = allowIntroOnlyExport
-          ? (silentPosterGapBlob
-            ? await combineNarrationBlobs(
-              [createSilentWavBlob(state.introPlayback.durationMs || 1000), silentPosterGapBlob],
-              [
-                { text: "silent-default-intro", gapAfterMs: 0 },
-                { text: "poster-gap", gapAfterMs: 0 }
-              ]
-            )
-            : createSilentWavBlob(state.introPlayback.durationMs || 1000))
-          : await combineNarrationBlobs(
-            [
-              createSilentWavBlob(state.introPlayback.durationMs || 1000),
-              ...(silentPosterGapBlob ? [silentPosterGapBlob] : []),
-              titleAndLessonAudioBlob
-            ],
-            silentPosterGapBlob
-              ? [
-                { text: "silent-default-intro", gapAfterMs: 0 },
-                { text: "poster-gap", gapAfterMs: 0 },
-                { text: "title-and-lesson-narration", gapAfterMs: 0 }
-              ]
-              : [
-                { text: "silent-default-intro", gapAfterMs: 0 },
-                { text: "title-and-lesson-narration", gapAfterMs: 0 }
-              ]
-          );
-        setIntroClipStatus(allowIntroOnlyExport
-          ? "The intro video exported, but its audio could not be merged cleanly, so the export used silent intro audio."
-          : "The intro video exported silently, but the title announcement and lesson narration were preserved.");
+        setIntroClipStatus("Export stopped because the intro audio could not be included. The app will not create a silent intro.");
+        throw new Error(`The intro audio could not be included: ${error?.message || "audio merge failed"}`);
       }
       audioFileName = allowIntroOnlyExport ? "intro-audio.wav" : "intro-and-lesson-audio.wav";
     }

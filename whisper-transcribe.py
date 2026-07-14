@@ -14,6 +14,8 @@ if len(sys.argv) < 2:
 
 audio_path = sys.argv[1]
 lang_hint  = sys.argv[2] if len(sys.argv) > 2 else "en"   # default English
+if lang_hint == "auto":
+    lang_hint = None
 
 if not os.path.exists(audio_path):
     print(json.dumps({"error": f"File not found: {audio_path}"}))

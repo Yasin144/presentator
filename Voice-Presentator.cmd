@@ -22,19 +22,29 @@ if not exist "%ELECTRON%" (
   if errorlevel 1 ( echo Failed to install. & pause & exit /b 1 )
 )
 
-REM ---- Start heavy Python servers (only if not already running) ----
-powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
-if errorlevel 1 (
-  if exist "%PYTHON_VENV%" (
-    start "SC3 Chatterbox Python" "%PYTHON_VENV%" -u "%APP_DIR%\anjali-chatterbox-server.py"
+REM ---- Install Whisper transcription dependency if missing ----
+if exist "%PYTHON_VENV%" (
+  "%PYTHON_VENV%" -c "import faster_whisper" >nul 2>&1
+  if errorlevel 1 (
+    echo Installing Whisper transcription dependency...
+    "%PYTHON_VENV%" -m pip install faster-whisper
+    if errorlevel 1 ( echo Failed to install faster-whisper. & pause & exit /b 1 )
   )
+)
+
+REM ---- Start SC3 Chatterbox in a visible terminal window ----
+REM Restart it from this launcher so the user can see the live Chatterbox log.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 8426 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -like 'python*' -or $_.Name -like 'cmd*') -and $_.CommandLine -like '*anjali-chatterbox-server.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+if exist "%PYTHON_VENV%" (
+  start "SC3 Chatterbox Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\anjali-chatterbox-server.py""
 )
 
 REM ---- Edge TTS server (port 8427) ----
 powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8427/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
 if errorlevel 1 (
   if exist "%PYTHON_VENV%" (
-    start "EdgeTTS" /min "%PYTHON_VENV%" -u "%APP_DIR%\timed-voiceover-server.py"
+    start "EdgeTTS Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\timed-voiceover-server.py""
   )
 )
 
@@ -42,9 +52,9 @@ REM ---- Start SC3 Singing Server (port 8431) for Hindi/Telugu voice conversion 
 powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8431/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
 if errorlevel 1 (
   if exist "%SINGING_PYTHON%" (
-    start "SC3 Singing" /min "%SINGING_PYTHON%" -u "%APP_DIR%\sc3-singing-server.py"
+    start "SC3 Singing Python" cmd /k ""%SINGING_PYTHON%" -u "%APP_DIR%\sc3-singing-server.py""
   ) else if exist "%PYTHON_VENV%" (
-    start "SC3 Singing" /min "%PYTHON_VENV%" -u "%APP_DIR%\sc3-singing-server.py"
+    start "SC3 Singing Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\sc3-singing-server.py""
   )
 )
 
@@ -54,7 +64,7 @@ REM language is translated instead of silently retaining the source captions.
 powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8434/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
 if errorlevel 1 (
   if exist "%PYTHON_VENV%" (
-    start "Caption Translation" /min "%PYTHON_VENV%" -u "%APP_DIR%\translate-server.py"
+    start "Caption Translation Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\translate-server.py""
   )
 )
 
