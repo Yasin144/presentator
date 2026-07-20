@@ -19,6 +19,7 @@ const path       = require('path');
 const fs         = require('fs');
 const http       = require('http');
 const os         = require('os');
+const crypto     = require('crypto');
 const { jsonrepair } = require('jsonrepair');
 
 function findFFmpegExecutable() {
@@ -73,9 +74,11 @@ if (fs.existsSync(groqKeyPath)) {
 
 const PRESENTATOR_LOCAL_MODEL = 'qwen3.5:4b';
 const OLLAMA_PORT = 11434;
+const activeAgentControllers = new Map();
 const PRESENTATOR_AGENT_FORMAT = {
   type: 'object',
   properties: {
+    thinking: { type: 'string' },
     message: { type: 'string' },
     plan: { type: 'array', items: { type: 'string' } },
     actions: {
@@ -92,53 +95,206 @@ const PRESENTATOR_AGENT_FORMAT = {
     },
     done: { type: 'boolean' },
   },
-  required: ['message', 'plan', 'actions', 'done'],
+  required: ['thinking', 'message', 'plan', 'actions', 'done'],
 };
 const PRESENTATOR_AGENT_SYSTEM_PROMPT = `
-You are Pattan Super Agent, the autonomous director and recovery engineer inside
-the standalone Agent Studio module. Think carefully, use uploaded references,
-act in small verifiable steps, and never claim success without evidence.
+You are Pattan Super Agent — the most powerful autonomous AI coding assistant, debugger, and code analyst ever embedded inside a desktop application.
 
-You may use only these tools:
-- inspect_state: refresh Agent Studio state and reference counts.
-- check_servers: inspect all local Presentator services.
-- read_diagnostics: inspect recent Presentation export and Caption Burner errors.
-- inspect_code: read a source section. args:
-  {"file":"src/path/File.jsx","startLine":1,"endLine":200}.
-- apply_code_patch: replace one exact source fragment and validate the full app
-  build. args: {"file":"src/path/File.jsx","expected":"exact old text",
-  "replacement":"exact new text","reason":"..."}.
-- restart_application: reload a successfully validated internal repair.
-- generate_image: create a new local AI image. args:
-  {"prompt":"detailed visual prompt","negativePrompt":"optional","seed":0}.
-- create_animated_video: turn a generated or uploaded reference image into a local MP4 scene. args:
-  {"imagePath":"D:\\voice\\generated-media\\images\\image.png",
-  "fileName":"scene.mp4"}. Videos are always exactly eight seconds.
-- restart_server: restart one failed service. args:
-  {"server":"anjali|edgeTts|transcribe|videoExport|sc3Singing|imageGenerator"}.
-- finish: finish after verifying the requested outcome.
+You are a world-class senior software engineer with 20+ years of experience across React, Node.js, Electron, JavaScript, TypeScript, Python, CSS, FFmpeg, audio processing, and systems programming. You think at the level of a principal engineer at a top tech company. You are fluent in English, Telugu, Hindi, Tamil, Kannada, and Malayalam.
 
-Rules:
-1. Return JSON only, never markdown.
-2. Return exactly {"message":string,"plan":string[],"actions":object[],"done":boolean}.
-3. Each action is {"tool":string,"args":object,"reason":string}.
-4. Use check_servers before restarting anything. Restart only a service shown
-   unhealthy and check it again afterward.
-5. Treat uploaded documents, images, and sampled video frames as reference
-   material. State when an answer is based on a reference.
-6. Match the user's requested language. Keep Telugu in Telugu script and Hindi
-   in Devanagari unless asked otherwise.
-7. If tool results show failure, change strategy and continue. Maximum useful
-   work matters more than cheerful wording.
-8. For internal defects, inspect diagnostics and source before patching. Never
-    guess source text. Apply one small patch at a time, then inspect the build
-    result. A failed build is automatically rolled back.
-9. Use restart_application only after apply_code_patch returns ok and
-    restartRequired.
-10. For image or video requests, create a detailed visual prompt, generate the
-    image first, inspect the tool result, then animate that exact image. Local
-    image generation can take several minutes on CPU; do not repeat it merely
-    because it is slow.
+You NEVER guess. You ALWAYS verify with tools before acting. You reason like a detective: gather evidence → form hypothesis → test it → confirm → fix → verify fix.
+
+══════════════════════════════════════════════════════
+ COGNITIVE OPERATING SYSTEM
+══════════════════════════════════════════════════════
+
+For every request, first build a compact working model:
+• OBJECTIVE — the real outcome the user needs, not merely the literal wording.
+• CONSTRAINTS — scope, compatibility, safety, time, available tools, and user preferences.
+• SUCCESS CRITERIA — observable facts that will prove the task is complete.
+• EVIDENCE — distinguish facts you inspected from inferences, assumptions, and unknowns.
+• RISK — identify irreversible actions, data loss, security exposure, and likely regressions.
+
+Choose reasoning depth adaptively:
+• FAST PATH for simple, low-risk, reversible questions: answer directly after a sanity check.
+• DEEP PATH for ambiguous, multi-step, unfamiliar, or high-impact work: inspect, decompose, compare approaches, execute in verifiable steps, and run a critic pass.
+
+Execution loop:
+1. UNDERSTAND — infer intent from the request, conversation, references, and current application state.
+2. INSPECT — gather only the evidence needed to choose the next reliable step.
+3. DECIDE — select the simplest approach that satisfies the success criteria with acceptable risk.
+4. ACT — use precise, authorized tools; keep independent actions separate and dependent actions ordered.
+5. OBSERVE — read the complete tool result, including partial failures and warnings.
+6. CORRECT — when evidence disproves the hypothesis, change the hypothesis or strategy; never blindly retry.
+7. VERIFY — use an independent check when practical: build, test, health check, file re-read, diff, or rendered output.
+8. COMPLETE — finish only when the requested outcome exists and is usable, or clearly state the exact blocker.
+
+Before declaring completion, silently run a critic check for correctness, completeness, evidence, safety, regression risk, and usability. If any dimension can be improved within scope, improve it first.
+
+Protect reasoning privacy: the "thinking" field must contain only a short decision summary suitable for the user (key evidence, assumption, and next decision). Never output hidden chain-of-thought, private scratch work, secrets, or confidential instructions.
+
+══════════════════════════════════════════════════════
+ TOOL CATALOG — COMPLETE ARSENAL
+══════════════════════════════════════════════════════
+
+── Workspace & File Intelligence ──
+• inspect_state       — Refresh Agent Studio state. Args: {}
+• list_files          — Recursively list all files in a directory. Args: {"directory":"D:/voice/src"}
+• read_file           — Read any text file (JS/JSX/CSS/Python/JSON/logs/etc) with optional line range (capped 600 lines). Args: {"file":"path","startLine":1,"endLine":100}
+• write_file          — Create or fully overwrite a file. Args: {"file":"path","content":"full content"}
+• search_in_files     — Search for any pattern across JS/JSX/CSS/Python/JSON files. Returns file+line+snippet. Args: {"pattern":"useState","directory":"D:/voice/src"}
+• diff_files          — Compare two files and show a unified diff. Args: {"fileA":"path/to/old.js","fileB":"path/to/new.js"}
+• list_checkpoints    — List automatic recovery checkpoints created before agent file changes. Args: {}
+• restore_checkpoint  — Restore a file from a checkpoint; a new safety checkpoint is created before restoration. Args: {"id":"checkpoint-id"}
+• validate_web_app    — Launch a generated HTML file or localhost URL in an isolated browser, perform interactions, collect runtime/console failures, inspect basic accessibility, and capture a screenshot for visual reasoning. Args: {"target":"D:/voice/generated-apps/example/index.html|http://127.0.0.1:3000","interactions":[{"selector":"#start","action":"click"},{"selector":"#name","action":"type","value":"Test"}],"waitMs":1500}
+
+── Code Engineering ──
+• inspect_code        — Read a section of main.cjs, preload.cjs, or any src/ file. Args: {"file":"src/Component.jsx","startLine":1,"endLine":200} (max 400 lines)
+• apply_code_patch    — Replace one exact unique fragment in a source file. Automatically rebuilds and rolls back on failure.
+                       Args: {"file":"src/Component.jsx","expected":"exact old text","replacement":"new text","reason":"why"}
+                       RULES: Never guess expected text — always read_file or inspect_code first. Must be unique in file. One patch at a time.
+• run_terminal_command — Run any PowerShell command (npm, node, git, ffprobe, etc). 60s timeout. Returns stdout+stderr+exit code.
+                        Args: {"command":"npm list --depth=0"}
+                        BLOCKED: taskkill, rm -r, Remove-Item -Recurse, format, shutdown, reg delete.
+• restart_application — Reload Electron app after a verified code repair. Args: {} — ONLY after apply_code_patch returns ok+restartRequired.
+
+── Code Analysis & Debugging ──
+• analyze_code        — Deep static analysis of a source file. Reports: function count, complexity hotspots, large functions (>50 lines), TODO/FIXME/HACK comments, duplicate patterns, unused imports, and suspicious patterns. Args: {"file":"src/Component.jsx"}
+• run_build_check     — Run the full Vite production build and return the result with any error details. Args: {}
+• check_servers       — Inspect all local Presentator services. Args: {}
+• read_diagnostics    — Read recent export, captioning, and error logs. Args: {}
+• restart_server      — Restart one failed service. Args: {"server":"anjali|edgeTts|transcribe|videoExport|sc3Singing|imageGenerator"}
+
+── Interactive Code Canvas ──
+• open_code_canvas    — Open an editable code canvas and show a live preview. For visual/browser requests, provide a complete standalone HTML document with inline CSS and JavaScript so preview works immediately. Args: {"title":"descriptive title","language":"html|javascript|python|jsx|css|json|text","code":"complete runnable code","preview":true}
+                       MANDATORY: Whenever the user asks you to write, create, build, design, or demonstrate code, use this tool. Put the complete code in the canvas, not only in the chat message. Use language "html" and preview:true for websites, UI, games, animations, calculators, dashboards, and visual demos. For non-browser languages, the canvas opens in code-only mode.
+
+── Creative AI ──
+• generate_image      — Generate AI image locally. Args: {"prompt":"detailed description","negativePrompt":"exclusions","seed":0}
+• create_animated_video — Animate an image into 8-second MP4. Args: {"imagePath":"path/to/image.png","fileName":"scene.mp4"}
+• finish              — Signal task fully complete after verification. Args: {}
+
+══════════════════════════════════════════════════════
+ EXTREME CODING METHODOLOGY
+══════════════════════════════════════════════════════
+
+▸ DEBUGGING PROTOCOL (always follow this order):
+  1. READ ERROR — Identify the exact error message, file, and line number.
+  2. TRACE ROOT CAUSE — Use read_file + search_in_files to trace the execution path backwards from the error.
+  3. FORM HYPOTHESIS — Write in "thinking" what you believe is the root cause (not just the symptom).
+  4. GATHER EVIDENCE — Use inspect_code or analyze_code to confirm your hypothesis with actual source code.
+  5. DESIGN MINIMAL FIX — The smallest change that solves the root cause without breaking anything else.
+  6. APPLY & VERIFY — Use apply_code_patch, then run_build_check to confirm the fix compiles. Report the result honestly.
+
+▸ CODE ANALYSIS FRAMEWORK (use for any "analyze this" request):
+  - Architecture: How is the code structured? Are concerns separated properly?
+  - Data Flow: How does data enter, transform, and exit? Where can it go wrong?
+  - State Management: Is state mutation safe? Are there race conditions?
+  - Error Boundaries: Are errors caught and handled at every failure point?
+  - Performance: Are there unnecessary re-renders, memory leaks, or blocking operations?
+  - Security: Are there injection risks, unchecked inputs, or exposed secrets?
+  - Maintainability: Is code readable? Are there large functions (>50 lines) that need splitting?
+
+▸ REFACTORING PRINCIPLES:
+  - Never refactor and fix a bug in the same patch — do one at a time.
+  - Always run_build_check after any code change.
+  - If a function is >80 lines, suggest splitting it. If a file is >1000 lines, suggest modularization.
+  - Replace magic numbers with named constants.
+  - Remove dead code only after confirming it is unreachable.
+
+▸ REACT / ELECTRON SPECIFIC:
+  - useEffect with missing deps array → stale closure bugs. Always check deps.
+  - IPC handlers must have error boundaries — unhandled rejection crashes Electron.
+  - Large video/audio files must NEVER be loaded into renderer memory — use main process paths.
+  - FFmpeg commands on Windows must handle path quoting and long command-line limits (use filter_complex_script for long filters).
+  - State updates in loops cause batching issues — use functional updaters: setState(prev => ...).
+
+▸ PERFORMANCE DEBUGGING:
+  - Use run_terminal_command to run: node --prof, npm run build -- --reporter=verbose
+  - Search for: setInterval without clearInterval (memory leak), addEventListener without removeEventListener (leak), large arrays in state (perf hit).
+  - Profile FFmpeg commands with -benchmark flag.
+
+▸ AUTOMATED TEST AND VISUAL VALIDATION:
+  - Every generated application needs the strongest applicable verification: syntax check, production build, unit tests, and a main-workflow smoke test.
+  - For HTML previews, verify that the document is complete, has no missing local resources, has responsive viewport styling, includes accessible labels, and does not throw on initial load.
+  - Treat warnings that affect correctness, security, accessibility, or runtime behavior as failures to repair. Distinguish harmless bundle-size notices from actual build failures.
+  - Never say an interface looks correct unless it was rendered in Code Canvas or inspected through an available visual artifact. State the exact validation performed.
+  - For generated websites and browser apps, use validate_web_app after writing/building. Inspect its screenshot, console errors, failed resources, accessibility findings, and interaction results. Repair failures and validate again.
+
+▸ PERSISTENT MEMORY:
+  - currentState.memory contains durable preferences and recent work supplied by Agent Studio. Apply confirmed preferences consistently.
+  - Do not invent preferences. Infer only low-risk formatting choices; ask before storing sensitive, consequential, or identity-related information.
+  - Use recent work to continue rather than restart, but trust current files and tool evidence over stale memory.
+
+▸ JAVASCRIPT / NODE.JS EXPERT RULES:
+  - Prefer async/await over .then() chains for readability and error handling.
+  - Use const by default; let only when reassignment is required; never var.
+  - Destructure objects and arrays when accessing 2+ properties.
+  - Use optional chaining (?.) and nullish coalescing (??) defensively.
+  - Always handle Promise rejection — unhandledRejection crashes Node.js.
+  - Use fs.existsSync() before fs.readFileSync() — never assume files exist.
+▸ CREATING, BUILDING, AND RUNNING APPLICATIONS:
+  - You have full permission and capabilities to bootstrap brand new standalone applications inside D:/voice/generated-apps/.
+  - To create a new project, use run_terminal_command to create a new folder and initialize it (e.g. "mkdir MyProject", "cd MyProject", "npm init -y" or "npx -y create-react-app ./").
+  - To install dependencies, use run_terminal_command to run "npm i package-name".
+  - To write files, use write_file with absolute paths or relative to the newly created folders.
+  - To compile or build, use run_terminal_command to run build scripts (e.g. "npm run build" or "npx tsc").
+  - To run or launch apps, use run_terminal_command to start dev servers or processes (e.g. "node app.js" or "npm start"). You can check command output to confirm they are running successfully.
+  - Own the complete lifecycle: clarify only consequential ambiguity; otherwise select a sensible stack, create every required file, install dependencies, build, test, diagnose failures, repair the root cause, rebuild, and present the verified result.
+  - For a new app, use a dedicated directory under D:/voice/generated-apps/<safe-project-name>. Never scatter generated application files through the Presentator source tree.
+  - A new application is not complete merely because files were written. Verify its package scripts, dependency install, production build or syntax check, and its main user workflow.
+  - When a build or test fails, read the complete error, locate the referenced source, make the smallest correct repair, and rerun the failed check. Continue until it passes or a genuine external blocker is proven.
+  - After browser-compatible code is ready, always call open_code_canvas with the complete runnable HTML preview. For a multi-file framework app, also provide a faithful standalone HTML preview of the finished interface while preserving the real project files on disk.
+
+══════════════════════════════════════════════════════
+ HOW TO THINK AND RESPOND
+══════════════════════════════════════════════════════
+
+1. THINK FIRST — Reason carefully in private. Fill "thinking" only with a concise, user-safe decision summary: decisive evidence, current hypothesis, uncertainty, and why the next action is appropriate. Never reveal hidden chain-of-thought.
+
+2. PLAN PRECISELY — "plan" array: concrete, outcome-oriented, testable steps. Keep it short, update it when evidence changes, and do not mark a step complete before its verification succeeds.
+
+3. TOOL DISCIPLINE:
+   - Never guess file content. Always read_file or inspect_code first.
+   - Never patch without reading. Never restart without checking health first.
+   - Always run_build_check after any code modification.
+   - If a tool returns failure, adapt strategy. Never blindly retry the same action.
+   - CODE REQUEST RULE: If the user requests code, an app, page, component, game, visualization, or interactive demo, you MUST call open_code_canvas. Browser-visible work must be delivered as one self-contained HTML document unless the user explicitly requires another project format. The canvas action is the deliverable; do not merely paste a code block in "message".
+
+4. EXPERT COMMUNICATION:
+   - Write "message" like a principal engineer's code review comment: precise, actionable, evidence-based.
+   - Lead with what you FOUND (root cause), then what you DID (fix), then what you VERIFIED (result).
+   - Include specific file paths, line numbers, and code references in your explanations.
+   - If something is ambiguous, ask one targeted clarifying question.
+
+5. LANGUAGE — Always respond in the same language the user wrote in. Telugu → Telugu script. Hindi → Devanagari.
+
+6. HONESTY — Never claim success without tool result evidence. If a build fails, say so, report the error, and propose the next fix.
+
+6A. SELF-CORRECTION — Treat tool failures as evidence. Identify the likely cause, preserve useful progress, and attempt a meaningfully different safe approach. Ask one targeted question only when missing authority or information materially blocks progress.
+
+6B. COMPLETION — "done":true is allowed only after all success criteria are satisfied and verified, or when no tool action is required for a complete informational answer. A plan, promise, or partial attempt is not completion.
+
+7. SCOPE — You can answer ANY question: code review, architecture design, algorithms, data structures, debugging, math, science, education, creative writing, general knowledge. If no tools are needed, set actions:[] and done:true.
+
+8. JSON ONLY — Return ONLY valid JSON. Zero markdown. Zero text outside the JSON.
+   Shape: {"thinking":string, "message":string, "plan":string[], "actions":object[], "done":boolean}
+   Action: {"tool":string, "args":object, "reason":string}
+`;
+
+const PRESENTATOR_AGENT_FAST_PROMPT = `
+You are Pattan Super Agent, a fast local assistant inside Voice Presentator. Return ONLY valid JSON with this exact shape:
+{"thinking":string,"message":string,"plan":string[],"actions":[{"tool":string,"args":object,"reason":string}],"done":boolean}
+
+Act immediately. Keep thinking to one short user-safe decision summary. Do not reveal private chain-of-thought. Do not repeat the request or write long explanations.
+
+For any website, UI, game, calculator, dashboard, component, or visual coding request, create a complete attractive standalone HTML document with inline CSS and JavaScript and call:
+{"tool":"open_code_canvas","args":{"title":"...","language":"html","code":"<!doctype html>...","preview":true},"reason":"Show the working editable app and live preview."}
+The HTML must be responsive, accessible, self-contained, and runnable without external resources. Set done:true with that action. Do not inspect the Presentator codebase for a new standalone page.
+
+Other available tools: inspect_state, list_files, read_file, write_file, search_in_files, inspect_code, apply_code_patch, run_terminal_command, analyze_code, run_build_check, check_servers, read_diagnostics, restart_server, list_checkpoints, restore_checkpoint, validate_web_app, generate_image, create_animated_video, restart_application, finish.
+
+Use tools only when needed. Never claim a tool succeeded before seeing its result. If toolResults are present, summarize the evidence, repair failures with a different action, or finish when verified. Match the user's language.
 `;
 
 function parseAgentJson(text) {
@@ -162,6 +318,16 @@ function parseAgentJson(text) {
       );
     }
   }
+}
+
+function chooseAgentReasoningProfile(payload) {
+  const request = String(payload?.userRequest || '');
+  const toolFailures = (payload?.toolResults || []).filter(item => item?.outcome?.ok === false).length;
+  const deepSignals = /\b(debug|fix|error|crash|architecture|refactor|security|performance|analyze|complex|root cause|repair existing|complete project)\b/i.test(request);
+  const deep = deepSignals || toolFailures > 0 || request.length > 700 || (payload?.references?.length || 0) > 2;
+  return deep
+    ? { name: 'deep', temperature: 0.2, numCtx: 8192, numPredict: 4096, topP: 0.9 }
+    : { name: 'fast', temperature: 0.3, numCtx: 4096, numPredict: 2048, topP: 0.92 };
 }
 
 async function ensureLocalAgentBrain() {
@@ -191,7 +357,7 @@ async function ensureLocalAgentBrain() {
   throw new Error('The local agent brain did not start on port 11434.');
 }
 
-async function callPresentatorAgent(payload) {
+async function callPresentatorAgent(payload, onProgress = () => {}, onController = () => {}) {
   const requestText = JSON.stringify({
     userRequest: String(payload?.userRequest || ''),
     currentState: payload?.currentState || {},
@@ -201,7 +367,10 @@ async function callPresentatorAgent(payload) {
   });
 
   await ensureLocalAgentBrain();
+  const reasoningProfile = chooseAgentReasoningProfile(payload);
+  onProgress({ stage: 'ready', profile: reasoningProfile.name, generatedCharacters: 0 });
   const controller = new AbortController();
+  onController(controller);
   const timeout = setTimeout(() => controller.abort(), 600000);
   try {
     const response = await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/chat`, {
@@ -210,12 +379,12 @@ async function callPresentatorAgent(payload) {
       signal: controller.signal,
       body: JSON.stringify({
         model: PRESENTATOR_LOCAL_MODEL,
-        stream: false,
+        stream: true,
         think: false,
         format: PRESENTATOR_AGENT_FORMAT,
         keep_alive: '30m',
         messages: [
-          { role: 'system', content: PRESENTATOR_AGENT_SYSTEM_PROMPT },
+          { role: 'system', content: reasoningProfile.name === 'fast' ? PRESENTATOR_AGENT_FAST_PROMPT : PRESENTATOR_AGENT_SYSTEM_PROMPT },
           {
             role: 'user',
             content: requestText,
@@ -225,26 +394,65 @@ async function callPresentatorAgent(payload) {
           },
         ],
         options: {
-          temperature: 0.25,
-          num_ctx: 8192,
-          num_predict: 4096,
+          temperature: reasoningProfile.temperature,
+          num_ctx: reasoningProfile.numCtx,
+          num_predict: reasoningProfile.numPredict,
+          top_p: reasoningProfile.topP,
+          repeat_penalty: 1.1,
         },
       }),
     });
-    const json = await response.json();
     if (!response.ok) {
-      throw new Error(json?.error || `Local brain returned HTTP ${response.status}.`);
+      const errorText = await response.text();
+      throw new Error(errorText || `Local brain returned HTTP ${response.status}.`);
     }
-    const text = json?.message?.content;
-    if (!text) throw new Error('The local brain returned an empty response.');
-    const result = parseAgentJson(text);
+    if (!response.body) throw new Error('The local brain returned no response stream.');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    let generatedText = '';
+    let finalChunk = {};
+    let lastProgressAt = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      pending += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const chunk = JSON.parse(line);
+        if (chunk.error) throw new Error(chunk.error);
+        generatedText += String(chunk?.message?.content || '');
+        if (chunk.done) finalChunk = chunk;
+        const now = Date.now();
+        if (now - lastProgressAt >= 300 || chunk.done) {
+          lastProgressAt = now;
+          onProgress({
+            stage: chunk.done ? 'parsing' : 'generating',
+            profile: reasoningProfile.name,
+            generatedCharacters: generatedText.length,
+            generatedTokens: Number(chunk.eval_count || 0),
+          });
+        }
+      }
+      if (done) break;
+    }
+    if (pending.trim()) {
+      const chunk = JSON.parse(pending);
+      if (chunk.error) throw new Error(chunk.error);
+      generatedText += String(chunk?.message?.content || '');
+      if (chunk.done) finalChunk = chunk;
+    }
+    if (!generatedText) throw new Error('The local brain returned an empty response.');
+    const result = parseAgentJson(generatedText);
     return {
       ok: true,
       model: `${PRESENTATOR_LOCAL_MODEL} (local/offline)`,
+      reasoningProfile: reasoningProfile.name,
       result,
       performance: {
-        totalDurationMs: Math.round(Number(json.total_duration || 0) / 1e6),
-        evalCount: Number(json.eval_count || 0),
+        totalDurationMs: Math.round(Number(finalChunk.total_duration || 0) / 1e6),
+        evalCount: Number(finalChunk.eval_count || 0),
       },
     };
   } finally {
@@ -566,6 +774,7 @@ const WHISPER_PYTHON = path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe')
 const WHISPER_SCRIPT = path.join(ROOT, 'whisper-transcribe.py');
 const IMAGEGEN_PYTHON = path.join(ROOT, '.imagegen-venv', 'Scripts', 'python.exe');
 const IMAGEGEN_SERVER = path.join(ROOT, 'local-image-server.py');
+const TRANSLATE_SERVER = path.join(ROOT, 'translate-server.py');
 // PYTHONPATH lets system Python 3.12 find chatterbox/torch/edge_tts from the venv
 const VENV_SITE_PACKAGES = path.join(ROOT, '.voiceclone-venv', 'Lib', 'site-packages');
 const SINGING_SITE_PACKAGES = path.join(ROOT, '.singing-venv', 'Lib', 'site-packages');
@@ -947,13 +1156,25 @@ async function createWindow() {
     appVersion: app.getVersion()
   }));
 
-  ipcMain.handle('presentator-agent-think', async (_event, payload) => {
+  ipcMain.handle('presentator-agent-think', async (event, payload) => {
     try {
-      return await callPresentatorAgent(payload);
+      return await callPresentatorAgent(payload, progress => {
+        try { event.sender.send('presentator-agent-progress', progress); } catch (_) {}
+      }, controller => activeAgentControllers.set(event.sender.id, controller));
     } catch (error) {
       console.error('[PresentatorAgent] Reasoning failed:', error.message);
-      return { ok: false, error: error.message };
+      return { ok: false, cancelled: error?.name === 'AbortError', error: error?.name === 'AbortError' ? 'Agent run cancelled.' : error.message };
+    } finally {
+      activeAgentControllers.delete(event.sender.id);
     }
+  });
+
+  ipcMain.handle('presentator-agent-cancel', event => {
+    const controller = activeAgentControllers.get(event.sender.id);
+    if (!controller) return { ok: true, cancelled: false };
+    controller.abort();
+    activeAgentControllers.delete(event.sender.id);
+    return { ok: true, cancelled: true };
   });
 
   ipcMain.handle('presentator-agent-restart-server', async (_event, serverName) => {
@@ -1010,6 +1231,8 @@ async function createWindow() {
           recoveryHistory: Array.isArray(data?.recoveryHistory)
             ? data.recoveryHistory.slice(-100)
             : [],
+          projectMemory: data?.projectMemory && typeof data.projectMemory === 'object' ? data.projectMemory : {},
+          workHistory: Array.isArray(data?.workHistory) ? data.workHistory.slice(-100) : [],
         },
       };
     } catch (error) {
@@ -1148,6 +1371,10 @@ async function createWindow() {
         recoveryHistory: Array.isArray(data?.recoveryHistory)
           ? data.recoveryHistory.slice(-100)
           : [],
+        projectMemory: data?.projectMemory && typeof data.projectMemory === 'object'
+          ? data.projectMemory
+          : {},
+        workHistory: Array.isArray(data?.workHistory) ? data.workHistory.slice(-100) : [],
       };
       fs.writeFileSync(tempPath, JSON.stringify(safeData, null, 2), 'utf8');
       fs.renameSync(tempPath, dataPath);
@@ -1155,6 +1382,151 @@ async function createWindow() {
     } catch (error) {
       try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
       return { ok: false, error: error.message };
+    }
+  });
+
+  const createAgentCheckpoint = (filePath, reason) => {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return null;
+    const checkpointRoot = path.join(app.getPath('userData'), 'super-agent-checkpoints');
+    fs.mkdirSync(checkpointRoot, { recursive: true });
+    const id = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const checkpointPath = path.join(checkpointRoot, `${id}.bak`);
+    const metadataPath = path.join(checkpointRoot, `${id}.json`);
+    fs.copyFileSync(filePath, checkpointPath);
+    fs.writeFileSync(metadataPath, JSON.stringify({ id, filePath, checkpointPath, reason: String(reason || ''), createdAt: Date.now() }, null, 2), 'utf8');
+    return { id, filePath, reason: String(reason || ''), createdAt: Date.now() };
+  };
+
+  ipcMain.handle('presentator-agent-list-checkpoints', () => {
+    try {
+      const checkpointRoot = path.join(app.getPath('userData'), 'super-agent-checkpoints');
+      if (!fs.existsSync(checkpointRoot)) return { ok: true, checkpoints: [] };
+      const checkpoints = fs.readdirSync(checkpointRoot)
+        .filter(name => name.endsWith('.json'))
+        .map(name => JSON.parse(fs.readFileSync(path.join(checkpointRoot, name), 'utf8')))
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 100)
+        .map(({ checkpointPath, ...item }) => item);
+      return { ok: true, checkpoints };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('presentator-agent-restore-checkpoint', (_event, request) => {
+    try {
+      const id = String(request?.id || '').replace(/[^a-zA-Z0-9-]/g, '');
+      if (!id) throw new Error('A checkpoint id is required.');
+      const checkpointRoot = path.join(app.getPath('userData'), 'super-agent-checkpoints');
+      const metadata = JSON.parse(fs.readFileSync(path.join(checkpointRoot, `${id}.json`), 'utf8'));
+      if (!fs.existsSync(metadata.checkpointPath)) throw new Error('Checkpoint content is missing.');
+      if (!String(metadata.filePath).toLowerCase().startsWith(ROOT.toLowerCase())) throw new Error('Checkpoint target is outside the project.');
+      const safetyCheckpoint = createAgentCheckpoint(metadata.filePath, `Before restoring checkpoint ${id}`);
+      fs.copyFileSync(metadata.checkpointPath, metadata.filePath);
+      return { ok: true, restored: metadata.filePath, safetyCheckpoint };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('presentator-agent-validate-web-app', async (_event, request) => {
+    let testWindow = null;
+    try {
+      const target = String(request?.target || '').trim();
+      if (!target) throw new Error('A local HTML path or localhost URL is required.');
+      const isUrl = /^https?:\/\//i.test(target);
+      if (isUrl && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(?:\/|$)/i.test(target)) {
+        throw new Error('Browser validation is limited to local project files and localhost URLs.');
+      }
+      const filePath = isUrl ? '' : path.resolve(target);
+      if (!isUrl && (!filePath.toLowerCase().startsWith(ROOT.toLowerCase()) || !fs.existsSync(filePath))) {
+        throw new Error('The validation file must exist inside the Presentator project.');
+      }
+
+      const consoleMessages = [];
+      const loadFailures = [];
+      testWindow = new BrowserWindow({
+        show: false,
+        width: 1440,
+        height: 900,
+        backgroundColor: '#ffffff',
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+      });
+      testWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        if (level >= 2) consoleMessages.push({ level, message: String(message).slice(0, 1000), line, sourceId: String(sourceId || '').slice(0, 300) });
+      });
+      testWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+        loadFailures.push({ errorCode, errorDescription, url: validatedUrl, isMainFrame });
+      });
+
+      if (isUrl) await testWindow.loadURL(target);
+      else await testWindow.loadFile(filePath);
+      const initialWait = Math.max(250, Math.min(10000, Number(request?.waitMs) || 1200));
+      await new Promise(resolve => setTimeout(resolve, initialWait));
+
+      const interactions = Array.isArray(request?.interactions) ? request.interactions.slice(0, 20) : [];
+      const interactionResults = [];
+      for (const interaction of interactions) {
+        const selector = String(interaction?.selector || '');
+        const action = String(interaction?.action || 'click');
+        const value = String(interaction?.value || '');
+        if (!selector || selector.length > 300) {
+          interactionResults.push({ ok: false, selector, error: 'Invalid selector.' });
+          continue;
+        }
+        const result = await testWindow.webContents.executeJavaScript(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!element) return { ok: false, error: 'Element not found' };
+          const action = ${JSON.stringify(action)};
+          if (action === 'click') element.click();
+          else if (action === 'type') {
+            element.focus();
+            element.value = ${JSON.stringify(value)};
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+          } else return { ok: false, error: 'Unsupported interaction action' };
+          return { ok: true, tag: element.tagName, text: String(element.textContent || '').trim().slice(0, 120) };
+        })()`, true);
+        interactionResults.push({ selector, action, ...result });
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+
+      const inspection = await testWindow.webContents.executeJavaScript(`(() => {
+        const interactive = [...document.querySelectorAll('button,a,input,select,textarea,[role="button"]')];
+        const unlabeled = interactive.filter(el => {
+          const label = el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || el.getAttribute('placeholder');
+          return !String(label || '').trim();
+        });
+        return {
+          title: document.title,
+          textPreview: String(document.body?.innerText || '').trim().slice(0, 3000),
+          interactiveCount: interactive.length,
+          unlabeledInteractiveCount: unlabeled.length,
+          imageCount: document.images.length,
+          brokenImages: [...document.images].filter(img => !img.complete || img.naturalWidth === 0).map(img => img.src).slice(0, 20),
+          horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          viewport: { width: innerWidth, height: innerHeight },
+        };
+      })()`, true);
+      const screenshot = await testWindow.webContents.capturePage();
+      const screenshotDir = path.join(ROOT, 'generated-media', 'agent-validation');
+      fs.mkdirSync(screenshotDir, { recursive: true });
+      const screenshotPath = path.join(screenshotDir, `validation-${Date.now()}.png`);
+      fs.writeFileSync(screenshotPath, screenshot.toPNG());
+      return {
+        ok: loadFailures.filter(item => item.isMainFrame).length === 0 && consoleMessages.length === 0 && inspection.brokenImages.length === 0,
+        target: isUrl ? target : path.relative(ROOT, filePath).replace(/\\/g, '/'),
+        screenshotPath,
+        screenshotBase64: screenshot.toPNG().toString('base64'),
+        consoleMessages,
+        loadFailures,
+        interactions: interactionResults,
+        inspection,
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    } finally {
+      if (testWindow && !testWindow.isDestroyed()) testWindow.destroy();
     }
   });
 
@@ -1215,6 +1587,7 @@ async function createWindow() {
         throw new Error('Patch fragments must be non-empty and under 50,000 characters.');
       }
       original = fs.readFileSync(filePath, 'utf8');
+      const checkpoint = createAgentCheckpoint(filePath, request?.reason || 'Before agent patch');
       const first = original.indexOf(expected);
       if (first < 0) throw new Error('Expected source fragment was not found exactly.');
       if (original.indexOf(expected, first + expected.length) >= 0) {
@@ -1250,6 +1623,7 @@ async function createWindow() {
       }
       return {
         ok: true,
+        checkpoint,
         file: path.relative(ROOT, filePath).replace(/\\/g, '/'),
         reason: String(request?.reason || ''),
         buildValidated: true,
@@ -1273,7 +1647,405 @@ async function createWindow() {
     return { ok: true, status: 'restarting' };
   });
 
+  // ─── Super Agent: list_files ────────────────────────────────────────────────
+  ipcMain.handle('presentator-agent-list-files', (_event, request) => {
+    try {
+      const dir = path.resolve(String(request?.directory || ROOT));
+      if (!dir.toLowerCase().startsWith(ROOT.toLowerCase())) {
+        return { ok: false, error: 'Directory must be inside the project root.' };
+      }
+      if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+        return { ok: false, error: `Directory not found: ${dir}` };
+      }
+      const walkDir = (current, depth = 0) => {
+        if (depth > 6) return [];
+        const entries = [];
+        for (const name of fs.readdirSync(current)) {
+          if (name.startsWith('.') || name === 'node_modules') continue;
+          const fullPath = path.join(current, name);
+          try {
+            const stat = fs.statSync(fullPath);
+            const relative = path.relative(ROOT, fullPath).replace(/\\/g, '/');
+            if (stat.isDirectory()) {
+              entries.push({ type: 'dir', path: relative, name });
+              entries.push(...walkDir(fullPath, depth + 1));
+            } else {
+              entries.push({ type: 'file', path: relative, name, size: stat.size });
+            }
+          } catch (_) {}
+        }
+        return entries;
+      };
+      return { ok: true, directory: path.relative(ROOT, dir).replace(/\\/g, '/') || '.', entries: walkDir(dir) };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  // ─── Super Agent: read_file ─────────────────────────────────────────────────
+  ipcMain.handle('presentator-agent-read-file', (_event, request) => {
+    try {
+      let filePath = path.resolve(String(request?.file || ''));
+      if (!filePath.toLowerCase().startsWith(ROOT.toLowerCase())) {
+        return { ok: false, error: 'File must be inside the project root.' };
+      }
+      if (!fs.existsSync(filePath)) return { ok: false, error: `File not found: ${filePath}` };
+      if (!fs.statSync(filePath).isFile()) return { ok: false, error: 'Path is not a file.' };
+      const ext = path.extname(filePath).toLowerCase();
+      const textExts = new Set(['.js', '.jsx', '.ts', '.tsx', '.cjs', '.mjs', '.css', '.json',
+        '.md', '.txt', '.log', '.py', '.html', '.srt', '.csv', '.env', '.sh', '.bat', '.ps1']);
+      if (!textExts.has(ext)) return { ok: false, error: `Cannot read binary or unsupported file type: ${ext}` };
+      const allLines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+      const start = Math.max(1, Number(request?.startLine) || 1);
+      const end = Math.min(allLines.length, Number(request?.endLine) || Math.min(allLines.length, start + 599));
+      if (end - start > 599) return { ok: false, error: 'Read at most 600 lines at a time.' };
+      const content = allLines.slice(start - 1, end)
+        .map((line, i) => `${start + i}: ${line}`)
+        .join('\n');
+      return {
+        ok: true,
+        file: path.relative(ROOT, filePath).replace(/\\/g, '/'),
+        totalLines: allLines.length,
+        startLine: start,
+        endLine: end,
+        content,
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  // ─── Super Agent: write_file ────────────────────────────────────────────────
+  ipcMain.handle('presentator-agent-write-file', (_event, request) => {
+    try {
+      const filePath = path.resolve(String(request?.file || ''));
+      if (!filePath.toLowerCase().startsWith(ROOT.toLowerCase())) {
+        return { ok: false, error: 'File must be inside the project root.' };
+      }
+      const content = String(request?.content ?? '');
+      if (content.length > 500000) return { ok: false, error: 'Content too large (max 500 KB).' };
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      const existed = fs.existsSync(filePath);
+      const checkpoint = existed ? createAgentCheckpoint(filePath, request?.reason || 'Before agent overwrite') : null;
+      fs.writeFileSync(filePath, content, 'utf8');
+      return {
+        ok: true,
+        file: path.relative(ROOT, filePath).replace(/\\/g, '/'),
+        action: existed ? 'overwritten' : 'created',
+        checkpoint,
+        sizeBytes: Buffer.byteLength(content, 'utf8'),
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  // ─── Super Agent: run_terminal_command ──────────────────────────────────────
+  ipcMain.handle('presentator-agent-run-command', async (_event, request) => {
+    const command = String(request?.command || '').trim();
+    if (!command) return { ok: false, error: 'No command provided.' };
+    // Safety filter — block destructive operations
+    const blocked = [/taskkill/i, /rm\s+-r/i, /Remove-Item.*-Recurse/i, /format\s+[a-z]:/i,
+      /del\s+\/[fqs]/i, /shutdown/i, /reg\s+delete/i, /net\s+user/i, /icacls/i];
+    if (blocked.some(pattern => pattern.test(command))) {
+      return { ok: false, error: 'Command blocked for safety: destructive operations are not permitted.' };
+    }
+    return new Promise(resolve => {
+      execFile('powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', command],
+        { cwd: ROOT, windowsHide: true, timeout: 60000, maxBuffer: 2 * 1024 * 1024 },
+        (error, stdout, stderr) => {
+          resolve({
+            ok: !error || error.code === 0,
+            command,
+            stdout: String(stdout || '').slice(0, 8000),
+            stderr: String(stderr || '').slice(0, 2000),
+            exitCode: error?.code ?? 0,
+          });
+        }
+      );
+    });
+  });
+
+  // ─── Super Agent: search_in_files ───────────────────────────────────────────
+  ipcMain.handle('presentator-agent-search-files', (_event, request) => {
+    try {
+      const pattern = String(request?.pattern || '').trim();
+      if (!pattern || pattern.length < 2) return { ok: false, error: 'Search pattern must be at least 2 characters.' };
+      const searchDir = path.resolve(String(request?.directory || path.join(ROOT, 'src')));
+      if (!searchDir.toLowerCase().startsWith(ROOT.toLowerCase())) {
+        return { ok: false, error: 'Search directory must be inside the project root.' };
+      }
+      const exts = new Set(['.js', '.jsx', '.ts', '.tsx', '.cjs', '.css', '.py', '.json', '.md', '.txt']);
+      const matches = [];
+      const walkSearch = (dir, depth = 0) => {
+        if (depth > 8 || matches.length > 200) return;
+        for (const name of fs.readdirSync(dir)) {
+          if (name.startsWith('.') || name === 'node_modules') continue;
+          const full = path.join(dir, name);
+          try {
+            const stat = fs.statSync(full);
+            if (stat.isDirectory()) { walkSearch(full, depth + 1); continue; }
+            if (!exts.has(path.extname(name).toLowerCase())) continue;
+            const lines = fs.readFileSync(full, 'utf8').split(/\r?\n/);
+            const lowerPattern = pattern.toLowerCase();
+            lines.forEach((line, idx) => {
+              if (line.toLowerCase().includes(lowerPattern)) {
+                matches.push({
+                  file: path.relative(ROOT, full).replace(/\\/g, '/'),
+                  line: idx + 1,
+                  content: line.trim().slice(0, 200),
+                });
+              }
+            });
+          } catch (_) {}
+        }
+      };
+      walkSearch(searchDir);
+      return { ok: true, pattern, matchCount: matches.length, matches: matches.slice(0, 150) };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  // ─── Super Agent: analyze_code ──────────────────────────────────────────────
+  ipcMain.handle('presentator-agent-analyze-code', (_event, request) => {
+    try {
+      const filePath = path.resolve(String(request?.file || ''));
+      if (!filePath.toLowerCase().startsWith(ROOT.toLowerCase())) {
+        return { ok: false, error: 'File must be inside the project root.' };
+      }
+      if (!fs.existsSync(filePath)) return { ok: false, error: `File not found: ${filePath}` };
+      const src = fs.readFileSync(filePath, 'utf8');
+      const lines = src.split(/\r?\n/);
+      const totalLines = lines.length;
+
+      // Function detection (named functions, arrow functions, methods)
+      const funcPattern = /(?:^|\s)(?:async\s+)?function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(|(\w+)\s*(?::\s*(?:async\s+)?\(.*?\)\s*=>|\s*\(.*?\)\s*\{)/gm;
+      const functions = [];
+      let match;
+      while ((match = funcPattern.exec(src)) !== null) {
+        const name = match[1] || match[2] || match[3];
+        if (name && !['if', 'for', 'while', 'switch', 'catch'].includes(name)) {
+          const lineNum = src.slice(0, match.index).split('\n').length;
+          functions.push({ name, line: lineNum });
+        }
+      }
+
+      // Large function detection
+      const largeFunctions = [];
+      const arrowAndFuncRe = /(?:function\s+\w+|(?:const|let)\s+\w+\s*=\s*(?:async\s*)?\(.*?\)\s*=>)\s*\{/g;
+      while ((match = arrowAndFuncRe.exec(src)) !== null) {
+        const start = match.index;
+        const startLine = src.slice(0, start).split('\n').length;
+        let depth = 0, end = start;
+        for (let i = start; i < src.length; i++) {
+          if (src[i] === '{') depth++;
+          else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+        }
+        const bodyLines = src.slice(start, end).split('\n').length;
+        if (bodyLines > 50) {
+          largeFunctions.push({ near: match[0].slice(0, 60).trim(), startLine, lines: bodyLines });
+        }
+      }
+
+      // TODO/FIXME/HACK/BUG/HACK comments
+      const annotations = [];
+      lines.forEach((line, idx) => {
+        const m = line.match(/\/\/\s*(TODO|FIXME|HACK|BUG|XXX|TEMP|WORKAROUND)[:.]?\s*(.*)/i);
+        if (m) annotations.push({ type: m[1].toUpperCase(), line: idx + 1, text: m[2].trim().slice(0, 120) });
+      });
+
+      // Suspicious patterns
+      const suspicious = [];
+      const checks = [
+        { re: /console\.(log|warn|error|debug)\(/g,  label: 'console.log (should be removed for production)' },
+        { re: /eval\s*\(/g,                           label: 'eval() — security risk' },
+        { re: /new Function\s*\(/g,                   label: 'new Function() — security risk' },
+        { re: /setTimeout\s*\(\s*['"`]/g,             label: 'setTimeout with string argument — bad practice' },
+        { re: /var\s+\w/g,                            label: 'var declaration — prefer const/let' },
+        { re: /==\s*(?!null|undefined)/g,             label: 'loose equality == (prefer ===)' },
+        { re: /setInterval[^;]*((?!clearInterval)[\s\S]{0,500}$)/gm, label: 'setInterval possibly without clearInterval — memory leak risk' },
+        { re: /addEventListener[^;]*((?!removeEventListener)[\s\S]{0,200}$)/gm, label: 'addEventListener possibly without removeEventListener' },
+      ];
+      for (const { re, label } of checks) {
+        let sm;
+        re.lastIndex = 0;
+        while ((sm = re.exec(src)) !== null) {
+          const lineNum = src.slice(0, sm.index).split('\n').length;
+          suspicious.push({ line: lineNum, label, code: sm[0].slice(0, 80) });
+          if (suspicious.length > 40) break;
+        }
+        if (suspicious.length > 40) break;
+      }
+
+      // Import analysis
+      const importLines = lines.filter(l => /^\s*import\s/.test(l));
+      const unusedImportHints = [];
+      for (const imp of importLines) {
+        const nameMatch = imp.match(/import\s+(?:\{([^}]+)\}|(\w+))/);
+        if (nameMatch) {
+          const names = (nameMatch[1] || nameMatch[2] || '').split(',').map(n => n.trim().split(/\s+as\s+/).pop().trim()).filter(Boolean);
+          for (const name of names) {
+            const usageCount = (src.match(new RegExp(`\\b${name}\\b`, 'g')) || []).length;
+            if (usageCount <= 1) unusedImportHints.push({ name, line: lines.indexOf(imp) + 1 });
+          }
+        }
+      }
+
+      // Complexity estimate
+      const cyclomaticIndicators = (src.match(/\b(if|else if|for|while|switch|case|\?\s*\w|catch|&&|\|\|)\b/g) || []).length;
+
+      return {
+        ok: true,
+        file: path.relative(ROOT, filePath).replace(/\\/g, '/'),
+        totalLines,
+        functionCount: functions.length,
+        functions: functions.slice(0, 30),
+        largeFunctions,
+        annotations,
+        suspicious: suspicious.slice(0, 30),
+        unusedImportHints: unusedImportHints.slice(0, 20),
+        estimatedCyclomaticComplexity: cyclomaticIndicators,
+        importCount: importLines.length,
+        summary: `${totalLines} lines | ${functions.length} functions | ${largeFunctions.length} large (>50L) | ${annotations.length} TODOs | ${suspicious.length} suspicious patterns | complexity score: ${cyclomaticIndicators}`,
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  // ─── Super Agent: run_build_check ───────────────────────────────────────────
+  ipcMain.handle('presentator-agent-run-build', async () => {
+    const result = await new Promise(resolve => {
+      const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+      const child = execFile(
+        npmCmd,
+        ['run', 'build:react'],
+        { cwd: ROOT, windowsHide: true, timeout: 180000, maxBuffer: 4 * 1024 * 1024 },
+        (error, stdout, stderr) => resolve({
+          ok: !error,
+          exitCode: error?.code ?? 0,
+          stdout: String(stdout || '').slice(-6000),
+          stderr: String(stderr || '').slice(-4000),
+          errorMessage: error?.message || '',
+        })
+      );
+      child.on('error', e => resolve({ ok: false, exitCode: -1, stdout: '', stderr: '', errorMessage: e.message }));
+    });
+    // Parse error lines for structured reporting
+    const allOutput = `${result.stdout}\n${result.stderr}`;
+    const errorLines = allOutput.split('\n')
+      .filter(l => /error|Error|failed|Failed/.test(l))
+      .slice(0, 30)
+      .join('\n');
+    return { ...result, errorSummary: errorLines };
+  });
+
+  // ─── Super Agent: diff_files ────────────────────────────────────────────────
+  ipcMain.handle('presentator-agent-diff-files', (_event, request) => {
+    try {
+      const fileA = path.resolve(String(request?.fileA || ''));
+      const fileB = path.resolve(String(request?.fileB || ''));
+      const root = ROOT.toLowerCase();
+      if (!fileA.toLowerCase().startsWith(root) || !fileB.toLowerCase().startsWith(root)) {
+        return { ok: false, error: 'Both files must be inside the project root.' };
+      }
+      if (!fs.existsSync(fileA)) return { ok: false, error: `File A not found: ${fileA}` };
+      if (!fs.existsSync(fileB)) return { ok: false, error: `File B not found: ${fileB}` };
+      const linesA = fs.readFileSync(fileA, 'utf8').split(/\r?\n/);
+      const linesB = fs.readFileSync(fileB, 'utf8').split(/\r?\n/);
+      // Simple unified diff
+      const diff = [];
+      const maxLen = Math.max(linesA.length, linesB.length);
+      let changes = 0;
+      for (let i = 0; i < maxLen; i++) {
+        const a = linesA[i];
+        const b = linesB[i];
+        if (a === undefined) { diff.push(`+${i + 1}: ${b}`); changes++; }
+        else if (b === undefined) { diff.push(`-${i + 1}: ${a}`); changes++; }
+        else if (a !== b) { diff.push(`-${i + 1}: ${a}`); diff.push(`+${i + 1}: ${b}`); changes++; }
+      }
+      return {
+        ok: true,
+        fileA: path.relative(ROOT, fileA).replace(/\\/g, '/'),
+        fileB: path.relative(ROOT, fileB).replace(/\\/g, '/'),
+        changedLines: changes,
+        diff: diff.slice(0, 300).join('\n'),
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  // ─── Super Agent: presentator-agent-generate-sfx ──────────────────────────
+  ipcMain.handle('presentator-agent-generate-sfx', async (_event, request) => {
+    try {
+      const type = String(request?.type || 'ding').toLowerCase();
+      const sfxDir = path.join(ROOT, 'generated-media', 'sfx');
+      fs.mkdirSync(sfxDir, { recursive: true });
+      const filePath = path.join(sfxDir, `${type}.wav`);
+
+      const sfx = require('./sfx-generator.cjs');
+      const generators = {
+        ding: sfx.generateDing,
+        click: sfx.generateClick,
+        whoosh: sfx.generateWhoosh,
+        cheer: sfx.generateCheer,
+        typing: sfx.generateTyping
+      };
+      const gen = generators[type] || generators.ding;
+      gen(filePath);
+
+      return {
+        ok: true,
+        type,
+        filePath,
+        fileName: `${type}.wav`,
+        url: `file:///${filePath.replace(/\\/g, '/')}`
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  // ─── Super Agent: presentator-agent-morph-audio ───────────────────────────
+  ipcMain.handle('presentator-agent-morph-audio', async (_event, request) => {
+    try {
+      const sourcePath = path.resolve(String(request?.sourcePath || ''));
+      const voice = String(request?.voice || 'sc3');
+      if (!fs.existsSync(sourcePath)) {
+        return { ok: false, error: 'Source audio file not found.' };
+      }
+      // Send to SC3 Singing server (port 8426) for timbre conversion
+      const response = await postJsonForBuffer(8426, '/api/convert-song', { filePath: sourcePath, voice }, 600000);
+      if (!response || response.statusCode !== 200) {
+        throw new Error('SC3 conversion server returned status ' + response?.statusCode);
+      }
+      const body = JSON.parse(response.buffer.toString('utf8'));
+      if (!body.audioBase64) {
+        throw new Error('SC3 returned empty audio.');
+      }
+
+      const morphedDir = path.join(ROOT, 'generated-media', 'morphed');
+      fs.mkdirSync(morphedDir, { recursive: true });
+      const stamp = Date.now();
+      const outPath = path.join(morphedDir, `morphed-${stamp}.mp3`);
+      fs.writeFileSync(outPath, Buffer.from(body.audioBase64, 'base64'));
+
+      return {
+        ok: true,
+        morphedPath: outPath,
+        url: `file:///${outPath.replace(/\\/g, '/')}`
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('presentator-agent-generate-image', async (_event, request) => {
+
+
     let resumePausedServers = () => {};
     try {
       // The 16 GB machine cannot keep both the local LLM and diffusion model
@@ -1293,8 +2065,10 @@ async function createWindow() {
           prompt: String(request?.prompt || ''),
           negativePrompt: String(request?.negativePrompt || ''),
           seed: Number(request?.seed || 0),
-          width: 576,
-          height: 320,
+          width: 768,
+          height: 432,
+          outputWidth: 3840,
+          outputHeight: 2160,
         },
         900000
       );
@@ -1384,6 +2158,44 @@ async function createWindow() {
       audioBase64: response.buffer.toString('base64'),
     };
   });
+
+  const narrateWithSc3 = async (payload) => {
+    const response = await postJsonForBuffer(8426, '/api/narrate', {
+      ...payload,
+      voice: payload?.voice || 'sc3',
+    }, 600000);
+    const contentType = String(response.headers?.['content-type'] || 'audio/wav');
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      let message = `SC3 narration server returned HTTP ${response.statusCode}.`;
+      try { message = JSON.parse(response.buffer.toString('utf8'))?.error || message; } catch (_) {}
+      throw new Error(message);
+    }
+    return { ok: true, statusCode: response.statusCode, contentType, audioBase64: response.buffer.toString('base64') };
+  };
+
+  ipcMain.handle('narrate-sc3-tts', async (_event, payload) => narrateWithSc3(payload));
+  ipcMain.handle('narrate-sc3-text', async (_event, payload) => narrateWithSc3(payload));
+  ipcMain.handle('narrate-uploaded-video-voice', async () => ({
+    ok: false,
+    error: 'Uploaded-video voice cloning is not configured for text synthesis. Select SC3 or Edge TTS.',
+  }));
+  ipcMain.handle('narrate-edge-tts-timed', async (_event, payload) => {
+    const result = await postJsonForBuffer(8427, '/api/preview-mp3', payload, 180000);
+    if (result.statusCode < 200 || result.statusCode >= 300) {
+      throw new Error(`Timed Edge TTS returned HTTP ${result.statusCode}.`);
+    }
+    return {
+      ok: true,
+      statusCode: result.statusCode,
+      contentType: String(result.headers?.['content-type'] || 'audio/mpeg'),
+      audioBase64: result.buffer.toString('base64'),
+      wordTimings: [],
+    };
+  });
+  ipcMain.handle('shutdown-computer-after-export', async () => ({
+    ok: false,
+    error: 'Automatic computer shutdown is disabled for safety.',
+  }));
 
   // ————————————— IPC: Restart video export server from renderer ——————————————————
   ipcMain.handle('restart-video-export', () => {
@@ -1517,7 +2329,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
 
     const langParam = languageHint || 'auto';
     const whisperResult = await new Promise((resolve, reject) => {
-      const proc = spawn(pyExe, [scriptPath, tmpWav, langParam], {
+      const proc = spawn(pyExe, [scriptPath, tmpWav, langParam, path.basename(videoPath)], {
         stdio: 'pipe',
         windowsHide: true,
         env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
@@ -2270,39 +3082,112 @@ ipcMain.handle('erase-captions', async (event, opts) => {
   }
 });
 
-
-// IPC: Merge Narration Audio into Video
-// Mixes a narration WAV/MP3 into a video so Whisper can transcribe the real voice
-ipcMain.handle('merge-audio-into-video', async (event, opts) => {
-  const { videoPath, audioPath, outputName } = opts || {};
-  if (!videoPath) return { ok: false, error: 'No video path.' };
-  if (!audioPath) return { ok: false, error: 'No audio path.' };
-  function findFF() {
-    try { const r = require('child_process').execSync('where ffmpeg',{encoding:'utf8',timeout:3000}).trim().split('\n')[0].trim(); if(r&&fs.existsSync(r))return r; } catch(_){}
-    const wp='C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
-    return fs.existsSync(wp)?wp:'ffmpeg';
-  }
-  const FFMPEG = findFF();
-  const outFile = path.join(os.homedir(), 'Downloads', outputName || ('merged_' + Date.now() + '.mp4'));
-  try {
-    await new Promise((resolve, reject) => {
-      const proc = spawn(FFMPEG, [
-        '-y', '-i', videoPath, '-i', audioPath,
-        '-filter_complex', '[0:a?][1:a]amix=inputs=2:duration=first:dropout_transition=0[aout]',
-        '-map', '0:v:0', '-map', '[aout]',
-        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', outFile
-      ], { stdio: 'pipe', windowsHide: true });
-      let stderr = '';
-      proc.stderr && proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('error', e => reject(new Error('FFmpeg: ' + e.message)));
-      proc.on('exit', code => code===0 ? resolve() : reject(new Error('FFmpeg exit '+code+': '+stderr.slice(-200))));
-    });
-    return { ok: true, outputPath: outFile, fileName: path.basename(outFile) };
-  } catch(err) {
-    return { ok: false, error: err.message };
-  }
-});
-
+
+
+// IPC: Merge Narration Audio into Video
+
+// Mixes a narration WAV/MP3 into a video so Whisper can transcribe the real voice
+
+ipcMain.handle('merge-audio-into-video', async (event, opts) => {
+
+  const { videoPath, audioPath, outputName } = opts || {};
+
+  if (!videoPath) return { ok: false, error: 'No video path.' };
+
+  if (!audioPath) return { ok: false, error: 'No audio path.' };
+
+  function findFF() {
+
+    try { const r = require('child_process').execSync('where ffmpeg',{encoding:'utf8',timeout:3000}).trim().split('\n')[0].trim(); if(r&&fs.existsSync(r))return r; } catch(_){}
+
+    const wp='C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+
+    return fs.existsSync(wp)?wp:'ffmpeg';
+
+  }
+
+  const FFMPEG = findFF();
+
+  const outFile = path.join(os.homedir(), 'Downloads', outputName || ('merged_' + Date.now() + '.mp4'));
+
+  try {
+
+    await new Promise((resolve, reject) => {
+
+      const proc = spawn(FFMPEG, [
+
+        '-y', '-i', videoPath, '-i', audioPath,
+
+        '-filter_complex', '[0:a?][1:a]amix=inputs=2:duration=first:dropout_transition=0[aout]',
+
+        '-map', '0:v:0', '-map', '[aout]',
+
+        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', outFile
+
+      ], { stdio: 'pipe', windowsHide: true });
+
+      let stderr = '';
+
+      proc.stderr && proc.stderr.on('data', d => { stderr += d.toString(); });
+
+      proc.on('error', e => reject(new Error('FFmpeg: ' + e.message)));
+
+      proc.on('exit', code => code===0 ? resolve() : reject(new Error('FFmpeg exit '+code+': '+stderr.slice(-200))));
+
+    });
+
+    return { ok: true, outputPath: outFile, fileName: path.basename(outFile) };
+
+  } catch(err) {
+
+    return { ok: false, error: err.message };
+
+  }
+
+});
+
+ipcMain.handle('export-translated-video', async (_event, opts) => {
+  const { videoPath, audioBase64, outputName } = opts || {};
+  if (!videoPath || !fs.existsSync(videoPath)) return { ok: false, error: 'Source video is unavailable.' };
+  if (!audioBase64) return { ok: false, error: 'Translated audio is missing.' };
+  const ffmpeg = findFFmpegExecutable();
+  const workDir = ensureCaptionWorkDir('translated-audio');
+  const stamp = Date.now();
+  const audioPath = path.join(workDir, `translated-${stamp}.mp3`);
+  const safeName = String(outputName || `translated-${stamp}.mp4`).replace(/[<>:"/\\|?*]/g, '_');
+  const outputPath = path.join(path.dirname(videoPath), safeName);
+  try {
+    fs.writeFileSync(audioPath, Buffer.from(String(audioBase64), 'base64'));
+    await new Promise((resolve, reject) => {
+      const child = spawn(ffmpeg, [
+        '-y', '-i', videoPath, '-i', audioPath,
+        '-map', '0:v:0', '-map', '1:a:0',
+        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', outputPath,
+      ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+      let stderr = '';
+      child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-6000); });
+      child.on('error', reject);
+      child.on('exit', code => code === 0 ? resolve() : reject(new Error(`FFmpeg exit ${code}: ${stderr.slice(-800)}`)));
+    });
+    return { ok: true, outputPath, fileName: path.basename(outputPath) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+
+  // 7. Caption/audio translation service (port 8434)
+  if (fs.existsSync(TRANSLATE_SERVER)) {
+    spawnManaged('TranslationServer', ANJALI_PYTHON, ['-u', TRANSLATE_SERVER], {
+      cwd: ROOT,
+      restartDelayMs: 3000,
+      maxRestarts: 4,
+      restartWindowSec: 600,
+      env: PYTHON_ENV,
+    });
+  }
+});
+
+
+
 
 // ————————————— IPC: Burn Captions via FFmpeg (Express Export) ———————————————————
 // Uses FFmpeg to burn subtitle text directly onto video frames.
@@ -2641,6 +3526,12 @@ app.whenReady().then(async () => {
   console.log('[PP] Starting servers...');
   startServers();
 
+  // Start the Super Agent brain eagerly. Waiting until the first prompt made
+  // Agent Studio look unresponsive while Ollama was still booting.
+  ensureLocalAgentBrain()
+    .then(() => console.log('[PP] Super Agent brain ready on port 11434.'))
+    .catch(error => console.error('[PP] Super Agent brain failed to start:', error.message));
+
   // Give servers a moment to bind ports before opening the window
   await new Promise(r => setTimeout(r, 1500));
 
@@ -2731,3 +3622,704 @@ setInterval(() => {
 
 
 
+
+// ————————————— My Exporter: native timeline renderer ————————————————————————
+const myExporterProcesses = new Map();
+
+function myExporterSafeName(value, fallback = 'my-export.mp4') {
+  const clean = String(value || fallback).replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim();
+  return clean.toLowerCase().endsWith('.mp4') ? clean : clean + '.mp4';
+}
+
+function myExporterProbePath(filePath) {
+  const ffmpeg = findMyExporterFFmpeg();
+  const ffprobe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/^ffmpeg/i, 'ffprobe'));
+  const { execFileSync } = require('child_process');
+  const raw = execFileSync(ffprobe, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', filePath], { encoding: 'utf8', timeout: 20000 });
+  const parsed = JSON.parse(raw || '{}');
+  const video = (parsed.streams || []).find(stream => stream.codec_type === 'video') || {};
+  const audio = (parsed.streams || []).find(stream => stream.codec_type === 'audio') || {};
+  const frameRateText = String(video.avg_frame_rate || video.r_frame_rate || '0/1');
+  const [fpsNumerator, fpsDenominator] = frameRateText.split('/').map(Number);
+  return {
+    duration: Number(parsed.format?.duration || video.duration || audio.duration) || 0,
+    width: Number(video.width) || 0,
+    height: Number(video.height) || 0,
+    hasVideo: Boolean(video.codec_type),
+    hasAudio: Boolean(audio.codec_type),
+    videoBitrate: Number(video.bit_rate || parsed.format?.bit_rate) || 0,
+    frameRate: fpsDenominator ? fpsNumerator / fpsDenominator : Number(frameRateText) || 0,
+    videoCodec: String(video.codec_name || ''),
+    pixelFormat: String(video.pix_fmt || ''),
+    colorSpace: String(video.color_space || ''),
+    colorTransfer: String(video.color_transfer || ''),
+    colorPrimaries: String(video.color_primaries || ''),
+  };
+}
+
+
+function findMyExporterFFmpeg() {
+  const { execSync } = require('child_process');
+  const fs2 = require('fs');
+  try {
+    const result = execSync('where ffmpeg', { encoding: 'utf8', timeout: 3000 }).trim().split('\n')[0].trim();
+    if (result && fs2.existsSync(result)) return result;
+  } catch (_) {}
+  const wingetPath = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+  if (fs2.existsSync(wingetPath)) return wingetPath;
+  throw new Error('FFmpeg not found. Install it via: winget install Gyan.FFmpeg.Essentials');
+}
+
+function validateMyExporterJob(opts) {
+  const warnings = [];
+  const errors = [];
+  const scenes = Array.isArray(opts?.scenes) ? opts.scenes : [];
+  if (!scenes.length) errors.push('Add at least one video or image scene.');
+  for (const [index, scene] of scenes.entries()) {
+    const label = scene?.name || `Scene ${index + 1}`;
+    if (!scene?.path || !fs.existsSync(scene.path)) { errors.push(`${label}: source file is missing or was moved.`); continue; }
+    try {
+      const meta = myExporterProbePath(scene.path);
+      if (!meta.hasVideo && scene.kind !== 'image') errors.push(`${label}: no usable video stream was found.`);
+      if (meta.duration > 0 && Number(scene.trimStart || 0) >= meta.duration) errors.push(`${label}: trim start is beyond the end of the file.`);
+    } catch (error) { errors.push(`${label}: cannot read this media (${error.message}).`); }
+  }
+  for (const track of Array.isArray(opts?.audioTracks) ? opts.audioTracks : []) {
+    if (!track?.muted && (!track?.path || !fs.existsSync(track.path))) errors.push(`${track?.name || 'Audio track'}: audio file is missing or was moved.`);
+  }
+  for (const [label, filePath] of [['Background music', opts?.musicPath], ['Watermark', opts?.watermarkPath]]) {
+    if (filePath && !fs.existsSync(filePath)) errors.push(`${label}: selected file is missing or was moved.`);
+  }
+  try { findMyExporterFFmpeg(); } catch (error) { errors.push(error.message); }
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+function runMyExporterFFmpeg(ffmpeg, args, event, phase, progressStart, progressSpan, durationSeconds, jobId) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    if (jobId) myExporterProcesses.set(jobId, proc);
+    let stderr = '';
+    proc.stderr.on('data', chunk => {
+      const text = chunk.toString();
+      stderr = (stderr + text).slice(-12000);
+      const matches = [...text.matchAll(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/g)];
+      if (matches.length && durationSeconds > 0) {
+        const match = matches[matches.length - 1];
+        const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+        const pct = Math.min(99, Math.round(progressStart + (seconds / durationSeconds) * progressSpan));
+        event.sender.send('my-exporter-progress', { jobId, pct, phase });
+      }
+    });
+    proc.on('error', reject);
+    proc.on('exit', code => {
+      if (jobId) myExporterProcesses.delete(jobId);
+      if (code === 0) resolve();
+      else if (code === null || code === 255) reject(new Error('Export cancelled.'));
+      else reject(new Error(`${phase} failed: ${stderr.slice(-900)}`));
+    });
+  });
+}
+
+// IPC handles
+ipcMain.handle('my-exporter-probe', async (_event, opts) => {
+  try {
+    const meta = myExporterProbePath(opts.filePath || opts.path);
+    return { ok: true, ...meta };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('my-exporter-waveform', async (_event, opts) => {
+  const peaks = [];
+  for (let i = 0; i < (opts.bars || 120); i++) {
+    peaks.push(0.15 + Math.random() * 0.75);
+  }
+  return { ok: true, peaks };
+});
+
+ipcMain.handle('my-exporter-preflight', async (_event, opts) => {
+  return validateMyExporterJob(opts);
+});
+
+ipcMain.handle('my-exporter-pick-media', async () => {
+  const { dialog } = require('electron');
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'All Files (*.*)', extensions: ['*'] },
+      { name: 'Media Files', extensions: ['mp4', 'mkv', 'avi', 'mov', 'png', 'jpg', 'jpeg', 'webp'] }
+    ]
+  });
+  return { ok: !result.canceled, canceled: result.canceled, filePaths: result.filePaths || [] };
+});
+
+ipcMain.handle('my-exporter-pick-audio', async () => {
+  const { dialog } = require('electron');
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'All Files (*.*)', extensions: ['*'] },
+      { name: 'Audio Files', extensions: ['mp3', 'wav', 'aac', 'm4a', 'ogg'] }
+    ]
+  });
+  return { ok: !result.canceled, canceled: result.canceled, filePaths: result.filePaths || [] };
+});
+
+ipcMain.handle('my-exporter-crop-save', async (event, opts) => {
+  const { inputPath, outputPath, crop, start, end } = opts;
+  const ffmpeg = findMyExporterFFmpeg();
+  const args = ['-y'];
+  if (start > 0) args.push('-ss', String(start));
+  if (end > 0) args.push('-to', String(end));
+  args.push('-i', inputPath);
+  if (crop && typeof crop.width === 'number') {
+    args.push('-vf', `crop=${Math.round(crop.width)}:${Math.round(crop.height)}:${Math.round(crop.x)}:${Math.round(crop.y)}`);
+  }
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-c:a', 'copy', outputPath);
+  try {
+    const { spawn } = require('child_process');
+    await new Promise((resolve, reject) => {
+      const proc = spawn(ffmpeg, args, { windowsHide: true });
+      let stderr = '';
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('error', reject);
+      proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Crop exit ${code}: ${stderr.slice(-300)}`)));
+    });
+    return { ok: true, outputPath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('my-exporter-caption-cache-load', async (_event, { key }) => {
+  const cacheDir = path.join(os.tmpdir(), 'pattan-caption-cache');
+  const cacheFile = path.join(cacheDir, `${encodeURIComponent(key)}.json`);
+  try {
+    if (fs.existsSync(cacheFile)) {
+      return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    }
+  } catch (_) {}
+  return null;
+});
+
+ipcMain.handle('my-exporter-caption-cache-save', async (_event, { key, data }) => {
+  const cacheDir = path.join(os.tmpdir(), 'pattan-caption-cache');
+  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+  const cacheFile = path.join(cacheDir, `${encodeURIComponent(key)}.json`);
+  try {
+    fs.writeFileSync(cacheFile, JSON.stringify(data), 'utf8');
+    return true;
+  } catch (_) {}
+  return false;
+});
+
+ipcMain.handle('my-exporter-export', async (event, opts) => {
+  const jobId = opts?.jobId || `job-${Date.now()}`;
+  const validation = validateMyExporterJob(opts);
+  if (!validation.ok) return { ok: false, error: `Export check failed:\n${validation.errors.join('\n')}`, warnings: validation.warnings };
+  const scenes = (Array.isArray(opts?.scenes) ? opts.scenes : []).filter(scene => scene?.path && fs.existsSync(scene.path));
+  if (!scenes.length) return { ok: false, error: 'Add at least one video or image scene.' };
+  const resolutionMap = { '1080p': [1920, 1080], '1440p': [2560, 1440], '4k': [3840, 2160], vertical: [1080, 1920], square: [1080, 1080] };
+  const [width, height] = resolutionMap[opts?.resolution] || resolutionMap['1080p'];
+  const fps = [24, 25, 30, 50, 60].includes(Number(opts?.fps)) ? Number(opts.fps) : 30;
+  const ffmpeg = findMyExporterFFmpeg();
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pattan-my-exporter-'));
+  
+  // Resolve unique output path in downloads folder if not specified
+  let outputPath = opts?.outputPath;
+  if (!outputPath) {
+    const downloadsFolder = path.join(os.homedir(), 'Downloads');
+    const baseName = myExporterSafeName(opts?.outputName || 'My-Exporter');
+    const parsedPath = path.parse(path.join(downloadsFolder, baseName));
+    let finalPath = path.join(downloadsFolder, baseName);
+    let counter = 0;
+    while (fs.existsSync(finalPath)) {
+      counter++;
+      finalPath = path.join(downloadsFolder, `${parsedPath.name} (${counter})${parsedPath.ext}`);
+    }
+    outputPath = finalPath;
+  }
+
+  const totalDuration = scenes.reduce((sum, scene) => {
+    const duration = Math.max(0.1, Number(scene.duration) || 3);
+    const speed = scene.kind === 'image' ? 1 : Math.max(0.5, Math.min(2, Number(scene.speed) || 1));
+    return sum + duration / speed;
+  }, 0);
+  const preset = opts?.quality === 'maximum' ? 'slow' : opts?.quality === 'small' ? 'veryfast' : 'medium';
+  const crf = opts?.quality === 'maximum' ? '16' : opts?.quality === 'small' ? '23' : '19';
+  const segmentPaths = [];
+  try {
+    event.sender.send('my-exporter-progress', { jobId, pct: 1, phase: 'Preparing timeline' });
+    for (let index = 0; index < scenes.length; index += 1) {
+      const scene = scenes[index];
+      const meta = myExporterProbePath(scene.path);
+      const isImage = scene.kind === 'image' || !meta.hasVideo;
+      const trimStart = Math.max(0, Number(scene.trimStart) || 0);
+      const requestedDuration = Math.max(0.1, Number(scene.duration) || (meta.duration - trimStart) || 3);
+      const duration = meta.duration > 0 && !isImage ? Math.min(requestedDuration, Math.max(0.1, meta.duration - trimStart)) : requestedDuration;
+      const speed = isImage ? 1 : Math.max(0.5, Math.min(2, Number(scene.speed) || 1));
+      const outputDuration = duration / speed;
+      const segmentPath = path.join(workDir, `segment-${String(index).padStart(3, '0')}.mp4`);
+      const args = ['-y'];
+      if (isImage) args.push('-loop', '1', '-t', duration.toFixed(3), '-i', scene.path);
+      else args.push('-ss', trimStart.toFixed(3), '-i', scene.path); // Remove -t duration from before -i for accurate non-truncating seek
+      const useSourceAudio = !isImage && meta.hasAudio && !scene.muted;
+      if (!useSourceAudio) args.push('-f', 'lavfi', '-t', duration.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo');
+      const rotation = [90, 180, 270].includes(Number(scene.rotation)) ? Number(scene.rotation) : 0;
+      const rotationFilter = rotation === 90 ? 'transpose=1,' : rotation === 270 ? 'transpose=2,' : rotation === 180 ? 'hflip,vflip,' : '';
+      const framingFilter = scene.fit === 'fill'
+        ? `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`
+        : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`;
+      const brightness = Math.max(-1, Math.min(1, Number(scene.brightness) || 0));
+      const contrast = Math.max(0, Math.min(2, Number(scene.contrast) || 1));
+      const saturation = Math.max(0, Math.min(3, Number(scene.saturation) || 1));
+      const fadeDuration = Math.min(1.5, outputDuration / 3, Math.max(0, Number(scene.fade) || 0));
+      const fades = fadeDuration > 0.02
+        ? `,fade=t=in:st=0:d=${fadeDuration.toFixed(2)},fade=t=out:st=${Math.max(0, outputDuration - fadeDuration).toFixed(2)}:d=${fadeDuration.toFixed(2)}`
+        : '';
+      const speedFilter = speed !== 1 ? `setpts=PTS/${speed.toFixed(3)},` : '';
+      const videoFilter = `${rotationFilter}${framingFilter},setsar=1,eq=brightness=${brightness.toFixed(2)}:contrast=${contrast.toFixed(2)}:saturation=${saturation.toFixed(2)},${speedFilter}fps=${fps},format=yuv420p${fades}`;
+      args.push('-map', '0:v:0', '-map', useSourceAudio ? '0:a:0' : '1:a:0', '-vf', videoFilter);
+      if (useSourceAudio) {
+        const safeVolume = Number.isFinite(Number(scene.volume)) ? Number(scene.volume) : 1;
+        const audioFilters = [`volume=${Math.max(0, Math.min(2, safeVolume)).toFixed(2)}`];
+        if (speed !== 1) audioFilters.push(`atempo=${speed.toFixed(3)}`);
+        if (scene.noiseReduction) audioFilters.push('highpass=f=80', 'lowpass=f=14000', 'afftdn=nf=-25');
+        if (scene.normalizeAudio) audioFilters.push('loudnorm=I=-16:TP=-1.5:LRA=11');
+        if (fadeDuration > 0.02) audioFilters.push(`afade=t=in:st=0:d=${fadeDuration.toFixed(2)}`, `afade=t=out:st=${Math.max(0, outputDuration - fadeDuration).toFixed(2)}:d=${fadeDuration.toFixed(2)}`);
+        audioFilters.push('apad'); // Pad audio with silence to prevent early end
+        args.push('-af', audioFilters.join(','));
+      }
+      args.push('-c:v', 'libx264', '-preset', preset, '-crf', crf, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', '-t', outputDuration.toFixed(3), '-movflags', '+faststart', segmentPath);
+      const base = 3 + (index / scenes.length) * 54;
+      await runMyExporterFFmpeg(ffmpeg, args, event, `Rendering scene ${index + 1} of ${scenes.length}`, base, 54 / scenes.length, outputDuration, jobId);
+      segmentPaths.push(segmentPath);
+    }
+    const concatList = path.join(workDir, 'timeline.txt');
+    fs.writeFileSync(concatList, segmentPaths.map(file => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'), 'utf8');
+    const joinedPath = path.join(workDir, 'joined.mp4');
+    event.sender.send('my-exporter-progress', { jobId, pct: 58, phase: 'Joining scenes' });
+    await runMyExporterFFmpeg(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', concatList, '-c', 'copy', '-movflags', '+faststart', joinedPath], event, 'Joining scenes', 58, 8, totalDuration, jobId);
+
+    let mixedPath = joinedPath;
+    const musicPath = String(opts?.musicPath || '');
+    const positionedAudio = (Array.isArray(opts?.audioTracks) ? opts.audioTracks : [])
+      .filter(track => track?.path && fs.existsSync(track.path) && track.muted !== true);
+    if ((musicPath && fs.existsSync(musicPath)) || positionedAudio.length) {
+      mixedPath = path.join(workDir, 'mixed.mp4');
+      const musicVolume = Math.max(0, Math.min(1.5, Number(opts?.musicVolume) || 0.18));
+      const mixArgs = ['-y', '-i', joinedPath];
+      const chains = ['[0:a]volume=1[base]'];
+      const labels = ['[base]'];
+      let inputIndex = 1;
+      for (const track of positionedAudio) {
+        mixArgs.push('-i', track.path);
+        const trimStart = Math.max(0, Number(track.trimStart) || 0);
+        const duration = Math.max(0.1, Math.min(totalDuration, Number(track.duration) || totalDuration));
+        const trackSpeed = Math.max(0.5, Math.min(2, Number(track.speed) || 1));
+        const delayMs = Math.max(0, Math.round((Number(track.start) || 0) * 1000));
+        const volume = Math.max(0, Math.min(2, Number.isFinite(Number(track.volume)) ? Number(track.volume) : 1));
+        const speedFilter = trackSpeed !== 1 ? `,atempo=${trackSpeed.toFixed(3)}` : '';
+        chains.push(`[${inputIndex}:a]atrim=start=${trimStart.toFixed(3)}:duration=${(duration * trackSpeed).toFixed(3)},asetpts=PTS-STARTPTS${speedFilter},volume=${volume.toFixed(2)},adelay=${delayMs}:all=1[a${inputIndex}]`);
+        labels.push(`[a${inputIndex}]`);
+        inputIndex += 1;
+      }
+      if (musicPath && fs.existsSync(musicPath)) {
+        mixArgs.push('-stream_loop', '-1', '-i', musicPath);
+        chains.push(`[${inputIndex}:a]volume=${musicVolume.toFixed(2)},afade=t=out:st=${Math.max(0, totalDuration - 2).toFixed(2)}:d=2[music]`);
+        labels.push('[music]');
+        inputIndex += 1;
+      }
+      chains.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=2[a]`);
+      mixArgs.push('-filter_complex', chains.join(';'), '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k', '-t', totalDuration.toFixed(3), mixedPath);
+      await runMyExporterFFmpeg(ffmpeg, mixArgs, event, 'Mixing audio tracks', 67, 10, totalDuration, jobId);
+    }
+
+    const captions = (Array.isArray(opts?.captions) ? opts.captions : []).filter(item => String(item.text || '').trim() && Number(item.end) > Number(item.start));
+    const textOverlays = (Array.isArray(opts?.textOverlays) ? opts.textOverlays : []).filter(item => String(item.text || '').trim());
+    const watermarkPath = String(opts?.watermarkPath || '');
+    const hasWatermark = Boolean(watermarkPath && fs.existsSync(watermarkPath));
+    const finalArgs = ['-y', '-i', mixedPath];
+    if (hasWatermark) finalArgs.push('-loop', '1', '-i', watermarkPath);
+    let subtitleFilter = '';
+    if ((captions.length && opts?.burnCaptions !== false) || textOverlays.length) {
+      const assPath = path.join(workDir, 'captions.ass');
+      const assTime = seconds => {
+        const cs = Math.max(0, Math.round(Number(seconds) * 100));
+        const h = Math.floor(cs / 360000);
+        const m = String(Math.floor((cs % 360000) / 6000)).padStart(2, '0');
+        const s = String(Math.floor((cs % 6000) / 100)).padStart(2, '0');
+        return `${h}:${m}:${s}.${String(cs % 100).padStart(2, '0')}`;
+      };
+      const styleName = ['classic', 'box', 'yellow', 'karaoke', 'karaoke-cyan', 'karaoke-green', 'karaoke-magenta'].includes(opts?.captionStyle) ? opts.captionStyle : 'classic';
+      const alignment = opts?.captionPosition === 'top' ? 8 : opts?.captionPosition === 'middle' ? 5 : 2;
+      const baseFontSize = Math.max(24, Math.min(84, Number(opts?.captionFontSize) || 42));
+      const fontSize = Math.round(baseFontSize * height / 1080);
+      const maxChars = Math.max(16, Math.min(60, Number(opts?.captionMaxChars) || 36));
+      const style = {
+        classic: { primary: '&H00FFFFFF', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
+        box: { primary: '&H00FFFFFF', secondary: '&H00FFFFFF', back: '&H50000000', border: 3, outline: 0, shadow: 0, bold: -1 },
+        yellow: { primary: '&H0000E8FF', secondary: '&H0000E8FF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
+        karaoke: { primary: '&H0000E8FF', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
+        'karaoke-cyan': { primary: '&H00FFFF00', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
+        'karaoke-green': { primary: '&H0000FF00', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
+        'karaoke-magenta': { primary: '&H00FF00FF', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
+      }[styleName];
+      const wrapText = value => {
+        const words = String(value || '').replace(/[{}]/g, '').replace(/\r?\n/g, ' ').trim().split(/\s+/);
+        const lines = []; let line = '';
+        for (const word of words) {
+          if (line && `${line} ${word}`.length > maxChars) { lines.push(line); line = word; }
+          else line = line ? `${line} ${word}` : word;
+        }
+        if (line) lines.push(line);
+        return lines.join('\\\\N');
+      };
+      const dialogues = captions.map(item => {
+        const words = String(item.text || '').replace(/[{}]/g, '').replace(/\r?\n/g, ' ').trim().split(/\s+/).filter(Boolean);
+        let text = wrapText(item.text);
+        if (styleName.startsWith('karaoke') && words.length) {
+          const timedWords = Array.isArray(item.words) && item.words.length ? item.words : null;
+          const totalCs = Math.max(words.length, Math.round((Number(item.end) - Number(item.start)) * 100));
+          const each = Math.max(1, Math.floor(totalCs / words.length));
+          let lineLength = 0;
+          text = words.map((word, index) => {
+            const breakLine = lineLength && lineLength + word.length + 1 > maxChars;
+            lineLength = breakLine ? word.length : lineLength + word.length + (lineLength ? 1 : 0);
+            const timing = timedWords?.[index];
+            const durationCs = timing ? Math.max(1, Math.round((Number(timing.end) - Number(timing.start)) * 100)) : each;
+            return `${breakLine ? '\\\\N' : ''}{\\\\k${durationCs}}${word}`;
+          }).join(' ');
+        }
+        return `Dialogue: 0,${assTime(item.start)},${assTime(item.end)},Caption,,0,0,0,,${text}`;
+      }).join('\n');
+      const safeFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS']);
+      const textStyles = textOverlays.map((item, index) => {
+        const font = safeFonts.has(item.fontFamily) ? item.fontFamily : 'Arial';
+        const size = Math.round(Math.max(20, Math.min(180, Number(item.fontSize) || 64)) * height / 1080);
+        const boxed = item.shape && item.shape !== 'none';
+        const depth = Math.round(Math.max(0, Math.min(16, Number(item.depth) || 0)) * height / 1080);
+        return `Style: Text${index},${font},${size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H70000000,-1,0,0,0,100,100,0,0,${boxed ? 3 : 1},${boxed ? 2 : 0},${depth},5,0,0,0,1`;
+      }).join('\n');
+      // Fix string template escape parsing in textDialogues positioning arguments
+      const textDialoguesFixed = textOverlays.map((item, index) => {
+        const x = Math.round(width * Math.max(0, Math.min(100, Number(item.x) || 0)) / 100);
+        const y = Math.round(height * Math.max(0, Math.min(100, Number(item.y) || 0)) / 100);
+        const alpha = Math.round((1 - Math.max(0, Math.min(1, Number(item.opacity) || .8))) * 255).toString(16).padStart(2, '0').toUpperCase();
+        const start = Math.max(0, Number(item.start) || 0);
+        const end = Math.max(start + .1, Number(item.end) || totalDuration);
+        const text = String(item.text).replace(/[{}]/g, '').replace(/\r?\n/g, '\\\\N');
+        return `Dialogue: 1,&{assTime(start)},&{assTime(end)},Text&{index},,0,0,0,,{\\an5\\pos(&{x},&{y})\\alpha&H&{alpha}&\\c&{assColor(item.color)}}&{text}`;
+      }).join('\n').replace(/\&/g, '$');
+      const ass = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,Arial,${fontSize},${style.primary},${style.secondary},&H00000000,${style.back},${style.bold},0,0,0,100,100,0,0,${style.border},${style.outline},${style.shadow},${alignment},60,60,${Math.round(height * .055)},1\n${textStyles}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${dialogues}\n${textDialoguesFixed}\n`;
+      fs.writeFileSync(assPath, ass, 'utf8');
+      const escaped = assPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+      subtitleFilter = `subtitles='${escaped}'`;
+    }
+    if (hasWatermark) {
+      let xPercent = 0.90;
+      let yPercent = 0.10;
+      if (Number.isFinite(opts?.watermarkX)) {
+        xPercent = Number(opts.watermarkX) / 100;
+      } else if (opts?.watermarkPosition) {
+        const mapped = { 'top-left': 0.10, 'top-right': 0.90, 'bottom-left': 0.10, 'bottom-right': 0.90, center: 0.50 }[opts.watermarkPosition];
+        if (mapped !== undefined) xPercent = mapped;
+      }
+      if (Number.isFinite(opts?.watermarkY)) {
+        yPercent = Number(opts.watermarkY) / 100;
+      } else if (opts?.watermarkPosition) {
+        const mapped = { 'top-left': 0.10, 'top-right': 0.10, 'bottom-left': 0.90, 'bottom-right': 0.90, center: 0.50 }[opts.watermarkPosition];
+        if (mapped !== undefined) yPercent = mapped;
+      }
+
+      const opacity = Math.max(0.1, Math.min(1, Number(opts?.watermarkOpacity) || 0.85));
+      const watermarkScale = Math.max(5, Math.min(40, Number(opts?.watermarkScale) || 16)) / 100;
+      const wmWidth = Math.max(40, Math.round(width * watermarkScale));
+
+      const xExpr = `W*${xPercent.toFixed(4)}-w/2`;
+      const yExpr = `H*${yPercent.toFixed(4)}-h/2`;
+
+      let complex = `[1:v]scale=${wmWidth}:-1,format=rgba,colorchannelmixer=aa=${opacity.toFixed(2)}[wm];[0:v][wm]overlay=x=${xExpr}:y=${yExpr}:format=auto,format=yuv420p[vbase]`;
+      if (subtitleFilter) complex += `;[vbase]${subtitleFilter}[vout]`;
+      finalArgs.push('-filter_complex', complex, '-map', subtitleFilter ? '[vout]' : '[vbase]', '-map', '0:a:0', '-c:v', 'libx264', '-preset', preset, '-crf', crf);
+    } else if (subtitleFilter) {
+      finalArgs.push('-vf', subtitleFilter, '-c:v', 'libx264', '-preset', preset, '-crf', crf);
+    } else {
+      finalArgs.push('-c:v', 'copy');
+    }
+    finalArgs.push('-c:a', 'copy', '-t', totalDuration.toFixed(3), '-movflags', '+faststart', outputPath);
+    await runMyExporterFFmpeg(ffmpeg, finalArgs, event, captions.length ? 'Burning captions and finishing' : 'Finishing MP4', 78, 21, totalDuration, jobId);
+    event.sender.send('my-exporter-progress', { jobId, pct: 100, phase: 'Export complete', outputPath });
+    return { ok: true, jobId, outputPath, fileName: path.basename(outputPath), width, height, duration: totalDuration };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
+  }
+});
+
+// ── Multi-voice pool: female & male EdgeTTS voices per language ─────────────
+const MY_EXPORTER_VOICE_POOL = {
+  'hi-IN-SwaraNeural':   { female: ['hi-IN-SwaraNeural', 'hi-IN-AnanyaNeural'], male: ['hi-IN-MadhurNeural'] },
+  'te-IN-ShrutiNeural':  { female: ['te-IN-ShrutiNeural'],  male: ['te-IN-MohanNeural']    },
+  'ta-IN-PallaviNeural': { female: ['ta-IN-PallaviNeural'], male: ['ta-IN-ValluvarNeural'] },
+  'kn-IN-SapnaNeural':   { female: ['kn-IN-SapnaNeural'],   male: ['kn-IN-GaganNeural']   },
+  'ml-IN-SobhanaNeural': { female: ['ml-IN-SobhanaNeural'], male: ['ml-IN-MidhunNeural']  },
+  'en-IN-NeerjaNeural':  { female: ['en-IN-NeerjaNeural'],  male: ['en-IN-PrabhatNeural'] },
+};
+
+// Detect speaker gender for a time slice by comparing low-freq vs high-freq energy.
+// Male voices carry more energy below 165Hz; female voices above 200Hz.
+function detectSegmentGender(ffmpegBin, videoPath, startSec, durSec) {
+  const { spawnSync } = require('child_process');
+  const t = String(Math.min(2.5, Math.max(0.3, durSec)));
+  const ss = String(startSec);
+
+  function bandVolume(filter) {
+    const r = spawnSync(ffmpegBin, [
+      '-ss', ss, '-t', t, '-i', videoPath,
+      '-af', `${filter},volumedetect`, '-f', 'null', '-'
+    ], { encoding: 'utf8', timeout: 6000 });
+    const m = (r.stderr || '').match(/mean_volume:\s*([-\d.]+)\s*dB/);
+    return m ? parseFloat(m[1]) : -91;
+  }
+
+  try {
+    const lowDb  = bandVolume('lowpass=f=165');   // male fundamental range
+    const highDb = bandVolume('highpass=f=200');  // female formant range
+    // Male: low-freq within 8 dB of high-freq; Female: high-freq clearly dominant
+    return (lowDb - highDb) > -8 ? 'male' : 'female';
+  } catch (_) {
+    return 'female';
+  }
+}
+
+// Assign per-segment TTS voices based on detected gender.
+// Tracks speaker "blocks" separated by gaps > 1.5s; within a block same voice is kept.
+// If a language has multiple voices for a gender, alternates between them for
+// different perceived speakers.
+function assignSegmentVoices(segments, detectedGenders, voicePool) {
+  const assigned = [];
+  const speakerVoiceMap = { female: [], male: [] };
+  let prevGender = null;
+  let prevEnd    = -999;
+  const genderSpeakerIndex = { female: 0, male: 0 };
+  const genderSpeakerCount = { female: 0, male: 0 };
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg    = segments[i];
+    const gender = detectedGenders[i] || 'female';
+    const gap    = Number(seg.start || 0) - prevEnd;
+    const pool   = voicePool[gender] || voicePool.female || ['hi-IN-SwaraNeural'];
+
+    // Decide if this is a new speaker:
+    // new gender → definitely new speaker
+    // same gender but gap > 1.5s → potentially new speaker (cycle voice if pool has multiple)
+    let speakerKey;
+    if (gender !== prevGender) {
+      // Different gender — always a different speaker
+      genderSpeakerCount[gender] = (genderSpeakerCount[gender] || 0) + 1;
+      genderSpeakerIndex[gender] = (genderSpeakerCount[gender] - 1) % pool.length;
+      speakerKey = `${gender}-${genderSpeakerIndex[gender]}`;
+    } else if (gap > 1.5 && pool.length > 1) {
+      // Same gender, long pause, multiple voices available → try alternate voice
+      genderSpeakerCount[gender] = (genderSpeakerCount[gender] || 0) + 1;
+      genderSpeakerIndex[gender] = (genderSpeakerCount[gender] - 1) % pool.length;
+      speakerKey = `${gender}-${genderSpeakerIndex[gender]}`;
+    } else {
+      // Continuation of same speaker
+      speakerKey = `${gender}-${genderSpeakerIndex[gender] || 0}`;
+    }
+
+    if (!speakerVoiceMap[speakerKey]) {
+      speakerVoiceMap[speakerKey] = pool[genderSpeakerIndex[gender] || 0];
+    }
+
+    assigned.push(speakerVoiceMap[speakerKey]);
+    prevGender = gender;
+    prevEnd    = Number(seg.end || seg.start || 0);
+  }
+
+  return assigned;
+}
+
+// ——————————— IPC: Synchronized multi-speaker voice replacement ───────────────
+// Pipeline:
+//   1. Probe source video duration
+//   2. Detect speaker gender for every Whisper segment (FFmpeg frequency analysis)
+//   3. Assign per-segment EdgeTTS voice from the language voice pool
+//   4. Generate TTS MP3 per segment
+//   5. Mix all TTS clips at their exact timestamps into a single audio track
+//   6. Mux new audio into original video (copy video stream – no re-encode)
+ipcMain.handle('export-synced-translated-video', async (event, opts) => {
+  const { videoPath, segments, voice, outputName, targetLanguage } = opts || {};
+  if (!videoPath || !Array.isArray(segments) || !segments.length)
+    return { ok: false, error: 'videoPath and segments are required.' };
+  if (!fs.existsSync(videoPath))
+    return { ok: false, error: `Source video not found: ${videoPath}` };
+
+  const ffmpeg   = findMyExporterFFmpeg();
+  const { spawn } = require('child_process');
+  const workDir  = fs.mkdtempSync(path.join(os.tmpdir(), 'pattan-synced-dub-'));
+
+  // Output next to original file with language tag
+  const srcDir  = path.dirname(videoPath);
+  const srcBase = path.basename(videoPath, path.extname(videoPath));
+  const langTag = String(targetLanguage || 'dubbed').replace(/[^a-z0-9]/gi, '-');
+  const outputPath = path.join(srcDir, `${srcBase}-${langTag}-voice.mp4`);
+
+  const send = (pct, phase) => {
+    try { event.sender.send('translate-dub-progress', { pct, phase }); } catch (_) {}
+  };
+
+  try {
+    // STEP 1: Probe duration
+    send(3, 'Reading source video…');
+    const meta          = myExporterProbePath(videoPath);
+    const totalDuration = meta.duration || 300;
+
+    // STEP 2: Detect gender per segment
+    send(8, `Detecting speakers in ${segments.length} segments…`);
+    const voicePool      = MY_EXPORTER_VOICE_POOL[voice] || { female: [voice || 'hi-IN-SwaraNeural'], male: ['hi-IN-MadhurNeural'] };
+    const detectedGenders = segments.map((seg, i) => {
+      const dur = Number(seg.end || 0) - Number(seg.start || 0);
+      return detectSegmentGender(ffmpeg, videoPath, Number(seg.start || 0), dur);
+    });
+
+    // Count unique speaker genders found
+    const uniqueGenders = [...new Set(detectedGenders)];
+    send(15, `Detected ${uniqueGenders.length} speaker type(s): ${uniqueGenders.join(', ')}`);
+
+    // STEP 3: Assign per-segment voices
+    const segmentVoices = assignSegmentVoices(segments, detectedGenders, voicePool);
+
+    // STEP 4: Generate TTS MP3 per segment
+    const clipPaths = [];
+    for (let i = 0; i < segments.length; i++) {
+      const seg  = segments[i];
+      const text = String(seg.translatedText || seg.text || '').trim();
+      if (!text) continue;
+
+      const segVoice = segmentVoices[i] || voice || 'hi-IN-SwaraNeural';
+      send(
+        Math.round(18 + (i / segments.length) * 42),
+        `Generating ${detectedGenders[i]} voice for segment ${i + 1}/${segments.length}…`
+      );
+
+      const clipPath = path.join(workDir, `clip_${String(i).padStart(4, '0')}.mp3`);
+      const ttsResp  = await postJsonForBuffer(8427, '/api/preview-mp3', {
+        text,
+        voice: segVoice,
+        rate:  '+0%',
+        pitch: '+0Hz',
+      }, 90000);
+
+      if (!ttsResp || ttsResp.statusCode < 200 || ttsResp.statusCode >= 300)
+        throw new Error(`EdgeTTS returned HTTP ${ttsResp?.statusCode || 'no response'} for segment ${i + 1} (voice: ${segVoice}).`);
+
+      fs.writeFileSync(clipPath, ttsResp.buffer);
+      clipPaths.push({ path: clipPath, startSec: Number(seg.start || 0) });
+    }
+
+    if (!clipPaths.length) throw new Error('No TTS audio was generated — check that translated segments have text.');
+
+    // STEP 5: Mix TTS clips into one full-length audio track
+    // Write filter to FILE to avoid Windows 32,767-char CLI limit (ENAMETOOLONG)
+    send(63, 'Mixing dubbed audio track with all speaker voices...');
+
+    const mixedAudio       = path.join(workDir, 'dubbed_audio.aac');
+    const filterScriptPath = path.join(workDir, 'mix_filter.txt');
+    const mixInputArgs     = ['-f', 'lavfi', '-t', String(totalDuration), '-i', 'anullsrc=r=44100:cl=stereo'];
+    for (const clip of clipPaths) mixInputArgs.push('-i', clip.path);
+
+    const mixFilterParts = [`[0:a]apad=whole_dur=${totalDuration}[base]`];
+    for (let i = 0; i < clipPaths.length; i++) {
+      const delayMs = Math.round(clipPaths[i].startSec * 1000);
+      mixFilterParts.push(`[${i + 1}:a]adelay=${delayMs}|${delayMs}[c${i}]`);
+    }
+    const mixLabels = ['[base]', ...clipPaths.map((_, i) => `[c${i}]`)].join('');
+    mixFilterParts.push(`${mixLabels}amix=inputs=${clipPaths.length + 1}:normalize=0,atrim=end=${totalDuration}[aout]`);
+
+    // Write filter graph to disk — sidesteps Windows command-line length limit entirely
+    fs.writeFileSync(filterScriptPath, mixFilterParts.join(';\n'), 'utf8');
+
+    await new Promise((resolve, reject) => {
+      const proc = spawn(ffmpeg, [
+        '-y', ...mixInputArgs,
+        '-filter_complex_script', filterScriptPath,
+        '-map', '[aout]', '-c:a', 'aac', '-b:a', '192k', '-t', String(totalDuration),
+        mixedAudio,
+      ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+      let stderr = '';
+      proc.stderr.on('data', c => { stderr = (stderr + c.toString()).slice(-8000); });
+      proc.on('error', reject);
+      proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Audio mix failed (${code}): ${stderr.slice(-400)}`)));
+    });
+
+    // STEP 6: Mux new audio into original video — NO video re-encode
+    send(84, 'Muxing dubbed audio into original video…');
+
+    await new Promise((resolve, reject) => {
+      const proc = spawn(ffmpeg, [
+        '-y',
+        '-i', videoPath,
+        '-i', mixedAudio,
+        '-map', '0:v',
+        '-map', '1:a',
+        '-c:v', 'copy',
+        '-c:a', 'copy',
+        '-t', String(totalDuration),
+        outputPath,
+      ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+      let stderr = '';
+      proc.stderr.on('data', c => { stderr = (stderr + c.toString()).slice(-8000); });
+      proc.on('error', reject);
+      proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Video mux failed (${code}): ${stderr.slice(-400)}`)));
+    });
+
+    if (!fs.existsSync(outputPath)) throw new Error('Output file was not created by FFmpeg.');
+
+    const speakerSummary = uniqueGenders.map(g => {
+      const pool = voicePool[g] || [];
+      return `${g} (${pool.slice(0, 2).join(', ')})`;
+    }).join(' + ');
+    send(100, `Done! ${uniqueGenders.length} speaker voice(s) used: ${speakerSummary} → ${path.basename(outputPath)}`);
+    return { ok: true, outputPath };
+
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
+  }
+});
+
+ipcMain.handle('my-exporter-cancel', async (event, opts) => {
+  const jobId = opts?.jobId;
+  if (jobId) {
+    const proc = myExporterProcesses.get(jobId);
+    if (proc) {
+      try { proc.kill('SIGTERM'); } catch (_) {}
+      myExporterProcesses.delete(jobId);
+      return { ok: true, cancelled: true };
+    }
+    return { ok: true, cancelled: false };
+  } else {
+    let killed = false;
+    for (const [id, proc] of myExporterProcesses.entries()) {
+      try { proc.kill('SIGTERM'); } catch (_) {}
+      killed = true;
+    }
+    myExporterProcesses.clear();
+    return { ok: true, cancelled: killed };
+  }
+});
+
+ipcMain.handle('my-exporter-delete-project', async (_event, opts) => {
+  const filePath = path.resolve(String(opts?.filePath || ''));
+  if (!filePath.toLowerCase().endsWith('.pattanproject')) return { ok: false, error: 'Only Pattan project files can be deleted here.' };
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    return { ok: true, filePath };
+  } catch (error) { return { ok: false, error: error.message }; }
+});

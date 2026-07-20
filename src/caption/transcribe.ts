@@ -12,6 +12,14 @@ interface HFResponse {
 const CAPTION_SILENCE_GAP_SECONDS = 0.75;
 const INDIC_CAPTION_CODES = new Set(['te', 'hi', 'ta', 'ur', 'ar']);
 
+function normalizeNurseryCaptionText(value: string): string {
+  return String(value || '').replace(/\b(?:horsen|hors)\b/gi, (word) => {
+    if (word === word.toUpperCase()) return 'HORSE';
+    if (word[0] === word[0]?.toUpperCase()) return 'Horse';
+    return 'horse';
+  });
+}
+
 function getLanguageCode(language: Language): string | undefined {
   if (language === 'Auto-Detect') return undefined;
   const code = LANG_CODE[language];
@@ -25,7 +33,7 @@ function getLanguageName(codeOrName: string | undefined, fallback = 'Auto-Detect
 }
 
 function buildCaptionChunksFromTranslatedText(text: string, start: number, end: number, maxWords: number): CaptionItem[] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
+  const words = normalizeNurseryCaptionText(text).trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const duration = Math.max(0.3, end - start);
   const step = duration / Math.max(1, words.length);
@@ -61,6 +69,49 @@ function captionsFromLocalSegments(segments: any[], maxWords: number): CaptionIt
   return out;
 }
 
+function processLocalWhisperResult(result: any, language: Language, maxWords: number): { captions: CaptionItem[]; detectedLang: string; detectedCode?: string } {
+  const targetCode = getLanguageCode(language);
+  const resultText = [
+    String(result?.text || ''),
+    ...(Array.isArray(result?.segments) ? result.segments.map((s: any) => String(s?.text || '')) : []),
+  ].join(' ');
+  if (isCaptionRepetitionLoop(resultText)) throw new Error('Local Whisper produced a repeated caption loop.');
+  const detectedCode = inferLangFromScript(resultText)
+    || normalizeLangCode(result?.language)
+    || (language !== 'Auto-Detect' ? targetCode : undefined);
+  const detectedLang = getLanguageName(detectedCode, language === 'Auto-Detect' ? 'Auto-Detect' : language);
+  let captions: CaptionItem[] = [];
+  if (Array.isArray(result?.words) && result.words.length > 0) {
+    const chunks = result.words.map((w: any) => ({
+      text: normalizeNurseryCaptionText(String(w.word || w.text || '').trim()),
+      timestamp: [Number(w.start ?? 0), Number(w.end ?? (Number(w.start ?? 0) + 0.3))] as [number, number],
+    })).filter((w: HFChunk) => w.text);
+    captions = groupIntoSentences(chunks, maxWords);
+  }
+  if (!captions.length && Array.isArray(result?.segments)) captions = captionsFromLocalSegments(result.segments, maxWords);
+  if (!captions.length && String(result?.text || '').trim()) captions = buildFromText(normalizeNurseryCaptionText(String(result.text)), maxWords);
+  if (!captions.length) throw new Error('Local Whisper returned no speech');
+  if (isCaptionRepetitionLoop(captions.map(c => c.text).join(' '))) throw new Error('Local Whisper produced repeated captions.');
+  return { captions, detectedLang, detectedCode };
+}
+
+export async function transcribeLocalMediaPath(
+  filePath: string,
+  language: Language,
+  maxWords: number,
+  onProgress: (msg: string, pct: number) => void,
+): Promise<{ captions: CaptionItem[]; detectedLang: string; detectedCode?: string }> {
+  const api = typeof window !== 'undefined' ? (window as any).electronAPI : null;
+  if (!api?.transcribeVideo) throw new Error('Caption Burner local transcription service is unavailable.');
+  const targetCode = getLanguageCode(language);
+  onProgress(`Caption Burner local AI: detecting and transcribing${targetCode ? ` (${language})` : ''}...`, 8);
+  const result = await api.transcribeVideo({ videoPath: filePath, languageHint: targetCode || 'auto' });
+  if (!result?.ok) throw new Error(String(result?.error || 'Caption Burner local transcription failed'));
+  const processed = processLocalWhisperResult(result, language, maxWords);
+  onProgress(`Caption Burner captions ready · ${processed.detectedLang}`, 97);
+  return processed;
+}
+
 async function transcribeWithLocalWhisper(
   file: File,
   language: Language,
@@ -89,46 +140,7 @@ async function transcribeWithLocalWhisper(
     throw new Error(String(result?.error || 'Local Whisper transcription failed'));
   }
 
-  const resultText = [
-    String(result.text || ''),
-    ...(Array.isArray(result.segments) ? result.segments.map((s: any) => String(s?.text || '')) : []),
-  ].join(' ');
-  if (isCaptionRepetitionLoop(resultText)) {
-    throw new Error('Local Whisper produced a repeated caption loop. Retrying with fallback transcription.');
-  }
-  // Script detection is more reliable than stale/incorrect engine metadata for
-  // the scripts supported by Caption Burner.
-  const detectedCode = inferLangFromScript(resultText)
-    || normalizeLangCode(result.language)
-    || (language !== 'Auto-Detect' ? targetCode : undefined);
-  const detectedLang = getLanguageName(detectedCode, language === 'Auto-Detect' ? 'Auto-Detect' : language);
-
-  let captions: CaptionItem[] = [];
-  if (Array.isArray(result.words) && result.words.length > 0) {
-    const chunks = result.words.map((w: any) => ({
-      text: String(w.word || w.text || '').trim(),
-      timestamp: [Number(w.start ?? 0), Number(w.end ?? (Number(w.start ?? 0) + 0.3))] as [number, number],
-    })).filter((w: HFChunk) => w.text);
-    captions = groupIntoSentences(chunks, maxWords);
-  }
-
-  if (!captions.length && Array.isArray(result.segments)) {
-    captions = captionsFromLocalSegments(result.segments, maxWords);
-  }
-
-  if (!captions.length && String(result.text || '').trim()) {
-    captions = buildFromText(String(result.text), maxWords);
-  }
-
-  if (!captions.length) {
-    throw new Error('Local Whisper returned no speech');
-  }
-
-  if (isCaptionRepetitionLoop(captions.map(c => c.text).join(' '))) {
-    throw new Error('Local Whisper produced repeated captions. Retrying with fallback transcription.');
-  }
-
-  return { captions, detectedLang, detectedCode };
+  return processLocalWhisperResult(result, language, maxWords);
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -783,9 +795,9 @@ async function callWhisper(
 
   const out: HFResponse = { text: json.text, language: json.language };
   if (json.words && json.words.length > 0) {
-    out.chunks = json.words.map((w: any) => ({ text: w.word, timestamp: [w.start, w.end] }));
+    out.chunks = json.words.map((w: any) => ({ text: normalizeNurseryCaptionText(w.word), timestamp: [w.start, w.end] }));
   } else if (json.segments && json.segments.length > 0) {
-    out.chunks = json.segments.map((s: any) => ({ text: s.text, timestamp: [s.start, s.end] }));
+    out.chunks = json.segments.map((s: any) => ({ text: normalizeNurseryCaptionText(s.text), timestamp: [s.start, s.end] }));
   }
   return out;
 }
@@ -802,7 +814,7 @@ async function transcribeChunk(
   console.log('[CB] word result: chunks=', result.chunks?.length ?? 0, 'text=', result.text?.slice(0,60));
   if (result.chunks && result.chunks.length > 0) {
     const shifted = result.chunks.map(c => ({
-      text: c.text,
+      text: normalizeNurseryCaptionText(c.text),
       timestamp: [
         (c.timestamp[0] ?? 0) + timeOffset,
         ((c.timestamp[1] ?? (c.timestamp[0] ?? 0) + 0.3)) + timeOffset,
@@ -816,7 +828,7 @@ async function transcribeChunk(
   console.log('[CB] segment result: chunks=', result.chunks?.length ?? 0, 'text=', result.text?.slice(0,60));
   if (result.chunks && result.chunks.length > 0) {
     const shifted = result.chunks.map(c => ({
-      text: c.text,
+      text: normalizeNurseryCaptionText(c.text),
       timestamp: [
         (c.timestamp[0] ?? 0) + timeOffset,
         ((c.timestamp[1] ?? (c.timestamp[0] ?? 0) + 2)) + timeOffset,
@@ -828,7 +840,7 @@ async function transcribeChunk(
   // Try 3: no timestamps — plain text
   result = await callWhisper(chunk, token, langCode, 'none', 0, signal, contextPrompt);
   console.log('[CB] none result: text=', result.text?.slice(0,60));
-  const txt = result.text?.trim() ?? '';
+  const txt = normalizeNurseryCaptionText(result.text?.trim() ?? '');
   if (txt) {
     return buildFromText(txt, maxWords).map(cap => ({
       ...cap, start: cap.start + timeOffset, end: cap.end + timeOffset,

@@ -65,6 +65,11 @@
   font-family: system-ui, sans-serif;
 }
 
+.tdub-nav-button:hover {
+  color: #f3f0e8;
+  background: rgba(255, 255, 255, 0.045);
+}
+
 .tdub-nav-button.is-active {
   color: #fff;
   background: linear-gradient(135deg, #0f766e, #2563eb);
@@ -133,6 +138,20 @@
   gap: 8px;
   margin-top: 10px;
 }
+
+.tdub-model-row {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 9px;
+  background: rgba(15, 35, 58, 0.55);
+}
+
+.tdub-model-row label { color: #bfdbfe; font-size: 12px; font-weight: 800; }
+.tdub-model-row select { min-height: 38px; padding: 0 10px; border: 1px solid rgba(96, 165, 250, 0.35); border-radius: 7px; background: #0d141f; color: #eef6ff; }
+.tdub-model-row small { color: #7f8da2; font-size: 10px; }
 
 .tdub-lang {
   min-height: 42px;

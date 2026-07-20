@@ -474,6 +474,30 @@ function Get-FFprobePath {
   throw "FFprobe is not installed on this machine."
 }
 
+function Get-MediaDurationSeconds {
+  param([string]$MediaPath)
+  if ([string]::IsNullOrWhiteSpace($MediaPath) -or -not (Test-Path $MediaPath)) { return 0.0 }
+  try {
+    $raw = & (Get-FFprobePath) -v error -show_entries format=duration -of "default=noprint_wrappers=1:nokey=1" $MediaPath 2>$null
+    $value = 0.0
+    if ([double]::TryParse(([string]$raw).Trim(), [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$value)) {
+      return $value
+    }
+  } catch {
+  }
+  return 0.0
+}
+
+function Write-MuxDebugLog {
+  param([string]$Message)
+  try {
+    $logDir = Join-Path $PSScriptRoot "logs"
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+    Add-Content -LiteralPath (Join-Path $logDir "presentation-mux-debug.log") -Value ((Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff") + " " + $Message) -Encoding UTF8
+  } catch {
+  }
+}
+
 function Get-VideoDimensions {
   param([string]$VideoPath)
 
@@ -1179,6 +1203,19 @@ function Handle-Request {
       if ($session.VideoPaths -and $session.VideoPaths.Count -gt 1) {
         $joinedVideoPath = Join-VideoSegments -VideoPaths $session.VideoPaths -Metadata $metadata
         $videoInputPath = $joinedVideoPath
+      }
+      $strictVisualSync = $metadata -and $metadata.PSObject.Properties.Name -contains "strictVisualSync" -and [bool]$metadata.strictVisualSync
+      if ($strictVisualSync) {
+        $targetSeconds = if ($metadata.PSObject.Properties.Name -contains "targetDurationMs") { [double]$metadata.targetDurationMs / 1000.0 } else { 0.0 }
+        $reportedVideoSeconds = if ($metadata.PSObject.Properties.Name -contains "recordedVideoDurationMs") { [double]$metadata.recordedVideoDurationMs / 1000.0 } else { 0.0 }
+        $probedVideoSeconds = Get-MediaDurationSeconds -MediaPath $videoInputPath
+        $videoSeconds = if ($probedVideoSeconds -gt 0) { $probedVideoSeconds } else { $reportedVideoSeconds }
+        $allowedTailSeconds = if ($metadata.PSObject.Properties.Name -contains "holdLastFrameMs") { [Math]::Max(0.25, [double]$metadata.holdLastFrameMs / 1000.0) } else { 0.25 }
+        if ($targetSeconds -gt 0 -and $videoSeconds -gt 0 -and ($videoSeconds + $allowedTailSeconds) -lt $targetSeconds) {
+          $detail = "Rejecting short presentation visuals. video=$([Math]::Round($videoSeconds, 3)) sec target=$([Math]::Round($targetSeconds, 3)) sec allowedTailPad=$([Math]::Round($allowedTailSeconds, 3)) sec videoPath=$videoInputPath audioPath=$($session.AudioPath)"
+          Write-MuxDebugLog -Message $detail
+          throw "The recorded presentation visuals ended early ($([Math]::Round($videoSeconds, 3))s for a $([Math]::Round($targetSeconds, 3))s narration). Export was stopped to prevent an inaccurate video."
+        }
       }
       $muxedVideoPath = Invoke-VideoMux `
         -VideoPath $videoInputPath `

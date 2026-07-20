@@ -17,7 +17,7 @@ function isImageReady(img) {
 var avatarConfig = {x: 35, y: 35, w: 0, h: 0, scale: 0.85, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 var logoConfig = {x: 1620, y: 920, w: 0, h: 0, scale: 0.54, initialized: false, dragging: false, dragOffX: 0, dragOffY: 0};
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Burned-in caption overlay Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Burned-in caption overlay ────────────────────────────────────────────────
 var captionConfig = {
   x: 60, y: 910, w: 1840, h: 100,
   dragging: false, dragOffX: 0, dragOffY: 0, hovered: false,
@@ -230,7 +230,7 @@ const narrationHealthStatus = document.getElementById("narrationHealthStatus");
 const anjaliCloneHealthStatus = document.getElementById("anjaliCloneHealthStatus");
 const transcribeHealthStatus = document.getElementById("transcribeHealthStatus");
 const videoExportHealthStatus = document.getElementById("videoExportHealthStatus");
-// SC3 Singing server status Ã¢â‚¬â€ injected dynamically if element missing in built HTML
+// SC3 Singing server status — injected dynamically if element missing in built HTML
 let sc3SingingHealthStatus = document.getElementById("sc3SingingHealthStatus");
 if (!sc3SingingHealthStatus && videoExportHealthStatus) {
   sc3SingingHealthStatus = document.createElement("p");
@@ -696,7 +696,7 @@ _BACKDROP_REGISTRY['rainbow-garden'] = function() {
 
 
 // Central classroom-voice tuning keeps pronunciation behavior easy to adjust later.
-const NARRATION_STYLE_PROMPT = "You are a fast, energetic Indian female teacher on an educational kids channel Ã¢â‚¬â€ like Info Kids. Speak quickly and clearly. Introduce each word or concept with excitement, then give the definition immediately with no delay. Keep the energy high and continuous. No long pauses. Sound enthusiastic and friendly like a YouTube kids educator.";
+const NARRATION_STYLE_PROMPT = "You are a fast, energetic Indian female teacher on an educational kids channel — like Info Kids. Speak quickly and clearly. Introduce each word or concept with excitement, then give the definition immediately with no delay. Keep the energy high and continuous. No long pauses. Sound enthusiastic and friendly like a YouTube kids educator.";
 const NARRATION_STYLE_CONFIG = Object.freeze({
   locale: "en-IN",
   accent: "indian-female-english",
@@ -820,7 +820,7 @@ const SEGMENTED_EXPORT_THRESHOLD_MS = 75 * 1000;
 const EXPORT_SEGMENT_TARGET_DURATION_MS = 25 * 1000;
 const MUX_CHUNK_UPLOAD_THRESHOLD_BYTES = 96 * 1024 * 1024;
 const MUX_CHUNK_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
-const STRICT_INTER_WORD_PAUSE_MS = 100;   // tight Ã¢â‚¬â€ Edge TTS natural prosody handles rhythm
+const STRICT_INTER_WORD_PAUSE_MS = 100;   // tight — Edge TTS natural prosody handles rhythm
 const STRICT_SENTENCE_PAUSE_MS = 1200;     // short natural breath between sentences
 const STRICT_SOFT_SENTENCE_PAUSE_MS = 600;
 const STRICT_HEADING_PAUSE_MS = 1500;
@@ -829,12 +829,12 @@ const DEFAULT_INTRO_TO_LESSON_DELAY_MS = 2500;
 const DEFAULT_INTRO_POSTER_DURATION_MS = 5000;
 const STAGE_VIDEO_START_DELAY_MS = 1200;
 const STRICT_AUTOPLAY_RECOVERY_MS = 600;
-const STRICT_VOICE_VOLUME = 1.0;           // full volume Ã¢â‚¬â€ louder, clearer Indian female voice
+const STRICT_VOICE_VOLUME = 1.0;           // full volume — louder, clearer Indian female voice
 const STRICT_BACKGROUND_MUSIC_VOLUME = 0.15; // softer bg music so voice cuts through
 const LIVE_SCENE_RENDER_FPS = 60;   // 60fps during narration for butter-smooth animation
 const IDLE_SCENE_RENDER_FPS = 10;   // Throttle when idle to save CPU/GPU
 const EXPORT_SCENE_RENDER_FPS = 30; // 30fps export (broadcast standard)
-const NARRATION_CHUNK_JOIN_GAP_MS = 80;   // was 800 Ã¢â‚¬â€ that 800ms freeze WAS the "stuck first word"
+const NARRATION_CHUNK_JOIN_GAP_MS = 80;   // was 800 — that 800ms freeze WAS the "stuck first word"
 const ENABLE_PREPARED_LESSON_EXPORT = false;
 const SCENE_RENDER_MOUTH_DELTA = 0.025; // More sensitive mouth tracking at 60fps
 const NARRATION_CHUNK_FADE_MS = 32;
@@ -897,29 +897,29 @@ const MATHS_SUMS_TEMPLATE = `# Mixed Maths Sums
 15 - 6 = 9.
 
 # Multiply
-2 Ãƒâ€” 2 = 4.
-2 Ãƒâ€” 5 = 10.
-3 Ãƒâ€” 4 = 12.
-4 Ãƒâ€” 6 = 24.
-5 Ãƒâ€” 3 = 15.
+2 × 2 = 4.
+2 × 5 = 10.
+3 × 4 = 12.
+4 × 6 = 24.
+5 × 3 = 15.
 
 # Divide
-8 ÃƒÂ· 2 = 4.
-12 ÃƒÂ· 3 = 4.
-18 ÃƒÂ· 6 = 3.
-20 ÃƒÂ· 5 = 4.
+8 ÷ 2 = 4.
+12 ÷ 3 = 4.
+18 ÷ 6 = 3.
+20 ÷ 5 = 4.
 
 # Word Problems
 Ria has 2 bags with 4 apples each.
-2 Ãƒâ€” 4 = 8 apples.
+2 × 4 = 8 apples.
 
 There are 10 sweets and 5 children.
-10 ÃƒÂ· 5 = 2 sweets each.`;
+10 ÷ 5 = 2 sweets each.`;
 
 function buildSingleTimesTable(multiplier, maxFactor = 10) {
   const lines = [`# Table Of ${multiplier}`];
   for (let factor = 1; factor <= maxFactor; factor += 1) {
-    lines.push(`${multiplier} Ãƒâ€” ${factor} = ${multiplier * factor}.`);
+    lines.push(`${multiplier} × ${factor} = ${multiplier * factor}.`);
   }
   return lines.join("\n");
 }
@@ -1045,7 +1045,7 @@ const SPOKEN_TERM_REPLACEMENTS = Object.freeze([
   Object.freeze({ pattern: /&/g, replacement: " and " }),
   Object.freeze({ pattern: /\u2192/g, replacement: " to " }),
   Object.freeze({ pattern: /_{2,}/g, replacement: " blank " }),
-  Object.freeze({ pattern: /Ã¢â€šÂ¹/g, replacement: " rupees " })
+  Object.freeze({ pattern: /₹/g, replacement: " rupees " })
 ]);
 const ORDINAL_WORD_MAP = Object.freeze({
   1: "first",
@@ -1108,7 +1108,7 @@ const state = {
   anjaliCloneServerUrl: "http://127.0.0.1:8426",
   hindiServerUrl: "http://127.0.0.1:8432",
   teluguServerUrl: "http://127.0.0.1:8433",
-  anjaliCloneServerReady: true,  // Edge TTS is a cloud API Ã¢â‚¬â€ always ready instantly, no warmup needed
+  anjaliCloneServerReady: true,  // Edge TTS is a cloud API — always ready instantly, no warmup needed
   transcribeServerUrl: "http://127.0.0.1:8428",
   transcribeServerReady: false,
   videoExportServerUrl: "http://127.0.0.1:8430",
@@ -1758,7 +1758,7 @@ function setIntroPosterStatus(message) {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Poster thumbnail preview with remove (X) button Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Poster thumbnail preview with remove (X) button ──────────────────────────
 function updatePosterThumbnailUi() {
   const container = document.getElementById("introPosterThumbnailWrap");
   if (!container) {
@@ -2548,7 +2548,7 @@ function updateStagePageUi(currentPageIndex = 0, totalPageCount = 1) {
 
   if (pageIndicator) {
     pageIndicator.textContent = currentPdfPage
-      ? `Selected ${safeIndex + 1} / ${safeTotal} | PDF ${currentPdfPage.sourcePageNumber || currentPdfPage.pageNumber}${currentPdfPage.totalParts > 1 ? ` Ã¢â‚¬Â¢ Part ${currentPdfPage.partIndex + 1}/${currentPdfPage.totalParts}` : ""}`
+      ? `Selected ${safeIndex + 1} / ${safeTotal} | PDF ${currentPdfPage.sourcePageNumber || currentPdfPage.pageNumber}${currentPdfPage.totalParts > 1 ? ` • Part ${currentPdfPage.partIndex + 1}/${currentPdfPage.totalParts}` : ""}`
       : `Page ${safeIndex + 1} / ${safeTotal}`;
   }
 
@@ -3128,7 +3128,7 @@ function getSupportedVideoMimeType(includeAudioCodecs = false) {
 
 function createExportMediaRecorder(stream, videoBitsPerSecond) {
   const hasAudioTrack = Boolean(stream?.getAudioTracks?.().length);
-  // Bitrate clamped to 20 Mbps max Ã¢â‚¬â€ broadcast quality, stable in browser memory.
+  // Bitrate clamped to 20 Mbps max — broadcast quality, stable in browser memory.
   // 120 Mbps was crashing the browser by exhausting RAM buffering MediaRecorder chunks.
   const safeBitrate = Math.min(Math.max(videoBitsPerSecond || 8000000, 8000000), 20000000);
   const candidateMimeTypes = hasAudioTrack
@@ -3386,7 +3386,7 @@ function applyHighQualityImageRendering(targetContext, forExport = false) {
   }
   targetContext.imageSmoothingEnabled = true;
   if ("imageSmoothingQuality" in targetContext) {
-    // Use 'high' quality only during export Ã¢â‚¬â€ 'medium' is visually indistinguishable
+    // Use 'high' quality only during export — 'medium' is visually indistinguishable
     // in the live preview canvas but saves ~30% GPU time per frame.
     targetContext.imageSmoothingQuality = forExport ? "high" : "medium";
   }
@@ -3445,7 +3445,7 @@ function loadImageElementSource(element, source) {
 }
 
 async function triggerFileDownload(blob, fileName) {
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Electron: use native OS Save dialog + direct disk write Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Electron: use native OS Save dialog + direct disk write ──────────────
   if (window.electronAPI?.isElectron) {
     try {
       const extension = String(fileName || "").split(".").pop()?.toLowerCase() || "";
@@ -3491,7 +3491,7 @@ async function triggerFileDownload(blob, fileName) {
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Browser fallback: anchor click download Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Browser fallback: anchor click download ───────────────────────────────
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -3777,7 +3777,7 @@ function splitIntoLines(text) {
   const smartText = normalizedText
     .replace(/(?<!\n)\n(?!\n)/g, (match, offset, string) => {
       const nextSegment = string.substring(offset + 1).trimStart();
-      if (/^(?:=>|[Ã¢â‚¬Â¢*-]\s|#+|[0-9]+\.)/.test(nextSegment)) {
+      if (/^(?:=>|[•*-]\s|#+|[0-9]+\.)/.test(nextSegment)) {
         return "\n";
       }
       return " ";
@@ -4004,7 +4004,7 @@ function normalizeNarrationSourceText(text = "") {
   return String(text || "")
     .replace(/\bRs\.?\s*(?=\d)/gi, "rupees ")
     .replace(/\bINR\s*(?=\d)/gi, "rupees ")
-    .replace(/Ã¢â€šÂ¹\s*/g, "rupees ")
+    .replace(/₹\s*/g, "rupees ")
     .replace(/\bNo\.?\s*(\d+)/gi, "number $1")
     .replace(/\bQ(?:uestion)?\.?\s*(\d+)/gi, "question $1")
     .replace(/\bAns\.?\b/gi, "answer")
@@ -4061,7 +4061,7 @@ function verbalizeMathForSpeech(text) {
       .replace(/%/g, " ")
       .replace(/\^/g, " ")
       .replace(/\u221A/g, " ")
-      // NOTE: colon (:) intentionally NOT removed here Ã¢â‚¬â€ it must reach the
+      // NOTE: colon (:) intentionally NOT removed here — it must reach the
       // anjali-chatterbox-server so the Python synthesize() can split on it
       // and insert 800ms PCM silence. Edge TTS handles the colon naturally.
       .replace(/\(/g, " ")
@@ -4128,9 +4128,9 @@ function buildDisplayedLines(text) {
   return splitIntoLines(text);
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Full shortcut/abbreviation expansion Ã¢â‚¬â€ NOTHING goes to TTS unexpanded Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Full shortcut/abbreviation expansion — NOTHING goes to TTS unexpanded ───
 const NARRATION_SHORTCUT_MAP = [
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Chat / social-media shortforms Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Chat / social-media shortforms ──────────────────────────────────────
   [/\bu\b/gi,              'you'],
   [/\bur\b/gi,             'your'],
   [/\bU\b/g,               'you'],
@@ -4154,7 +4154,7 @@ const NARRATION_SHORTCUT_MAP = [
   [/\biow\b/gi,            'in other words'],
   [/\bnb\b/gi,             'note well'],
   [/\bps\b/gi,             'postscript'],
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Common English abbreviations Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Common English abbreviations ─────────────────────────────────────────
   [/\beg\.?\b/gi,          'for example'],
   [/\bie\.?\b/gi,          'that is'],
   [/\betc\.?\b/gi,         'and so on'],
@@ -4214,7 +4214,7 @@ const NARRATION_SHORTCUT_MAP = [
   [/\bmr\.?\b/gi,          'mister'],
   [/\bmrs\.?\b/gi,         'missis'],
   [/\bms\.?\b/gi,          'miss'],
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Subject / academic abbreviations Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Subject / academic abbreviations ────────────────────────────────────
   [/\bLHS\b/g,             'left hand side'],
   [/\bRHS\b/g,             'right hand side'],
   [/\bHCF\b/g,             'highest common factor'],
@@ -4224,7 +4224,7 @@ const NARRATION_SHORTCUT_MAP = [
   [/\bPEMDAS\b/g,          'order of operations'],
   [/\bBODMAS\b/g,          'order of operations'],
   [/\bmrp\b/gi,            'M R P'],
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Symbol / special character expansions Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Symbol / special character expansions ────────────────────────────────
   [/&/g,                   ' and '],
   [/\u2192/g,              ' to '],
   [/\u2190/g,              ' from '],
@@ -4257,21 +4257,21 @@ function expandNarrationShortcuts(text) {
 }
 
 function injectSentencePauses(text) {
-  // Edge TTS handles pauses naturally from punctuation Ã¢â‚¬â€ no injected words needed.
+  // Edge TTS handles pauses naturally from punctuation — no injected words needed.
   // (The old 'Pause.' injection was for Chatterbox prosody only.)
   return text.trim();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Teacher pacing: comma every 5 words Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-// ChatterboxTurbo pauses naturally at commas Ã¢â‚¬â€ this makes Anjali sound like a
+// ── Teacher pacing: comma every 5 words ──────────────────────────────────────
+// ChatterboxTurbo pauses naturally at commas — this makes Anjali sound like a
 // teacher explaining step-by-step, not rushing like a radio jockey.
-// Short chunks (Ã¢â€°Â¤5 words, e.g. glossary keys) are left completely untouched.
+// Short chunks (≤5 words, e.g. glossary keys) are left completely untouched.
 function injectTeacherPauses(text, wordsPerPause = 8) {  // Info Kids: fewer commas = faster flow
   const safeText = String(text || "").trim();
   if (!safeText) return safeText;
 
   const words = safeText.split(/\s+/).filter(Boolean);
-  if (words.length <= wordsPerPause) return safeText; // too short Ã¢â‚¬â€ don't touch
+  if (words.length <= wordsPerPause) return safeText; // too short — don't touch
 
   const result = [];
   let wordsSincePause = 0;
@@ -4285,7 +4285,7 @@ function injectTeacherPauses(text, wordsPerPause = 8) {  // Info Kids: fewer com
     wordsSincePause++;
 
     if (endsWithPunct) {
-      // Natural punctuation already signals a pause Ã¢â‚¬â€ reset counter
+      // Natural punctuation already signals a pause — reset counter
       wordsSincePause = 0;
     } else if (!isLast && wordsSincePause >= wordsPerPause) {
       // Inject teacher pause comma after every 5th word
@@ -4304,13 +4304,13 @@ function buildNarrationLine(line = "") {
     return "";
   }
 
-  // 1. Expand informal shortcuts Ã¢â€ â€™ full proper words
+  // 1. Expand informal shortcuts → full proper words
   const expanded = expandNarrationShortcuts(trimmed);
 
   // 2. Verbalize maths symbols for speech
   const spokenLine = verbalizeMathForSpeech(expanded);
 
-  // 3. Inject teacher pauses Ã¢â‚¬â€ comma every 5 words so Anjali breathes naturally
+  // 3. Inject teacher pauses — comma every 5 words so Anjali breathes naturally
   //    while explaining, like a classroom teacher not a radio jockey
   const pacedLine = injectTeacherPauses(spokenLine);
 
@@ -4371,9 +4371,9 @@ function getGlossaryNarrationChunkEntries(text = "") {
       return null;
     }
 
-    // No '=' Ã¢â‚¬â€ verbalized as 'equals.' on a short word causes ChatterboxTurbo to
-    // do an articulatory rehearsal of the first phoneme Ã¢â€ â€™ doubled/stuttered word.
-    // The 700ms silence gap already signals keyÃ¢â€ â€™value structure.
+    // No '=' — verbalized as 'equals.' on a short word causes ChatterboxTurbo to
+    // do an articulatory rehearsal of the first phoneme → doubled/stuttered word.
+    // The 700ms silence gap already signals key→value structure.
     const termChunk = buildNarrationLine(term);
     const definitionChunk = buildNarrationLine(definition);
     if (!termChunk || !definitionChunk) {
@@ -4390,7 +4390,7 @@ function getGlossaryNarrationChunkEntries(text = "") {
     });
   }
 
-  // Works with 1+ pair Ã¢â‚¬â€ glossary chunking applies to any key=value content
+  // Works with 1+ pair — glossary chunking applies to any key=value content
   return entries.length >= 2 ? entries : null;
 }
 
@@ -4439,7 +4439,7 @@ function splitNarrationTextIntoChunks(narrationText, maxChunkLength = NARRATION_
         const candidate = segment ? `${segment} ${word}` : word;
         if (candidate.length > maxChunkLength && segment) {
           chunks.push(`${segment.trim()}`);
-          // No trailing comma Ã¢â‚¬â€ comma boundary makes ChatterboxTurbo rush/skip the next chunk's first word
+          // No trailing comma — comma boundary makes ChatterboxTurbo rush/skip the next chunk's first word
           segment = word;
         } else {
           segment = candidate;
@@ -4487,8 +4487,8 @@ const DEFAULT_NARRATION_REQUEST_TIMEOUT_MS = 45000;
 const LONG_NARRATION_REQUEST_BASE_TIMEOUT_MS = 60000;
 const LONG_NARRATION_REQUEST_PER_WORD_TIMEOUT_MS = 35;
 const LONG_NARRATION_REQUEST_MAX_TIMEOUT_MS = 600000;
-const ANJALI_CLONE_HEALTH_TIMEOUT_MS = 3000;   // localhost Ã¢â‚¬â€ if no response in 3s it's genuinely down
-const ANJALI_CLONE_HEALTH_GRACE_MS = 120000;   // 2 min grace Ã¢â‚¬â€ one blip never kills playback
+const ANJALI_CLONE_HEALTH_TIMEOUT_MS = 3000;   // localhost — if no response in 3s it's genuinely down
+const ANJALI_CLONE_HEALTH_GRACE_MS = 120000;   // 2 min grace — one blip never kills playback
 const revealWeightCache = new Map();
 const speechSyncProfileCache = new Map();
 
@@ -4566,7 +4566,7 @@ function estimatePauseMsFromText(text = "") {
   const lineBreakCount = (safeText.match(/\n+/g) || []).length;
   return (
     (commaCount * 0)      // Commas flow naturally with Edge TTS; no artificial hold.
-    + (colonCount * 800)  // 800ms per colon  Ã¢â‚¬â€ matches server-side PCM silence
+    + (colonCount * 800)  // 800ms per colon  — matches server-side PCM silence
     + (softPauseCount * STRICT_INTER_WORD_PAUSE_MS)
     + (sentencePauseCount * STRICT_SENTENCE_PAUSE_MS)
     + (lineBreakCount * STRICT_SENTENCE_PAUSE_MS)
@@ -4597,7 +4597,7 @@ function getRevealTokenWeight(token, previousToken = "", nextToken = "") {
     return 3.2;
   }
 
-  if (token === "-" || token === "Ã¢â‚¬â€œ" || token === "Ã¢â‚¬â€") {
+  if (token === "-" || token === "–" || token === "—") {
     return 1.3;
   }
 
@@ -4715,7 +4715,7 @@ function getSpeechSyncTokenSpeechMs(chunkText = "") {
   const headingBoost = /^\s*#{1,3}\s+/i.test(safeChunk) || /^[A-Z][A-Za-z0-9 ,()/-]{0,48}:?\s*$/.test(spokenCore)
     ? 1.18
     : 1;
-  const mathsBoost = /[=+\-xX*/ÃƒÂ·Ãƒâ€”<>Ã¢Ë†Å¡^%]/.test(safeChunk) ? 1.12 : 1;
+  const mathsBoost = /[=+\-xX*/÷×<>√^%]/.test(safeChunk) ? 1.12 : 1;
   const numberBoost = /\d/.test(safeChunk) ? 1.08 : 1;
   const emphasisBoost = /(squared|cubed|root|equals|centimeter|kilometer|meter|decimal|fraction)/i.test(spokenCore)
     ? 1.1
@@ -4744,14 +4744,14 @@ function getSpeechSyncTokenPauseMs(chunkText = "") {
   }
 
   if (/:[^"'\])]]*\s*$/i.test(safeChunk)) {
-    return 800; // 800ms Ã¢â‚¬â€ matches server PCM silence after colon
+    return 800; // 800ms — matches server PCM silence after colon
   }
 
   if (/[,;]["')\]]*\s*$/i.test(safeChunk)) {
     return STRICT_SOFT_SENTENCE_PAUSE_MS;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 800ms pause when chunk contains special/symbolic characters Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 800ms pause when chunk contains special/symbolic characters ────────────
   // These appear silently in TTS but need visual breathing room in the animation.
   // Matches: arrows, currency, math operators, bullets, dashes, ellipsis, etc.
   if (/[\u2192\u2190\u2194\u2013\u2014\u2026\u2022\u25CF\u20B9\u20AC\u00A3\u00B0&=\u00D7\u00F7]/.test(safeChunk)) {
@@ -4773,7 +4773,7 @@ function getSpeechSyncCommitThreshold(chunkText = "") {
 
   const characterCount = spokenCore.replace(/\s+/g, "").length;
   const punctuationBoost = /[,:;.!?]["')\]]*\s*$/i.test(safeChunk) ? 0.08 : 0;
-  const mathsBoost = /[=+\-xX*/ÃƒÂ·Ãƒâ€”<>Ã¢Ë†Å¡^%]/.test(safeChunk) ? 0.05 : 0;
+  const mathsBoost = /[=+\-xX*/÷×<>√^%]/.test(safeChunk) ? 0.05 : 0;
   const lengthBoost = clamp((characterCount - 6) * 0.018, 0, 0.16);
   return clamp(
     SPEECH_SYNC_WORD_COMMIT_MIN + punctuationBoost + mathsBoost + lengthBoost,
@@ -4784,7 +4784,7 @@ function getSpeechSyncCommitThreshold(chunkText = "") {
 
 function tokenizeSpeechSyncDisplayText(text = "") {
   const safeText = String(text || "");
-  const tokenPattern = /(\r?\n+|[ \t]+|\d+(?:,\d+)*(?:\.\d+)?(?:\/\d+(?:,\d+)*(?:\.\d+)?)?|[A-Za-z]+(?:['Ã¢â‚¬â„¢-][A-Za-z]+)*|<=|>=|==|!=|[=+\-Ãƒâ€”ÃƒÂ·*/<>Ã¢â€°Â¤Ã¢â€°Â¥Ã¢â€°Â ^%:;,.!?()[\]{}]|.)/g;
+  const tokenPattern = /(\r?\n+|[ \t]+|\d+(?:,\d+)*(?:\.\d+)?(?:\/\d+(?:,\d+)*(?:\.\d+)?)?|[A-Za-z]+(?:[''-][A-Za-z]+)*|<=|>=|==|!=|[=+\-×÷*/<>≤≥≠^%:;,.!?()[\]{}]|.)/g;
   const tokens = [];
   let match = tokenPattern.exec(safeText);
 
@@ -4817,10 +4817,10 @@ function getSpeechSyncLineContext(lineText = "") {
       || (
         trimmed.length <= 58
         && /^[A-Z][A-Za-z0-9 ,&()/-]*:?$/.test(trimmed)
-        && !/[=+\-Ãƒâ€”ÃƒÂ·*/<>Ã¢â€°Â¤Ã¢â€°Â¥Ã¢â€°Â ^%]/.test(trimmed)
+        && !/[=+\-×÷*/<>≤≥≠^%]/.test(trimmed)
       ),
     isTeachingCue: /^(example|step|answer|rule|quiz|question|exercise|practice|solve|convert|compare)\b/i.test(trimmed),
-    isMathHeavy: /[=+\-Ãƒâ€”ÃƒÂ·*/<>Ã¢â€°Â¤Ã¢â€°Â¥Ã¢â€°Â ^%]/.test(safeLine)
+    isMathHeavy: /[=+\-×÷*/<>≤≥≠^%]/.test(safeLine)
       || (/\d/.test(safeLine) && /\b(cm|mm|km|hm|dam|m|dm|kg|gm|ml|decimal|fraction|table|percent)\b/i.test(safeLine)),
     isBlank: false
   };
@@ -4859,7 +4859,7 @@ function getSpeechSyncUnitSpeechMs(unit) {
     unit.lineContext?.isTeachingCue ? 1.1 : 1,
     unit.lineContext?.isMathHeavy ? 1.08 : 1,
     /\d/.test(unit.displayText) ? 1.06 : 1,
-    /[=+\-Ãƒâ€”ÃƒÂ·*/<>Ã¢â€°Â¤Ã¢â€°Â¥Ã¢â€°Â ^%]/.test(unit.displayText) ? 1.12 : 1
+    /[=+\-×÷*/<>≤≥≠^%]/.test(unit.displayText) ? 1.12 : 1
   ].reduce((product, value) => product * value, 1);
 
   const baseSpeechMs = (wordCount * 80) + (syllableCount * 120) + (characterCount * 15);
@@ -4888,7 +4888,7 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
   }
 
   if (/^:+$/.test(displayText)) {
-    return 800; // 800ms Ã¢â‚¬â€ matches the PCM silence the server inserts after every colon
+    return 800; // 800ms — matches the PCM silence the server inserts after every colon
   }
 
   if (/^;+$/.test(displayText)) {
@@ -4899,25 +4899,25 @@ function getSpeechSyncUnitPauseMs(unit, nextUnit = null) {
     return 400; // Chatterbox pauses at commas for about 400ms
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 350ms AFTER a standalone hyphen ('-') Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 350ms AFTER a standalone hyphen ('-') ──────────────────────────────────
   // Gives the animation breathing room after the dash before the next token
   if (/^-+$/.test(displayText.trim())) {
     return 350;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 350ms BEFORE a hyphen ('-') Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 350ms BEFORE a hyphen ('-') ────────────────────────────────────────────
   // When the NEXT unit is a standalone '-', add a 350ms pause to THIS unit first
   if (nextUnit && /^-+$/.test(String(nextUnit.displayText || "").trim())) {
     return 350;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 800ms AFTER a standalone slash ('/') Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 800ms AFTER a standalone slash ('/') ───────────────────────────────────
   // Matches the 1-second silence the Python server inserts at every '/' boundary
   if (/^\/$/.test(displayText.trim())) {
     return 800;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 800ms BEFORE a slash ('/') Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 800ms BEFORE a slash ('/') ─────────────────────────────────────────────
   // Pause the reveal on the token BEFORE '/' so the animation breathes with audio
   if (nextUnit && /^\/$/.test(String(nextUnit.displayText || "").trim())) {
     return 800;
@@ -5032,14 +5032,14 @@ function getSpeechSyncProfile(text = "", targetDurationMs = 0) {
     unit.pauseMs = getSpeechSyncUnitPauseMs(unit, nextNonSpace);
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Natural phrase-breath pass Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Natural phrase-breath pass ───────────────────────────────────────────
   // After basic punctuation pauses are set, inject a short "breath pause"
   // every ~9 syllables of spoken content so the visual reveal feels like a
   // real teacher: speak a phrase, pause briefly, continue.
   // We only touch word units that don't already carry a meaningful pause
-  // (Ã¢â€°Â¥ STRICT_SOFT_SENTENCE_PAUSE_MS) and that have a spoken word.
-  const PHRASE_SYLLABLE_THRESHOLD = 13;  // syllables between breath pauses (raised Ã¢â€ â€™ fewer interruptions)
-  const PHRASE_BREATH_PAUSE_MS    = 180; // brief natural pause Ã¢â‚¬â€ tightened so animation tracks voice closely
+  // (≥ STRICT_SOFT_SENTENCE_PAUSE_MS) and that have a spoken word.
+  const PHRASE_SYLLABLE_THRESHOLD = 13;  // syllables between breath pauses (raised → fewer interruptions)
+  const PHRASE_BREATH_PAUSE_MS    = 180; // brief natural pause — tightened so animation tracks voice closely
   let syllableAccumulator = 0;
 
   estimatedUnits.forEach((unit) => {
@@ -5068,7 +5068,7 @@ function getSpeechSyncProfile(text = "", targetDurationMs = 0) {
 
   let normalizedUnits = estimatedUnits.map((unit, index) => {
     const scaledSpeechMs = unit.spokenText
-      ? Math.max(75, Math.round(unit.speechMs * scale))  // was 140 Ã¢â‚¬â€ shorter min keeps crisp words tight
+      ? Math.max(75, Math.round(unit.speechMs * scale))  // was 140 — shorter min keeps crisp words tight
       : 0;
     const scaledPauseMs = Math.max(
       index === estimatedUnits.length - 1 ? 0 : 0,
@@ -5292,7 +5292,7 @@ function getResolvedSpeechSyncProfile(text = "", targetDurationMs = 0, options =
   const safeText = String(text || "");
   const safeTargetDurationMs = Math.max(0, Math.round(Number(targetDurationMs) || 0));
 
-  // When caller explicitly passes a syncProfileData, trust it Ã¢â‚¬â€ no text comparison
+  // When caller explicitly passes a syncProfileData, trust it — no text comparison
   // needed since the caller has already verified it belongs to this audio.
   if (options.syncProfileData?.profile?.units?.length) {
     const providedProfile = options.syncProfileData.profile;
@@ -5575,7 +5575,7 @@ function updateMathsTranslationPreview(text) {
 
 function normalizeMathSpacing(text) {
   return String(text || "")
-    .replace(/\s*([=+\-Ãƒâ€”ÃƒÂ·<>Ã¢â€°Â¤Ã¢â€°Â¥Ã¢â€°Â ^():/])\s*/g, " $1 ")
+    .replace(/\s*([=+\-×÷<>≤≥≠^():/])\s*/g, " $1 ")
     .replace(/\s+/g, " ")
     .replace(/\(\s+/g, "(")
     .replace(/\s+\)/g, ")")
@@ -5665,8 +5665,8 @@ function translateMathStatement(text) {
   const pairTransforms = [
     { pattern: /\bsum of\s+(.+?)\s+and\s+(.+)$/i, build: (left, right) => `${left} + ${right}` },
     { pattern: /\bdifference between\s+(.+?)\s+and\s+(.+)$/i, build: (left, right) => `${left} - ${right}` },
-    { pattern: /\bproduct of\s+(.+?)\s+and\s+(.+)$/i, build: (left, right) => `${left} Ãƒâ€” ${right}` },
-    { pattern: /\bquotient of\s+(.+?)\s+and\s+(.+)$/i, build: (left, right) => `${left} ÃƒÂ· ${right}` },
+    { pattern: /\bproduct of\s+(.+?)\s+and\s+(.+)$/i, build: (left, right) => `${left} × ${right}` },
+    { pattern: /\bquotient of\s+(.+?)\s+and\s+(.+)$/i, build: (left, right) => `${left} ÷ ${right}` },
     { pattern: /\bratio of\s+(.+?)\s+to\s+(.+)$/i, build: (left, right) => `${left} : ${right}` }
   ];
 
@@ -5691,17 +5691,17 @@ function translateMathStatement(text) {
     .replace(/\bminus\b/gi, " - ")
     .replace(/\btake away\b/gi, " - ")
     .replace(/\bdecreased by\b/gi, " - ")
-    .replace(/\bmultiply(?:ing|ied)? by\b/gi, " Ãƒâ€” ")
-    .replace(/\btimes\b/gi, " Ãƒâ€” ")
-    .replace(/\binto\b/gi, " Ãƒâ€” ")
-    .replace(/\bdouble of\b/gi, "2 Ãƒâ€” ")
-    .replace(/\btriple of\b/gi, "3 Ãƒâ€” ")
-    .replace(/\bdivided by\b/gi, " ÃƒÂ· ")
-    .replace(/\bover\b/gi, " ÃƒÂ· ")
-    .replace(/\bquotient\b/gi, " ÃƒÂ· ")
-    .replace(/\bgreater than or equal to\b/gi, " Ã¢â€°Â¥ ")
-    .replace(/\bless than or equal to\b/gi, " Ã¢â€°Â¤ ")
-    .replace(/\bnot equal to\b/gi, " Ã¢â€°Â  ")
+    .replace(/\bmultiply(?:ing|ied)? by\b/gi, " × ")
+    .replace(/\btimes\b/gi, " × ")
+    .replace(/\binto\b/gi, " × ")
+    .replace(/\bdouble of\b/gi, "2 × ")
+    .replace(/\btriple of\b/gi, "3 × ")
+    .replace(/\bdivided by\b/gi, " ÷ ")
+    .replace(/\bover\b/gi, " ÷ ")
+    .replace(/\bquotient\b/gi, " ÷ ")
+    .replace(/\bgreater than or equal to\b/gi, " ≥ ")
+    .replace(/\bless than or equal to\b/gi, " ≤ ")
+    .replace(/\bnot equal to\b/gi, " ≠ ")
     .replace(/\bgreater than\b/gi, " > ")
     .replace(/\bless than\b/gi, " < ")
     .replace(/\bis equal to\b/gi, " = ")
@@ -5713,12 +5713,12 @@ function translateMathStatement(text) {
     .replace(/\bcubed\b/gi, "^3");
 
   result = result
-    .replace(/\bhalf of\s+(.+)$/i, "$1 ÃƒÂ· 2")
-    .replace(/\bdouble\s+(.+)$/i, "2 Ãƒâ€” $1")
-    .replace(/\btriple\s+(.+)$/i, "3 Ãƒâ€” $1")
+    .replace(/\bhalf of\s+(.+)$/i, "$1 ÷ 2")
+    .replace(/\bdouble\s+(.+)$/i, "2 × $1")
+    .replace(/\btriple\s+(.+)$/i, "3 × $1")
     .replace(/\b([A-Za-z]+)\s+has\s+(\d+)\s+sides\b/gi, "$1 = $2 sides")
     .replace(/\b([A-Za-z]+)\s+has\s+(\d+)\s+corners\b/gi, "$1 = $2 corners")
-    .replace(/\b([A-Za-z0-9]+)\s+is\s+([<>Ã¢â€°Â¤Ã¢â€°Â¥Ã¢â€°Â ])\s+([A-Za-z0-9]+)\b/gi, "$1 $2 $3")
+    .replace(/\b([A-Za-z0-9]+)\s+is\s+([<>≤≥≠])\s+([A-Za-z0-9]+)\b/gi, "$1 $2 $3")
     .replace(/\b([A-Za-z0-9]+)\s+is\s+greater than\s+([A-Za-z0-9]+)\b/gi, "$1 > $2")
     .replace(/\b([A-Za-z0-9]+)\s+is\s+less than\s+([A-Za-z0-9]+)\b/gi, "$1 < $2")
     .replace(/\b([A-Za-z0-9]+)\s+is\s+([A-Za-z0-9]+)\b/gi, "$1 = $2");
@@ -6140,8 +6140,8 @@ function getBaseTextStyle() {
 
   const style = cloneTextStyle(state.displayStyle);
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
-    // Template 2 now has a dark cosmic background Ã¢â‚¬â€ force text to white.
-    // Previously this block turned whiteÃ¢â€ â€™black for the old light-blue bg; now reversed.
+    // Template 2 now has a dark cosmic background — force text to white.
+    // Previously this block turned white→black for the old light-blue bg; now reversed.
     const c = String(style.color).toLowerCase();
     if (!c || c === "#000000" || c === "#050709" || c === "#17191f" || c === "#1a1a1a") {
       style.color = "#ffffff";
@@ -7288,9 +7288,9 @@ function syncPdfPlaybackPosition(now = performance.now()) {
 
 /**
  * Canonical elapsed-time helper.
- * - During export  Ã¢â€ â€™ state.exportCapture.elapsedMs  (virtual clock driven by the export loop)
- * - During live narration Ã¢â€ â€™ activeAudio.currentTime * 1000  (audio clock, same source as the narration tick)
- * - Idle / animation-only Ã¢â€ â€™ 0  (callers that need a wall-clock fallback should use getPlaybackElapsedSec)
+ * - During export  → state.exportCapture.elapsedMs  (virtual clock driven by the export loop)
+ * - During live narration → activeAudio.currentTime * 1000  (audio clock, same source as the narration tick)
+ * - Idle / animation-only → 0  (callers that need a wall-clock fallback should use getPlaybackElapsedSec)
  */
 function getPlaybackElapsedMs() {
   if (state.exportVideoTrack?.readyState === "live") {
@@ -7984,7 +7984,7 @@ function isLikelyPdfExampleLine(text = "") {
   }
 
   const digitCount = (line.match(/\d/g) || []).length;
-  const operatorCount = (line.match(/[=+\-Ãƒâ€”ÃƒÂ·*/<>%]/g) || []).length;
+  const operatorCount = (line.match(/[=+\-×÷*/<>%]/g) || []).length;
   const hasUnits = /\b(cm|mm|km|hm|dam|m|dm|kg|gm|ml|rupees|rs\.?)\b/.test(line);
 
   return (digitCount >= 2 && (operatorCount >= 1 || hasUnits))
@@ -7998,7 +7998,7 @@ function isLikelyPdfSectionHeading(text = "") {
   }
 
   return line.length < 72
-    && !/[=+\-Ãƒâ€”ÃƒÂ·*/<>%]/.test(line)
+    && !/[=+\-×÷*/<>%]/.test(line)
     && /^(#|\b(chapter|lesson|topic|concept|summary|quick facts|practice|example)\b)/i.test(line);
 }
 
@@ -9611,7 +9611,7 @@ function getProjectFolderPath() {
   // Works for file: (legacy) and app: (Electron app:// protocol)
   if (proto === "file:" || proto === "app:") {
     if (proto === "app:") {
-      // app://voice/renderer-dist/index.html Ã¢â€ â€™ ROOT is D:\voice
+      // app://voice/renderer-dist/index.html → ROOT is D:\voice
       // We derive ROOT from the main process ROOT (D:\voice)
       return "D:\\voice";
     }
@@ -9695,12 +9695,12 @@ function handleAnjaliCloneServerTransition(isReady) {
     return;
   }
 
-  // Server just came online Ã¢â‚¬â€ trigger model preload immediately in background
+  // Server just came online — trigger model preload immediately in background
   // so the model is warm before the user clicks Generate (saves ~10s first-run wait)
   if (previousReady === false || previousReady === null) {
     fetch(`${state.anjaliCloneServerUrl}/api/preload`, { method: "POST", cache: "no-store" })
       .then(() => console.log("[PP] Anjali model preload triggered."))
-      .catch(() => {}); // silent Ã¢â‚¬â€ server will preload anyway
+      .catch(() => {}); // silent — server will preload anyway
     setServerControlsStatus("Anjali voice server is ready. Model is warming up in the background for instant first narration.");
     return;
   }
@@ -9833,10 +9833,10 @@ function updateServerHealthUi() {
 
   if (anjaliCloneHealthStatus) {
     anjaliCloneHealthStatus.textContent = state.anjaliCloneServerReady
-      ? "Voice Clone (port 8426): READY Ã¢â‚¬â€ sc3-cloned Anjali voice running"
+      ? "Voice Clone (port 8426): READY — sc3-cloned Anjali voice running"
       : (isAnjaliCloneStartupPending()
         ? "Voice Clone (port 8426): starting Chatterbox TTS..."
-        : "Voice Clone (port 8426): not running Ã¢â‚¬â€ click Check Servers");
+        : "Voice Clone (port 8426): not running — click Check Servers");
   }
 
   transcribeHealthStatus.textContent = state.transcribeServerReady
@@ -9851,9 +9851,9 @@ function updateServerHealthUi() {
     const ready = state.sc3SingingServerReady && state.sc3SingingModelReady;
     const serverOnly = state.sc3SingingServerReady && !state.sc3SingingModelReady;
     sc3SingingHealthStatus.textContent = ready
-      ? "SC3 Singing server (port 8426): READY Ã¢â‚¬â€ voice model loaded"
+      ? "SC3 Singing server (port 8426): READY — voice model loaded"
       : serverOnly
-        ? "SC3 Singing server (port 8426): running Ã¢â‚¬â€ model loading..."
+        ? "SC3 Singing server (port 8426): running — model loading..."
         : "SC3 Singing server (port 8426): not ready";
     sc3SingingHealthStatus.style.color = ready ? "#4ade80" : serverOnly ? "#facc15" : "#f87171";
   }
@@ -9928,7 +9928,7 @@ async function ensureAnjaliCloneServer() {
     return keepReady;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Health-check with up to 3 retries (1 s gap) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Health-check with up to 3 retries (1 s gap) ────────────────────────────
   // One transient network blip must NEVER block playback.
   const MAX_HEALTH_RETRIES = 3;
   let lastHealthError = null;
@@ -9944,7 +9944,7 @@ async function ensureAnjaliCloneServer() {
       healthPayload = response.ok ? await response.clone().json().catch(() => null) : null;
       if (response.ok) {
         healthOk = true;
-        break;  // success Ã¢â‚¬â€ stop retrying
+        break;  // success — stop retrying
       }
     } catch (err) {
       lastHealthError = err;
@@ -9976,19 +9976,19 @@ async function ensureAnjaliCloneServer() {
     state.anjaliCloneServerReady    = recentlyHealthy; // grace: if recently healthy, stay ready
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Warm-up wait: server is running but model is still loading Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Warm-up wait: server is running but model is still loading ──────────
   // Instead of failing immediately, poll every 5s for up to 5 minutes and
   // auto-proceed the moment the model finishes loading.
   if (!state.anjaliCloneServerReady && state.anjaliMonitor.warming) {
     const WARMUP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
     const WARMUP_POLL_MS   = 5000;            // poll every 5s
     const deadline = Date.now() + WARMUP_TIMEOUT_MS;
-    setNarrationGenStatus("Ã¢ÂÂ³ Anjali AI model is loading (takes 2Ã¢â‚¬â€œ4 min after startup). Please wait Ã¢â‚¬â€ playback will begin automatically.");
+    setNarrationGenStatus("⏳ Anjali AI model is loading (takes 2–4 min after startup). Please wait — playback will begin automatically.");
     setServerControlsStatus("Anjali voice server is warming up. Model is loading...");
     while (Date.now() < deadline) {
       await delay(WARMUP_POLL_MS);
       const secsLeft = Math.round((deadline - Date.now()) / 1000);
-      setNarrationGenStatus(`Ã¢ÂÂ³ Anjali model warming up... (~${Math.ceil(secsLeft / 60)} min left). Playback will begin automatically.`);
+      setNarrationGenStatus(`⏳ Anjali model warming up... (~${Math.ceil(secsLeft / 60)} min left). Playback will begin automatically.`);
       try {
         const pollRes = await fetchWithTimeout(`${state.anjaliCloneServerUrl}/health`, { method: "GET", cache: "no-store" }, ANJALI_CLONE_HEALTH_TIMEOUT_MS);
         const pollPayload = pollRes.ok ? await pollRes.clone().json().catch(() => null) : null;
@@ -9998,7 +9998,7 @@ async function ensureAnjaliCloneServer() {
           state.anjaliMonitor.warming = false;
           state.anjaliMonitor.lastHealthyAt = Date.now();
           state.anjaliMonitor.transientFailureCount = 0;
-          setNarrationGenStatus("Ã¢Å“â€¦ Anjali model is ready!");
+          setNarrationGenStatus("✅ Anjali model is ready!");
           setServerControlsStatus("Anjali voice server is ready.");
           announceSc3ReadyOnce();
           handleAnjaliCloneServerTransition(true);
@@ -10006,7 +10006,7 @@ async function ensureAnjaliCloneServer() {
           return true;
         }
       } catch (_pollErr) {
-        // Server temporarily unreachable during warm-up Ã¢â‚¬â€ keep polling
+        // Server temporarily unreachable during warm-up — keep polling
       }
     }
     // Timed out waiting
@@ -10160,13 +10160,13 @@ async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
       const effectiveFadeOut = Math.min(fadeSeconds, Math.max(0.004, buffer.duration * 0.18));
 
       // Don't fade-in if the previous chunk ended with a silence gap (e.g. glossary 1s/2s pauses).
-      // Fading in after silence clips the first consonant of the next term ("cream" Ã¢â€ â€™ "rem").
+      // Fading in after silence clips the first consonant of the next term ("cream" → "rem").
       const prevGapMs = index > 0
         ? (safeChunks[index - 1]?.gapAfterMs ?? NARRATION_CHUNK_JOIN_GAP_MS)
         : 0;
       const hasSilenceBefore = prevGapMs > 200;
 
-      // Don't fade-out if this chunk is followed by a silence gap Ã¢â‚¬â€
+      // Don't fade-out if this chunk is followed by a silence gap —
       // the silence already provides a clean ending.
       const thisGapMs = safeChunks[index]?.gapAfterMs ?? 0;
       const hasSilenceAfter = thisGapMs > 200;
@@ -10178,7 +10178,7 @@ async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
 
       gainNode.gain.setValueAtTime(1, startTime + leadInSec);
       if (!hasSilenceBefore && index > 0) {
-        // Seamless join between continuous chunks Ã¢â‚¬â€ use a short cross-fade
+        // Seamless join between continuous chunks — use a short cross-fade
         gainNode.gain.setValueAtTime(0.0001, startTime);
         gainNode.gain.linearRampToValueAtTime(1, Math.min(endTime, startTime + effectiveFadeIn));
       }
@@ -12468,11 +12468,11 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
 
 async function getIntroVideoSourceBlob() {
   // If the element is already loaded, try to capture a blob from the candidate URLs.
-  // This is best-effort Ã¢â‚¬â€ if the file cannot be fetched, we return null so the export
+  // This is best-effort — if the file cannot be fetched, we return null so the export
   // can continue gracefully without the intro clip.
   const ready = await ensureDefaultIntroClip();
   if (!ready) {
-    console.warn("[intro] ensureDefaultIntroClip returned false Ã¢â‚¬â€ skipping intro in export.");
+    console.warn("[intro] ensureDefaultIntroClip returned false — skipping intro in export.");
     return null;
   }
 
@@ -12494,7 +12494,7 @@ async function getIntroVideoSourceBlob() {
     }
   }
 
-  // All candidates failed Ã¢â‚¬â€ return null to allow the export to continue without intro.
+  // All candidates failed — return null to allow the export to continue without intro.
   console.warn("[intro] All intro video candidates returned empty or failed. Skipping intro in export.");
   return null;
 }
@@ -13995,7 +13995,7 @@ function getPresentationHeaderTitle() {
   const firstMeaningfulLine = String(state.text || "")
     .split(/\r?\n/)
     .map((line) => line.replace(/^#+\s*/, "").trim())
-    .find((line) => line && !/^[-*Ã¢â‚¬Â¢]/.test(line));
+    .find((line) => line && !/^[-*•]/.test(line));
   const baseTitle = heading || firstMeaningfulLine || "Maths Lesson";
   return baseTitle.replace(/\s+/g, " ").trim().slice(0, 72).toUpperCase();
 }
@@ -14193,7 +14193,7 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 2. Three large glowing nebula orbs Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 2. Three large glowing nebula orbs ───────────────────────────────────
   const orbs = [
     { cx: 0.15, cy: 0.40, r: 420, c1: "rgba(0,220,180,0.28)",   c2: "rgba(0,220,180,0)" },
     { cx: 0.75, cy: 0.35, r: 500, c1: "rgba(200,0,255,0.22)",   c2: "rgba(200,0,255,0)" },
@@ -14209,7 +14209,7 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
     ctx.restore();
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 3. Hexagonal dot grid Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 3. Hexagonal dot grid ────────────────────────────────────────────────
   ctx.save();
   const hexR = 5, hexGap = 64;
   const cols = Math.ceil(W / hexGap) + 2, rows = Math.ceil(H / hexGap) + 2;
@@ -14232,7 +14232,7 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
   }
   ctx.restore();
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 4. Shooting-star streaks Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 4. Shooting-star streaks ──────────────────────────────────────────────
   ctx.save();
   const shooters = [
     { phase: 0.0, y: 0.22, len: 220, speed: 0.35 },
@@ -14259,7 +14259,7 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
   }
   ctx.restore();
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 5. Animated sparkle ring dots Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 5. Animated sparkle ring dots ────────────────────────────────────────
   ctx.save();
   const sparkles = [
     { x:0.06,y:0.28,r:4,ph:0.0 },{x:0.14,y:0.60,r:3,ph:1.2},
@@ -14287,7 +14287,7 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
   }
   ctx.restore();
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 6. Aurora wave at bottom Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 6. Aurora wave at bottom ─────────────────────────────────────────────
   ctx.save();
   ctx.globalAlpha = 0.18;
   const aurora = ctx.createLinearGradient(0, H - 200, 0, H);
@@ -14307,9 +14307,9 @@ function drawLearningOutcomesBackdrop(mouthOpen = 0) {
   ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
   ctx.restore();
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 7 & 8: Rainbow stripe + header glow removed (header bar removed) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 7 & 8: Rainbow stripe + header glow removed (header bar removed) ─────
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ 9. Static header bar removed Ã¢â‚¬â€ title now uses animated badge (top-right) Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── 9. Static header bar removed — title now uses animated badge (top-right) ──
   // drawHeaderBackdrop() call removed; animated pill badge replaces it.
 
   // Avatar permanently disabled.
@@ -14439,7 +14439,7 @@ function isUsingDefaultStageStyle(style) {
 }
 
 function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIndex, characterIndex = 0) {
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Key-Value mode: color chars before ':' as key, after as value Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Key-Value mode: color chars before ':' as key, after as value ──────────
   if (state.displayStyle.kvMode && window._kvState && window._kvState.colonGlobal >= 0) {
     const currentChar = state.drawnCharCount || 0;
     if (currentChar <= window._kvState.colonGlobal) {
@@ -14451,14 +14451,14 @@ function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIn
   const isOutcomes = normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES;
 
   // Preserve explicit custom colours (glossary red, user highlights) UNLESS we're on
-  // template 2 and the colour is one of the two defaults (#ffffff or #000000) Ã¢â‚¬â€
+  // template 2 and the colour is one of the two defaults (#ffffff or #000000) —
   // both need to be overridden to white on the new dark cosmic background.
   const isDefaultColor = !segmentColor || segmentColor === "#ffffff" || segmentColor === "#000000";
   if (!isDefaultColor) {
-    return segmentColor; // real custom color Ã¢â‚¬â€ keep it
+    return segmentColor; // real custom color — keep it
   }
 
-  // Template 2: dark cosmic background Ã¢â‚¬â€ always force white text.
+  // Template 2: dark cosmic background — always force white text.
   if (isOutcomes) {
     return "#ffffff";
   }
@@ -15829,7 +15829,7 @@ function drawInfoKidsLogo(options = {}) {
   if (options.skipAnimatedHeader) {
     return;
   }
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Animated title badge Ã¢â‚¬â€ slides in from right at playback start, out at end Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Animated title badge — slides in from right at playback start, out at end ──
   // Badge only shows on Learning Outcomes template
   const _logoTpl = normalizePresentationTemplate(state.presentationTemplate);
   if (_logoTpl !== PRESENTATION_TEMPLATE_OUTCOMES) return;
@@ -15838,13 +15838,13 @@ function drawInfoKidsLogo(options = {}) {
   // If no title has been typed in the title input, skip the badge entirely
   if (!titleText) return;
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Timing constants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Timing constants ──────────────────────────────────────────────────────
   const BADGE_IN_MS   = 1400;  // slower, cinematic entrance (ms)
-  const BADGE_OUT_MS  = 1100;  // slide-out duration Ã¢â‚¬â€ long enough to fully hide (ms)
-  // Narration total duration (ms) Ã¢â‚¬â€ used to decide when to start slide-out
+  const BADGE_OUT_MS  = 1100;  // slide-out duration — long enough to fully hide (ms)
+  // Narration total duration (ms) — used to decide when to start slide-out
   const narrationMs   = (state.narration?.durationMs) || 0;
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Initialise anim state on first draw Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Initialise anim state on first draw ──────────────────────────────────
   if (!state.titleAnim) {
     state.titleAnim = { startedAt: null, exitStartedAt: null, exitDone: false };
   }
@@ -15860,7 +15860,7 @@ function drawInfoKidsLogo(options = {}) {
     state.titleAnim.holdUntilSpeaking = false;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Arm slide-out after narration/text reveal finishes Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Arm slide-out after narration/text reveal finishes ───────────────────
   // Do not start this during the last spoken words. Export records a dedicated
   // outro after all lesson text is visible, so no word gets sacrificed for the
   // title movement.
@@ -15871,18 +15871,18 @@ function drawInfoKidsLogo(options = {}) {
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Compute slide-in progress (0Ã¢â€ â€™1) Ã¢â‚¬â€ smoothstep Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Compute slide-in progress (0→1) — smoothstep ─────────────────────────
   let inProgress = 0;
   if (state.titleAnim.startedAt) {
     inProgress = clamp((now - state.titleAnim.startedAt) / BADGE_IN_MS, 0, 1);
   } else if (!state.speaking && !state.titleAnim.exitStartedAt && !state.titleAnim.exitDone) {
     // Authoring preview (never played yet): show badge fully docked.
-    // exitDone guard: never re-show after a completed exit animation. Ã¢â‚¬â€ let it slide out.
+    // exitDone guard: never re-show after a completed exit animation. — let it slide out.
     inProgress = 1;
   }
   const inEased = inProgress * inProgress * (3 - 2 * inProgress);
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Compute slide-out progress (0Ã¢â€ â€™1) Ã¢â‚¬â€ timestamp-driven Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Compute slide-out progress (0→1) — timestamp-driven ──────────────────
   let outProgress = 0;
   if (state.titleAnim.exitStartedAt) {
     outProgress = clamp((now - state.titleAnim.exitStartedAt) / BADGE_OUT_MS, 0, 1);
@@ -15896,7 +15896,7 @@ function drawInfoKidsLogo(options = {}) {
   // If exit is done, nothing to draw
   if (state.titleAnim.exitDone && outProgress >= 1) return;
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Badge layout Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Badge layout ──────────────────────────────────────────────────────────
   const BADGE_PAD_X  = 22;  // horizontal padding inside pill
   const BADGE_PAD_Y  = 9;   // vertical padding
   // Badge at very top-right corner (y=10). Content area has been pushed
@@ -15941,7 +15941,7 @@ function drawInfoKidsLogo(options = {}) {
 
   ctx.restore();
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Draw badge Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Draw badge ────────────────────────────────────────────────────────────
   ctx.save();
 
   // Clip so badge never bleeds off either canvas edge during animation
@@ -15951,8 +15951,8 @@ function drawInfoKidsLogo(options = {}) {
 
   const bx = badgeX, by = badgeY, bw = badgeW, bh = badgeH, br = bh / 2;
 
-  // Unique gradient: deep amber (gold-orange) Ã¢â€ â€™ electric indigo/violet
-  // Ã¢â‚¬â€ vibrant against the dark cosmic background, totally distinctive
+  // Unique gradient: deep amber (gold-orange) → electric indigo/violet
+  // — vibrant against the dark cosmic background, totally distinctive
   const bg = ctx.createLinearGradient(bx, by, bx + bw, by);
   bg.addColorStop(0,    "#FF8C00");  // deep amber / golden orange
   bg.addColorStop(0.45, "#E8460A");  // burnt-orange mid
@@ -16119,29 +16119,29 @@ async function recordEndingTitleOutro(durationMs = EXPORT_TITLE_OUTRO_MS, captur
 
 let transparentAnjaliCanvas = null;
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Avatar permanently disabled Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Avatar permanently disabled ─────────────────────────────────────────────
 // Anjali avatar has been removed. The video element is intentionally NOT
-// loaded or played Ã¢â‚¬â€ no src, no decode, no GPU memory, no CPU overhead.
+// loaded or played — no src, no decode, no GPU memory, no CPU overhead.
 avatarVideoElement = document.createElement('video');
 avatarVideoElement.style.display = "none";
 avatarVideoElement.muted = true;
-// DO NOT set .src Ã¢â‚¬â€ prevents browser from fetching or decoding any video file.
+// DO NOT set .src — prevents browser from fetching or decoding any video file.
 
-// Avatar speed UI wiring removed Ã¢â‚¬â€ avatar is permanently disabled.
+// Avatar speed UI wiring removed — avatar is permanently disabled.
 
-// Avatar decode loop permanently disabled Ã¢â‚¬â€ no video is loaded so no frames to decode.
+// Avatar decode loop permanently disabled — no video is loaded so no frames to decode.
 // The 60fps flood-fill chroma-key pipeline is completely skipped.
-// All avatar decode machinery removed Ã¢â‚¬â€ no video, no flood-fill, no step() loop.
+// All avatar decode machinery removed — no video, no flood-fill, no step() loop.
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Avatar permanently disabled Ã¢â‚¬â€ all video decode machinery skipped Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Avatar permanently disabled — all video decode machinery skipped ─────────
 // drawPresenterFigure is a true no-op: no DOM query, no canvas draw, no overhead.
 let _lastGoodAnjaliCanvas = null; // kept for reference safety only
 
 function drawPresenterFigure(mouthOpen = 0) {
-  // Avatar permanently off Ã¢â‚¬â€ instant return, zero cost.
+  // Avatar permanently off — instant return, zero cost.
   return;
 }
-// All lip-sync, jaw-calibration, and canvas-draw code removed Ã¢â‚¬â€ dead code cleaned up.
+// All lip-sync, jaw-calibration, and canvas-draw code removed — dead code cleaned up.
 
 function drawWhiteboardStrokes() {
   if (!state.whiteboard.strokes.length && !state.whiteboard.currentStroke.length) {
@@ -16905,7 +16905,7 @@ function invalidateDrawSceneLayoutCache() {
   _drawSceneLayoutCache.textOnlyResult = null;
   _drawSceneLayoutCache.fullKey = "";
   _drawSceneLayoutCache.fullResult = null;
-  markSceneDirty(); // layout changed Ã¢â€ â€™ must redraw
+  markSceneDirty(); // layout changed → must redraw
 }
 
 function getCachedTextOnlyContent(text, pageIndex) {
@@ -16964,7 +16964,7 @@ function isSceneActuallyDirty(mouthOpen) {
   if (state.text !== _lastDrawnText) return true;
   if (state.displayedText !== _lastDrawnDisplayedText) return true;
   // Sub-character float changes trigger redraws for smooth alpha fade.
-  // Lower threshold Ã¢â€ â€™ more continuous redraws for butter-smooth sub-pixel alpha fading
+  // Lower threshold → more continuous redraws for butter-smooth sub-pixel alpha fading
   if (state.speaking && Math.abs((state.exactCharCountFloat || 0) - _lastDrawnExactCharFloat) > 0.005) return true;
   if (state.speaking && state.displayedText !== state.text) return true;
   if (state.previewPageIndex !== _lastDrawnPageIndex) return true;
@@ -17040,7 +17040,7 @@ function drawScene(mouthOpen = 0.12) {
   const isAnimatingContent = state.speaking || (state.displayedText && state.displayedText !== state.text);
   const boardSourceText = isAnimatingContent ? (state.displayedText || state.text) : state.text;
   const boardData = getMathPlaceValueBoardData(boardSourceText) || (isAnimatingContent ? getMathPlaceValueBoardData(state.text) : null);
-  // Use cached layouts for state.text (unchanged during playback) Ã¢â‚¬â€ only
+  // Use cached layouts for state.text (unchanged during playback) — only
   // activeContent uses the per-frame displayedText and is always recomputed.
   const textOnlyContent = getCachedTextOnlyContent(state.text, state.previewPageIndex);
   const predictedAnimatedPageIndex = isAnimatingContent
@@ -17149,7 +17149,7 @@ function drawScene(mouthOpen = 0.12) {
     const rowWidth = measureStyledRuns(ctx, row.segments, currentFontSize);
     const bulletIndent = row.bullet ? 18 : 0;
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Key-Value mode: set up per-row colon/equals tracking Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Key-Value mode: set up per-row colon/equals tracking ────────────────────
     if (_kvModeOn) {
       // Support both ':' (KV classic) and '=' (glossary format) as separators.
       // Use whichever appears first in the row.
@@ -17168,7 +17168,7 @@ function drawScene(mouthOpen = 0.12) {
           valueColor: state.displayStyle.kvValueColor || "#ffffff"
         };
       } else {
-        // No separator in this row Ã¢â‚¬â€ treat entire row as key color
+        // No separator in this row — treat entire row as key color
         window._kvState = {
           colonGlobal: Infinity,
           sepChar: null,
@@ -17181,7 +17181,7 @@ function drawScene(mouthOpen = 0.12) {
       window._kvState = null;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Alignment offset Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Alignment offset ───────────────────────────────────────────────────
     let alignOffsetX = 0;
     if (_stageTextAlign === "center") {
       alignOffsetX = Math.max(0, (contentArea.width - rowWidth - bulletIndent) / 2);
@@ -17235,7 +17235,7 @@ function drawScene(mouthOpen = 0.12) {
     y += currentRowHeight;
   });
 
-  // Cursor removed Ã¢â‚¬â€ clean text reveal without blinking bar
+  // Cursor removed — clean text reveal without blinking bar
 
   if (totalPageCount > 1) {
     ctx.fillStyle = "rgba(255,255,255,0.86)";
@@ -17263,7 +17263,7 @@ function drawScene(mouthOpen = 0.12) {
   requestCanvasExportFrame();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Burned-in caption overlay rendering Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Burned-in caption overlay rendering ──────────────────────────────────────
 function drawBurnedCaptions() {
   if (!captionOverlay.enabled || !captionOverlay.currentText) return;
 
@@ -17277,13 +17277,13 @@ function drawBurnedCaptions() {
   ctx.textBaseline = "alphabetic";
   ctx.globalAlpha = 1.0;
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Word-wrap the text into lines that fit within maxLineW Ã¢â€â‚¬Ã¢â€â‚¬
-  // Cache the result so ctx.measureText() is NOT called every frame (30fps Ãƒâ€” N words = slow).
+  // ── Word-wrap the text into lines that fit within maxLineW ──
+  // Cache the result so ctx.measureText() is NOT called every frame (30fps × N words = slow).
   // Only recompute when text, font size, font family, or available width changes.
   const _wrapKey = text + '|' + fs + '|' + captionConfig.fontFamily + '|' + maxLineW;
   let lines;
   if (captionOverlay._wrapKey === _wrapKey && captionOverlay._wrapLines) {
-    lines = captionOverlay._wrapLines; // cache hit Ã¢â‚¬â€ skip measureText entirely
+    lines = captionOverlay._wrapLines; // cache hit — skip measureText entirely
   } else {
     lines = [];
     const words = text.split(' ');
@@ -17313,7 +17313,7 @@ function drawBurnedCaptions() {
     || captionConfig.bgColor.endsWith(",0)")
     || captionConfig.bgColor.endsWith(", 0)");
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Background box (only when not transparent) Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Background box (only when not transparent) ──
   if (!isTransparentBg) {
     const boxX = captionConfig.x;
     const boxY = captionConfig.y - pad / 2;
@@ -17337,7 +17337,7 @@ function drawBurnedCaptions() {
     captionConfig.h = boxH;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Render each line centered Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Render each line centered ──
   ctx.textAlign = "center";
   const centreX = captionConfig.x + (maxLineW / 2);
   const activeWordIndex = Number.isFinite(captionOverlay.activeWordIndex)
@@ -17394,7 +17394,7 @@ function drawBurnedCaptions() {
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Drag handle indicator (edit mode only) Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Drag handle indicator (edit mode only) ──
   if (captionConfig.hovered && !state.exportingVideo) {
     const boxX = captionConfig.x;
     const boxY = captionConfig.y - pad / 2;
@@ -17409,13 +17409,13 @@ function drawBurnedCaptions() {
     ctx.font = '600 12px "Nunito"';
     ctx.textAlign = "left";
     ctx.textBaseline = "bottom";
-    ctx.fillText("Ã¢â€¡â€ Drag to move", boxX + 4, boxY - 6);
+    ctx.fillText("⇔ Drag to move", boxX + 4, boxY - 6);
   }
 
   ctx.restore();
 }
 
-// Update caption text based on current playback time Ã¢â‚¬â€ returns true if text changed
+// Update caption text based on current playback time — returns true if text changed
 function updateCaptionFromVideo() {
   if (!captionOverlay.enabled || !captionOverlay.segments.length) {
     if (captionOverlay.currentText !== "") {
@@ -17518,7 +17518,7 @@ function getCaptionTextForTimeMs(timeMs) {
   return foundText;
 }
 
-// Lightweight rAF-based caption sync Ã¢â‚¬â€ only redraws when caption text actually changes
+// Lightweight rAF-based caption sync — only redraws when caption text actually changes
 function startCaptionUpdateLoop() {
   if (captionOverlay._rafId) return; // already running
 
@@ -18481,7 +18481,7 @@ async function playPostIntroBlankTransition(durationMs = DEFAULT_INTRO_TO_LESSON
 }
 
 async function playIntroPosterSegment(durationMs = DEFAULT_INTRO_POSTER_DURATION_MS, options = {}) {
-  // Guard: need an actual loaded poster image Ã¢â‚¬â€ do NOT require introPlayback.enabled
+  // Guard: need an actual loaded poster image — do NOT require introPlayback.enabled
   // so the poster shows even when no intro video is configured.
   if (!state.introPoster.available || !state.introPoster.image || !state.introPoster.dataUrl) {
     return false;
@@ -18522,7 +18522,7 @@ async function playIntroPosterSegment(durationMs = DEFAULT_INTRO_POSTER_DURATION
   } finally {
     state.introPoster.active = false;
     updatePlaybackProgressUi(0, false);
-    // Do NOT call drawScene here Ã¢â‚¬â€ it causes a 1-frame lesson content flash
+    // Do NOT call drawScene here — it causes a 1-frame lesson content flash
     // before the narration loop draws its first frame.
   }
 }
@@ -18676,7 +18676,7 @@ async function playIntroClipIfEnabled() {
       console.error(error);
     }
     updatePlaybackProgressUi(0, false);
-    // Do NOT call drawScene here Ã¢â‚¬â€ doing so causes a 1-frame lesson/black
+    // Do NOT call drawScene here — doing so causes a 1-frame lesson/black
     // flash before the poster segment draws its first frame. The caller
     // (playIntroPosterSegment or playNarrationAudio) owns the next draw.
   }
@@ -19512,18 +19512,18 @@ function drawPosterScene() {
 
   if (posterImage) {
     // Full-screen cover: stretch/fill edge-to-edge on every screen size.
-    // Uses object-fit:cover logic Ã¢â‚¬â€ whichever dimension fills first, centre the other.
+    // Uses object-fit:cover logic — whichever dimension fills first, centre the other.
     const iw = posterImage.width  || posterImage.naturalWidth  || canvas.width;
     const ih = posterImage.height || posterImage.naturalHeight || canvas.height;
     const imgAspect    = iw / Math.max(1, ih);
     const canvasAspect = canvas.width / Math.max(1, canvas.height);
     let drawW, drawH;
     if (imgAspect > canvasAspect) {
-      // Image wider Ã¢â‚¬â€ match canvas height, let width overflow (centred)
+      // Image wider — match canvas height, let width overflow (centred)
       drawH = canvas.height;
       drawW = Math.round(canvas.height * imgAspect);
     } else {
-      // Image taller Ã¢â‚¬â€ match canvas width, let height overflow (centred)
+      // Image taller — match canvas width, let height overflow (centred)
       drawW = canvas.width;
       drawH = Math.round(canvas.width / imgAspect);
     }
@@ -19538,12 +19538,12 @@ function drawPosterScene() {
     if (isImageReady(posterImage)) { ctx.drawImage(posterImage, imgX, imgY, drawW, drawH); }
     ctx.restore();
   } else {
-    // No poster uploaded Ã¢â‚¬â€ solid dark fallback
+    // No poster uploaded — solid dark fallback
     ctx.fillStyle = "#08131d";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
-  // Anjali is intentionally NOT drawn here Ã¢â‚¬â€ poster only during the hold.
+  // Anjali is intentionally NOT drawn here — poster only during the hold.
   drawInfoKidsLogo({ skipAnimatedHeader: true });
   requestCanvasExportFrame();
 }
@@ -19846,7 +19846,7 @@ async function autoFetchSmartBRoll() {
      return;
   }
   
-  setStatus("Ã°Å¸Å½Â¬ Analyzing script and fetching cinematic B-Roll imagery...");
+  setStatus("🎬 Analyzing script and fetching cinematic B-Roll imagery...");
   
   const words = currentText.split(/\s+/).filter(w => w.length > 5 && !w.match(/jump|add|equal|quiz|answer|times|this|that/i));
   const keyword = words.length > 0 ? words[Math.floor(Math.random() * Math.min(3, words.length))].replace(/[^a-zA-Z]/g, "") : "Science";
@@ -19891,7 +19891,7 @@ async function autoFetchSmartBRoll() {
          });
          
          state.imageEditor.activeIndex = state.images.length - 1;
-         setStatus(`Ã°Å¸Å½Â¬ Successfully fetched and appended cinematic B-Roll for topic: ${keyword.toUpperCase()}`);
+         setStatus(`🎬 Successfully fetched and appended cinematic B-Roll for topic: ${keyword.toUpperCase()}`);
          updateStageMediaToolUi();
          requestCanvasExportFrame();
       };
@@ -20286,7 +20286,7 @@ function renderImagePreviewsLegacy() {
 
     const label = document.createElement("p");
     label.className = "image-preview-label";
-    label.textContent = `${item.fileName} Ã¢â‚¬Â¢ P${getImagePageIndexForItem(item, index) + 1}`;
+    label.textContent = `${item.fileName} • P${getImagePageIndexForItem(item, index) + 1}`;
 
     card.appendChild(img);
     card.appendChild(label);
@@ -20324,12 +20324,12 @@ function renderImagePreviews() {
 
     const label = document.createElement("p");
     label.className = "image-preview-label";
-    label.textContent = `${item.fileName} Ã¢â‚¬Â¢ P${getImagePageIndexForItem(item, index) + 1}`;
+    label.textContent = `${item.fileName} • P${getImagePageIndexForItem(item, index) + 1}`;
 
     const meta = document.createElement("p");
     meta.className = "image-preview-meta";
     meta.textContent = item.cutoutApplied
-      ? `Cutout ready${item.cutoutConfidence ? ` Ã¢â‚¬Â¢ ${Math.round(item.cutoutConfidence * 100)}%` : ""}`
+      ? `Cutout ready${item.cutoutConfidence ? ` • ${Math.round(item.cutoutConfidence * 100)}%` : ""}`
       : "Original image";
 
     const tools = document.createElement("div");
@@ -21176,7 +21176,7 @@ function startTypingFallback(totalDurationMs) {
   if (!state.tokens.length) return;
   clearTypingInterval();
 
-  // Linear rAF-based typing Ã¢â‚¬â€ matches constant audio speed exactly.
+  // Linear rAF-based typing — matches constant audio speed exactly.
   // Build a cumulative character-offset table so exactCharCountFloat is
   // always in CHARACTER units (matching drawnCharCount used by the
   // alpha-fade renderer), not token units (tokens have variable length).
@@ -21207,7 +21207,7 @@ function startTypingFallback(totalDurationMs) {
     const exactCharFloat = charAtFloor + (charAtNext - charAtFloor) * tokenFrac;
 
     const targetIndex = Math.min(totalTokens, Math.round(tokenFloat));
-    state.exactCharCountFloat = exactCharFloat; // character-scale Ã¢â‚¬â€ matches drawnCharCount
+    state.exactCharCountFloat = exactCharFloat; // character-scale — matches drawnCharCount
     setDisplayedTokenCount(targetIndex);
     markSceneDirty();
 
@@ -21254,7 +21254,7 @@ function startNarrationLoop(audioElement) {
       syncProfileData
     });
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ First-word cold-start fix Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── First-word cold-start fix ──────────────────────────────────────────────
     // The renderer uses `state.displayedText` when speaking (line ~4978).
     // Strict sync: do not reveal any word before the audio clock reaches it.
     state.displayedText = syncFrame.displayedText;
@@ -21275,12 +21275,12 @@ function startNarrationLoop(audioElement) {
       ? (audioMouth ?? getFallbackMouth(syncFrame.speechElapsedMs))
       : 0.12;
     state.mouthOpen = nextMouth;
-    // Always force render during active narration Ã¢â‚¬â€ sub-character alpha
+    // Always force render during active narration — sub-character alpha
     // fading needs continuous redraws even between character boundaries,
     // and the blinking cursor pulse uses performance.now() so it changes every frame.
     const exactFloatChanged = Math.abs(syncFrame.exactCharCountFloat - (_lastDrawnExactCharFloat ?? -1)) > 0.005;
     const cursorPulseActive = state.speaking && state.displayedText !== state.text;
-    // During export: always render every tick Ã¢â‚¬â€ the setTimeout already controls pacing.
+    // During export: always render every tick — the setTimeout already controls pacing.
     // During live: use the frame-skip guard to avoid redundant renders.
     const shouldDraw = state.exportingVideo || shouldRenderAnimatedSceneFrame(nowMs, {
       force: previousText !== state.displayedText || progress >= 0.995 || exactFloatChanged || cursorPulseActive,
@@ -21376,7 +21376,7 @@ function hasFreshGeneratedAnjaliNarration(currentText = "") {
   );
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Play Loading Overlay Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Play Loading Overlay ────────────────────────────────────────────────────
 // Step-by-step checklist drawn on the canvas while Play is preparing.
 const PLAY_LOADING_STEPS = [
   { id: "narration", label: "Generating selected voice narration audio..." },
@@ -21532,7 +21532,7 @@ function drawPlayLoadingOverlay() {
 
   ctx.restore();
 }
-// Ã¢â€â‚¬Ã¢â€â‚¬ End Play Loading Overlay Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── End Play Loading Overlay ─────────────────────────────────────────────────
 
 async function ensureNarrationReadyForSlide(options = {}) {
   const currentText = commitLatestLessonText();
@@ -21643,7 +21643,7 @@ async function playTitleIntroBeforeLesson(voice = state.preferredNarrationVoice 
 async function playSlide() {
   clearPlayLoadingOverlay(); // clear any stale overlay from a previous stopped play
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Reset badge animation so it re-enters on EVERY press of Play Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Reset badge animation so it re-enters on EVERY press of Play ──────────
   armStartingTitleBadge();
 
   const currentText = commitLatestLessonText();
@@ -21704,7 +21704,7 @@ async function playSlide() {
   }
 
   try {
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Step 1: Generate narration Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Step 1: Generate narration ─────────────────────────────────────────
     setPlayLoadingStep("narration");
     updatePlayLoadingProgress(0.18, "Generating narration");
     state.generatingNarration = true;
@@ -21719,11 +21719,11 @@ async function playSlide() {
       }
     });
     state.generatingNarration = false;
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Step 2: Audio loaded Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Step 2: Audio loaded ───────────────────────────────────────────────
     setPlayLoadingStep("audio");
     updatePlayLoadingProgress(0.62, "Loading generated audio");
     updateTaskProgressUi(0.62, true, { mirrorStage: true, label: state.introPlayback.enabled ? "Narration ready. Playing intro clip..." : "Narration ready. Starting playback..." });
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Step 3: Intro clip Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Step 3: Intro clip ────────────────────────────────────────────────
     setPlayLoadingStep("intro");
     updatePlayLoadingProgress(0.74, "Preparing intro");
     await playIntroClipIfEnabled();
@@ -21732,7 +21732,7 @@ async function playSlide() {
     } else if (state.introPlayback.enabled) {
       await playPostIntroBlankTransition();
     }
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Step 4: Starting playback Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Step 4: Starting playback ─────────────────────────────────────────
     setPlayLoadingStep("starting");
     updatePlayLoadingProgress(0.9, "Starting lesson playback");
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
@@ -21768,8 +21768,8 @@ async function openPreviewVoiceChooser() {
   await startTextPreview(normalizeNarrationVoiceId(state.preferredNarrationVoice));
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Chunked narration: requests FULL text from Anjali (real voice),
-//    then plays 6 words at a time by pause/resume on the same audio. Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Chunked narration: requests FULL text from Anjali (real voice),
+//    then plays 6 words at a time by pause/resume on the same audio. ─────────
 async function playChunkedNarration(text) {
   const CHUNK_WORDS = 6;   // words per spoken chunk
   const PAUSE_MS    = 750; // silence gap between chunks (ms)
@@ -21778,12 +21778,12 @@ async function playChunkedNarration(text) {
   if (!words.length) return;
 
   state.inputPreviewing = true;
-  setSpeechToolsStatus(`Generating ${getNarrationVoiceLabel(state.preferredNarrationVoice)} audio Ã¢â‚¬â€ please wait...`);
+  setSpeechToolsStatus(`Generating ${getNarrationVoiceLabel(state.preferredNarrationVoice)} audio — please wait...`);
   updateSpeechToolsUi();
 
   let previewUrl = null;
   try {
-    // One full request to the Anjali server Ã¢â€ â€™ real voice, real intonation
+    // One full request to the Anjali server → real voice, real intonation
     const previewVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
     const blob = await requestNarrationBlob(text, previewVoice, {
       timeoutMs: getLongNarrationRequestTimeoutMs(text)
@@ -21865,7 +21865,7 @@ async function startTextPreview(voicePreference) {
   updatePreferredVoiceUi();
 
   // Chunked reading: 5-6 words at a time with pauses
-  setSpeechToolsStatus('Starting chunked narration Ã¢â‚¬â€ reads 6 words at a time with pausesÃ¢â‚¬Â¦');
+  setSpeechToolsStatus('Starting chunked narration — reads 6 words at a time with pauses…');
   updateSpeechToolsUi();
   await playChunkedNarration(text);
 }
@@ -22584,7 +22584,7 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
       await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Outro poster hold: show poster for 5 seconds at end of lesson Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
     if (hasIntroPosterSelected() && state.introPoster.image) {
       const OUTRO_POSTER_DURATION_MS = 5000;
       setStatus("Holding poster for 5 seconds as outro...");
@@ -22767,7 +22767,7 @@ async function exportVideo(options = {}) {
   const exportPlaybackRate = 1;
   const effectiveExportQuality = getEffectiveExportQuality();
   const shouldIncludeIntro = Boolean(state.introPlayback.enabled);
-  // Poster is optional and independent Ã¢â‚¬â€ it can be shown even if intro is skipped at fetch time.
+  // Poster is optional and independent — it can be shown even if intro is skipped at fetch time.
   const shouldIncludePoster = Boolean(state.introPoster.available);
   const shouldUsePosterPreroll = shouldIncludePoster;
   const preparingVideoExportMessage = cacheOnly
@@ -22942,11 +22942,11 @@ async function exportVideo(options = {}) {
         includedIntroInExport = true;
         videoBlobs = [introVideoBlob];
       } else {
-        // Intro file unavailable Ã¢â‚¬â€ export continues without it
+        // Intro file unavailable — export continues without it
         includedIntroInExport = false;
         videoBlobs = [];
         if (shouldIncludeIntro) {
-          setStatus("Intro clip could not be loaded Ã¢â‚¬â€ exporting lesson without intro. Please wait...");
+          setStatus("Intro clip could not be loaded — exporting lesson without intro. Please wait...");
         }
       }
 
@@ -23139,7 +23139,7 @@ async function exportVideo(options = {}) {
       cancelVisualLoop();
       state.mouthOpen = 0.12;
       applyLessonExportSnapshot(lessonExportSnapshot, lessonExportSnapshot.text);
-      // Skip drawScene here if poster is about to show Ã¢â‚¬â€ prevents a 1-frame lesson content flash
+      // Skip drawScene here if poster is about to show — prevents a 1-frame lesson content flash
       if (!(shouldUsePosterPreroll && state.introPoster.image)) {
         drawScene(0.12);
         requestExportVideoFrame();
@@ -23149,7 +23149,7 @@ async function exportVideo(options = {}) {
         await recordEndingTitleOutro(EXPORT_TITLE_OUTRO_MS, captureRate);
       }
 
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Outro poster hold: show poster for 5 seconds at end of lesson Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Outro poster hold: show poster for 5 seconds at end of lesson ──
       if (shouldUsePosterPreroll && state.introPoster.image) {
         const OUTRO_POSTER_DURATION_MS = 5000;
         const outroLabel = "Holding poster for 5 seconds as outro...";
@@ -23955,7 +23955,7 @@ function playSingSongChime() {
     });
     setTimeout(() => ctx.close(), 1500);
   } catch (e) {
-    // AudioContext not available Ã¢â‚¬â€ silent fail
+    // AudioContext not available — silent fail
   }
 }
 
@@ -23982,12 +23982,12 @@ function speakSingSongAlert(text) {
 
 function notifySingSongVoice(message) {
   playSingSongChime();
-  // Speak just after the chime finishes (Ã¢â€°Ë†0.9s)
+  // Speak just after the chime finishes (≈0.9s)
   setTimeout(() => speakSingSongAlert(message), 900);
 }
 
 function notifySongCreationComplete(message = "Your song is ready in the Sing Song module.") {
-  // Voice alert Ã¢â‚¬â€ chime + speech
+  // Voice alert — chime + speech
   notifySingSongVoice(message);
 
   // Desktop notification (if permission granted)
@@ -24225,7 +24225,7 @@ function handleSingSongSelection(event) {
 }
 
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ SC3 Video Queue State Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── SC3 Video Queue State ──────────────────────────────────────────────────────
 const sc3Queue = {
   items: [],
   paused: false,
@@ -24382,7 +24382,7 @@ async function processVideoQueue() {
       item.endedAt = Date.now();
       item.errorMsg = err.message || 'Unknown error';
       renderQueueList();
-      setSingSongStatus('\u274c Failed: "' + item.name + '" Ã¢â‚¬â€ ' + item.errorMsg, { error: true });
+      setSingSongStatus('\u274c Failed: "' + item.name + '" — ' + item.errorMsg, { error: true });
       // Auto-proceed — no OK click needed. Error shown in banner.
       console.error('\u274c Video failed: ' + item.name + ' \u2014 ' + item.errorMsg);
       setSingSongStatus('\u274c Failed: ' + item.name + ' \u2014 ' + item.errorMsg + ' (queue continues...)', { error: true });
@@ -24633,7 +24633,7 @@ async function replaceSingSongWithSc3SingingModel() {
     progressTimer = 0;
 
     if (!result || !result.ok) {
-      throw new Error(result ? result.error : 'sc3 narration failed Ã¢â‚¬â€ no response from main process.');
+      throw new Error(result ? result.error : 'sc3 narration failed — no response from main process.');
     }
 
     state.singSong.resultFileName = result.fileName;
@@ -24665,9 +24665,9 @@ async function replaceSingSongWithSc3SingingModel() {
 }
 
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ SC3 Video Audio Replacement Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── SC3 Video Audio Replacement ─────────────────────────────────────────────
 // Uses Electron IPC when available (crash-free: main process reads file + calls
-// FFmpeg + calls SC3 server Ã¢â‚¬â€ no large files loaded into renderer memory).
+// FFmpeg + calls SC3 server — no large files loaded into renderer memory).
 // Falls back to the old renderer approach when running in a plain browser.
 async function replaceVideoAudioWithSc3() {
   const file = state.singSong.videoFile;
@@ -24676,7 +24676,7 @@ async function replaceVideoAudioWithSc3() {
     return;
   }
 
-  // IPC path Ã¢â‚¬â€ crash-free, runs entirely in main process
+  // IPC path — crash-free, runs entirely in main process
   if (window.electronAPI && typeof window.electronAPI.sc3ReplaceVideoAudio === 'function' &&
       typeof window.electronAPI.getPathForFile === 'function') {
     await _replaceVideoAudioViaIpc(file);
@@ -24687,7 +24687,7 @@ async function replaceVideoAudioWithSc3() {
   await _replaceVideoAudioRendererFallback(file);
 }
 
-// IPC-based replacement Ã¢â‚¬â€ NO video loaded into renderer memory
+// IPC-based replacement — NO video loaded into renderer memory
 async function _replaceVideoAudioViaIpc(file) {
   state.singSong.processing = true;
   if (singSongProcessBtn) singSongProcessBtn.disabled = true;
@@ -24702,13 +24702,13 @@ async function _replaceVideoAudioViaIpc(file) {
 
   let progressTimer = 0;
   try {
-    // Get the real on-disk path via webUtils Ã¢â‚¬â€ no renderer file reading needed
+    // Get the real on-disk path via webUtils — no renderer file reading needed
     const filePath = window.electronAPI.getPathForFile(file);
     if (!filePath) throw new Error('Could not get file path from Electron. Try restarting the app.');
 
     const baseName = file.name.replace(/.[^.]+$/i, '') || 'video';
 
-    // Show animated progress Ã¢â‚¬â€ actual work is in the main process
+    // Show animated progress — actual work is in the main process
     let pct = 8;
     progressTimer = window.setInterval(() => {
       if (!state.singSong.processing) { window.clearInterval(progressTimer); return; }
@@ -24726,10 +24726,10 @@ async function _replaceVideoAudioViaIpc(file) {
     progressTimer = 0;
 
     if (!result || !result.ok) {
-      throw new Error(result ? result.error : 'SC3 video replacement failed Ã¢â‚¬â€ no response from main process.');
+      throw new Error(result ? result.error : 'SC3 video replacement failed — no response from main process.');
     }
 
-    // Store result Ã¢â‚¬â€ blob is NOT needed because file is already on disk
+    // Store result — blob is NOT needed because file is already on disk
     state.singSong.videoResultBlob = null;
     state.singSong.videoResultFileName = result.fileName;
     state.singSong.videoResultSavedPath = result.outputPath;
@@ -24738,7 +24738,7 @@ async function _replaceVideoAudioViaIpc(file) {
     if (sc3VideoDownloadBtn) sc3VideoDownloadBtn.disabled = false;
 
     setSingSongProgress(100, 'Done');
-    const pipelineLabel = result.indianEnglish ? 'Ã°Å¸â€¡Â®Ã°Å¸â€¡Â³ Indian English TTS' : 'SC3 timbre';
+    const pipelineLabel = result.indianEnglish ? '🇮🇳 Indian English TTS' : 'SC3 timbre';
     setSingSongStatus(`[${pipelineLabel}] Video saved to Downloads: ${result.fileName}. Click Show in Folder to open it.`);
     setStatus(`[${pipelineLabel}] Video ready in Downloads: ${result.fileName}`);
     notifySongCreationComplete(`Video with ${result.indianEnglish ? 'Indian English voice (slang converted)' : 'SC3 voice'} saved in your Downloads folder.`);
@@ -25485,7 +25485,7 @@ if (outcomesTitleInput) {
       setOutcomesTitle(outcomesTitleInput.value);
     }
   });
-  // Auto-save as you type (500ms debounce) Ã¢â‚¬â€ no need to click Save
+  // Auto-save as you type (500ms debounce) — no need to click Save
   let _titleSaveTimer = 0;
   outcomesTitleInput.addEventListener("input", () => {
     clearTimeout(_titleSaveTimer);
@@ -25504,25 +25504,25 @@ if (insertTabBtn) {
   insertTabBtn.addEventListener("click", () => insertTextIntoActiveField("    ", "Tab spacing"));
 }
 if (insertBulletBtn) {
-  insertBulletBtn.addEventListener("click", () => insertTextIntoActiveField("Ã¢â‚¬Â¢ ", "Bullet"));
+  insertBulletBtn.addEventListener("click", () => insertTextIntoActiveField("• ", "Bullet"));
 }
 if (insertArrowBtn) {
-  insertArrowBtn.addEventListener("click", () => insertTextIntoActiveField(" Ã¢â€ â€™ ", "Arrow"));
+  insertArrowBtn.addEventListener("click", () => insertTextIntoActiveField(" → ", "Arrow"));
 }
 if (insertMultiplyBtn) {
-  insertMultiplyBtn.addEventListener("click", () => insertTextIntoActiveField(" Ãƒâ€” ", "Multiplication sign"));
+  insertMultiplyBtn.addEventListener("click", () => insertTextIntoActiveField(" × ", "Multiplication sign"));
 }
 if (insertDivideBtn) {
-  insertDivideBtn.addEventListener("click", () => insertTextIntoActiveField(" ÃƒÂ· ", "Division sign"));
+  insertDivideBtn.addEventListener("click", () => insertTextIntoActiveField(" ÷ ", "Division sign"));
 }
 if (insertLessEqualBtn) {
-  insertLessEqualBtn.addEventListener("click", () => insertTextIntoActiveField(" Ã¢â€°Â¤ ", "Less-than-or-equal sign"));
+  insertLessEqualBtn.addEventListener("click", () => insertTextIntoActiveField(" ≤ ", "Less-than-or-equal sign"));
 }
 if (insertGreaterEqualBtn) {
-  insertGreaterEqualBtn.addEventListener("click", () => insertTextIntoActiveField(" Ã¢â€°Â¥ ", "Greater-than-or-equal sign"));
+  insertGreaterEqualBtn.addEventListener("click", () => insertTextIntoActiveField(" ≥ ", "Greater-than-or-equal sign"));
 }
 if (insertRupeeBtn) {
-  insertRupeeBtn.addEventListener("click", () => insertTextIntoActiveField("Ã¢â€šÂ¹", "Rupee sign"));
+  insertRupeeBtn.addEventListener("click", () => insertTextIntoActiveField("₹", "Rupee sign"));
 }
 textColorSelect.addEventListener("change", (event) => {
   updateDisplayStyle({ color: event.target.value });
@@ -25563,7 +25563,7 @@ selectedUnderlineToggleBtn.addEventListener("click", () => {
 applySelectedStyleBtn.addEventListener("click", applySelectedTextStyle);
 clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Alignment Buttons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Alignment Buttons ─────────────────────────────────────────────────────
 (function wireAlignmentButtons() {
   const alignBtns = [
     { id: "alignLeftBtn",   align: "left"   },
@@ -25598,37 +25598,37 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
   });
 })();
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Context Style Models Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Context Style Models ───────────────────────────────────────────────────
 (function wireContextModels() {
   const CONTEXT_MODELS = {
-    "classic":     { label: "Classic Ã¢â‚¬â€ left, white, balanced.",          style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", contextModel: "classic" } },
-    "bold-center": { label: "Bold Center Ã¢â‚¬â€ centered, yellow, bold.",       style: { textAlign: "center", color: "#facc15", bold: true,  italic: false, caseMode: "original", contextModel: "bold-center" } },
-    "headline":    { label: "Headline Ã¢â‚¬â€ centered, sky blue, uppercase.",    style: { textAlign: "center", color: "#0d7ea9", bold: true,  italic: false, caseMode: "upper",    contextModel: "headline" } },
-    "glossary":    { label: "Glossary Ã¢â‚¬â€ left, italic, bright green.",       style: { textAlign: "left",   color: "#16a34a", bold: false, italic: true,  caseMode: "original", contextModel: "glossary" } },
-    "compact":     { label: "Compact Ã¢â‚¬â€ left, lowercase flow.",              style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "lower",    contextModel: "compact" } },
-    "poster":      { label: "Poster Ã¢â‚¬â€ right, bold, red.",                   style: { textAlign: "right",  color: "#dc2626", bold: true,  italic: false, caseMode: "original", contextModel: "poster" } },
-    "neon":        { label: "Neon Ã¢â‚¬â€ centered, fuchsia, extra bold.",        style: { textAlign: "center", color: "#d946ef", bold: true,  italic: false, caseMode: "original", contextModel: "neon" } },
-    "chalk":       { label: "Chalk Ã¢â‚¬â€ left, cream, chalkboard feel.",        style: { textAlign: "left",   color: "#fef9c3", bold: false, italic: false, caseMode: "original", contextModel: "chalk" } },
-    "sunrise":     { label: "Sunrise Ã¢â‚¬â€ centered, orange, title case.",      style: { textAlign: "center", color: "#f97316", bold: true,  italic: false, caseMode: "title",    contextModel: "sunrise" } },
-    "ocean":       { label: "Ocean Ã¢â‚¬â€ left, cyan, italic.",                  style: { textAlign: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", contextModel: "ocean" } },
-    "royal":       { label: "Royal Ã¢â‚¬â€ centered, gold, title case.",          style: { textAlign: "center", color: "#fbbf24", bold: true,  italic: false, caseMode: "title",    contextModel: "royal" } },
-    "fire":        { label: "Fire Ã¢â‚¬â€ centered, coral, bold uppercase.",      style: { textAlign: "center", color: "#fb7185", bold: true,  italic: false, caseMode: "upper",    contextModel: "fire" } },
-    "forest":      { label: "Forest Ã¢â‚¬â€ left, lime, title case.",             style: { textAlign: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "title",    contextModel: "forest" } },
-    "night":       { label: "Night Ã¢â‚¬â€ right, violet, italic.",               style: { textAlign: "right",  color: "#a78bfa", bold: false, italic: true,  caseMode: "original", contextModel: "night" } },
-    "candy":       { label: "Candy Ã¢â‚¬â€ centered, pink, bold fun.",            style: { textAlign: "center", color: "#ec4899", bold: true,  italic: false, caseMode: "original", contextModel: "candy" } },
-    "matrix":      { label: "Matrix Ã¢â‚¬â€ left, lime green, lowercase.",        style: { textAlign: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "lower",    contextModel: "matrix" } },
-    "ice":         { label: "Ice Ã¢â‚¬â€ centered, mint, italic cool.",           style: { textAlign: "center", color: "#6ee7b7", bold: false, italic: true,  caseMode: "original", contextModel: "ice" } },
-    "teal":        { label: "Teal Ã¢â‚¬â€ left, teal, underlined bold.",          style: { textAlign: "left",   color: "#14b8a6", bold: true,  italic: false, caseMode: "original", contextModel: "teal" } },
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Key-Value Models Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    "kv-classic":  { label: "KV Classic Ã¢â‚¬â€ yellow key, white value.",        style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", contextModel: "kv-classic",  kvMode: true, kvKeyColor: "#facc15", kvValueColor: "#ffffff" } },
-    "kv-ocean":    { label: "KV Ocean Ã¢â‚¬â€ cyan key, mint value.",            style: { textAlign: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", contextModel: "kv-ocean",    kvMode: true, kvKeyColor: "#06b6d4", kvValueColor: "#6ee7b7" } },
-    "kv-fire":     { label: "KV Fire Ã¢â‚¬â€ coral key, cream value.",           style: { textAlign: "left",   color: "#fb7185", bold: true,  italic: false, caseMode: "original", contextModel: "kv-fire",     kvMode: true, kvKeyColor: "#fb7185", kvValueColor: "#fef9c3" } },
-    "kv-royal":    { label: "KV Royal Ã¢â‚¬â€ gold key, white value.",           style: { textAlign: "left",   color: "#fbbf24", bold: true,  italic: false, caseMode: "original", contextModel: "kv-royal",    kvMode: true, kvKeyColor: "#fbbf24", kvValueColor: "#ffffff" } },
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Narration Type Models Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    "storyteller":  { label: "Storyteller Ã¢â‚¬â€ warm, flowing narrative.",      style: { textAlign: "left",   color: "#fef9c3", bold: false, italic: true,  caseMode: "original", contextModel: "storyteller" } },
-    "quiz":         { label: "Quiz Ã¢â‚¬â€ energetic, bold question style.",       style: { textAlign: "center", color: "#06b6d4", bold: true,  italic: false, caseMode: "title",    contextModel: "quiz" } },
-    "dialogue":     { label: "Dialogue Ã¢â‚¬â€ conversational, pink italic.",      style: { textAlign: "left",   color: "#ec4899", bold: false, italic: true,  caseMode: "original", contextModel: "dialogue" } },
-    "broadcast":    { label: "Broadcast Ã¢â‚¬â€ news-style, bold uppercase.",      style: { textAlign: "center", color: "#ffffff", bold: true,  italic: false, caseMode: "upper",    contextModel: "broadcast" } }
+    "classic":     { label: "Classic — left, white, balanced.",          style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", contextModel: "classic" } },
+    "bold-center": { label: "Bold Center — centered, yellow, bold.",       style: { textAlign: "center", color: "#facc15", bold: true,  italic: false, caseMode: "original", contextModel: "bold-center" } },
+    "headline":    { label: "Headline — centered, sky blue, uppercase.",    style: { textAlign: "center", color: "#0d7ea9", bold: true,  italic: false, caseMode: "upper",    contextModel: "headline" } },
+    "glossary":    { label: "Glossary — left, italic, bright green.",       style: { textAlign: "left",   color: "#16a34a", bold: false, italic: true,  caseMode: "original", contextModel: "glossary" } },
+    "compact":     { label: "Compact — left, lowercase flow.",              style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "lower",    contextModel: "compact" } },
+    "poster":      { label: "Poster — right, bold, red.",                   style: { textAlign: "right",  color: "#dc2626", bold: true,  italic: false, caseMode: "original", contextModel: "poster" } },
+    "neon":        { label: "Neon — centered, fuchsia, extra bold.",        style: { textAlign: "center", color: "#d946ef", bold: true,  italic: false, caseMode: "original", contextModel: "neon" } },
+    "chalk":       { label: "Chalk — left, cream, chalkboard feel.",        style: { textAlign: "left",   color: "#fef9c3", bold: false, italic: false, caseMode: "original", contextModel: "chalk" } },
+    "sunrise":     { label: "Sunrise — centered, orange, title case.",      style: { textAlign: "center", color: "#f97316", bold: true,  italic: false, caseMode: "title",    contextModel: "sunrise" } },
+    "ocean":       { label: "Ocean — left, cyan, italic.",                  style: { textAlign: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", contextModel: "ocean" } },
+    "royal":       { label: "Royal — centered, gold, title case.",          style: { textAlign: "center", color: "#fbbf24", bold: true,  italic: false, caseMode: "title",    contextModel: "royal" } },
+    "fire":        { label: "Fire — centered, coral, bold uppercase.",      style: { textAlign: "center", color: "#fb7185", bold: true,  italic: false, caseMode: "upper",    contextModel: "fire" } },
+    "forest":      { label: "Forest — left, lime, title case.",             style: { textAlign: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "title",    contextModel: "forest" } },
+    "night":       { label: "Night — right, violet, italic.",               style: { textAlign: "right",  color: "#a78bfa", bold: false, italic: true,  caseMode: "original", contextModel: "night" } },
+    "candy":       { label: "Candy — centered, pink, bold fun.",            style: { textAlign: "center", color: "#ec4899", bold: true,  italic: false, caseMode: "original", contextModel: "candy" } },
+    "matrix":      { label: "Matrix — left, lime green, lowercase.",        style: { textAlign: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "lower",    contextModel: "matrix" } },
+    "ice":         { label: "Ice — centered, mint, italic cool.",           style: { textAlign: "center", color: "#6ee7b7", bold: false, italic: true,  caseMode: "original", contextModel: "ice" } },
+    "teal":        { label: "Teal — left, teal, underlined bold.",          style: { textAlign: "left",   color: "#14b8a6", bold: true,  italic: false, caseMode: "original", contextModel: "teal" } },
+    // ── Key-Value Models ──────────────────────────────────────────────────
+    "kv-classic":  { label: "KV Classic — yellow key, white value.",        style: { textAlign: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", contextModel: "kv-classic",  kvMode: true, kvKeyColor: "#facc15", kvValueColor: "#ffffff" } },
+    "kv-ocean":    { label: "KV Ocean — cyan key, mint value.",            style: { textAlign: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", contextModel: "kv-ocean",    kvMode: true, kvKeyColor: "#06b6d4", kvValueColor: "#6ee7b7" } },
+    "kv-fire":     { label: "KV Fire — coral key, cream value.",           style: { textAlign: "left",   color: "#fb7185", bold: true,  italic: false, caseMode: "original", contextModel: "kv-fire",     kvMode: true, kvKeyColor: "#fb7185", kvValueColor: "#fef9c3" } },
+    "kv-royal":    { label: "KV Royal — gold key, white value.",           style: { textAlign: "left",   color: "#fbbf24", bold: true,  italic: false, caseMode: "original", contextModel: "kv-royal",    kvMode: true, kvKeyColor: "#fbbf24", kvValueColor: "#ffffff" } },
+    // ── Narration Type Models ────────────────────────────────────────────
+    "storyteller":  { label: "Storyteller — warm, flowing narrative.",      style: { textAlign: "left",   color: "#fef9c3", bold: false, italic: true,  caseMode: "original", contextModel: "storyteller" } },
+    "quiz":         { label: "Quiz — energetic, bold question style.",       style: { textAlign: "center", color: "#06b6d4", bold: true,  italic: false, caseMode: "title",    contextModel: "quiz" } },
+    "dialogue":     { label: "Dialogue — conversational, pink italic.",      style: { textAlign: "left",   color: "#ec4899", bold: false, italic: true,  caseMode: "original", contextModel: "dialogue" } },
+    "broadcast":    { label: "Broadcast — news-style, bold uppercase.",      style: { textAlign: "center", color: "#ffffff", bold: true,  italic: false, caseMode: "upper",    contextModel: "broadcast" } }
   };
 
   const modelBtns = document.querySelectorAll(".context-model-card[data-model]");
@@ -25682,7 +25682,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
   });
 })();
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Color Preset Swatches Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Color Preset Swatches ─────────────────────────────────────────────────
 (function wireColorSwatches() {
   const swatches = document.querySelectorAll(".color-swatch[data-color]");
 
@@ -25720,40 +25720,40 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
   }
 })();
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Stage Styles Module Ã¢â‚¬â€ Alignment, Models, Colors Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Stage Styles Module — Alignment, Models, Colors ───────────────────────
 (function wireStageStylesModule() {
   const STAGE_CONTEXT_MODELS = {
-    "classic":     { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", label: "Classic Ã¢â‚¬â€ left, white text." },
-    "bold-center": { align: "center", color: "#facc15", bold: true,  italic: false, caseMode: "original", label: "Bold Center Ã¢â‚¬â€ centered, yellow, bold." },
-    "headline":    { align: "center", color: "#0d7ea9", bold: true,  italic: false, caseMode: "upper",    label: "Headline Ã¢â‚¬â€ centered, sky blue, caps." },
-    "glossary":    { align: "left",   color: "#16a34a", bold: false, italic: true,  caseMode: "original", label: "Glossary Ã¢â‚¬â€ left, italic, green." },
-    "compact":     { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "lower",    label: "Compact Ã¢â‚¬â€ left, lowercase." },
-    "poster":      { align: "right",  color: "#dc2626", bold: true,  italic: false, caseMode: "original", label: "Poster Ã¢â‚¬â€ right, bold, red." },
-    "neon":        { align: "center", color: "#d946ef", bold: true,  italic: false, caseMode: "original", label: "Neon Ã¢â‚¬â€ centered, fuchsia, bold." },
-    "chalk":       { align: "left",   color: "#fef9c3", bold: false, italic: false, caseMode: "original", label: "Chalk Ã¢â‚¬â€ left, cream, chalkboard." },
-    "sunrise":     { align: "center", color: "#f97316", bold: true,  italic: false, caseMode: "title",    label: "Sunrise Ã¢â‚¬â€ centered, orange, title case." },
-    "ocean":       { align: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", label: "Ocean Ã¢â‚¬â€ left, cyan, italic." },
-    "royal":       { align: "center", color: "#fbbf24", bold: true,  italic: false, caseMode: "title",    label: "Royal Ã¢â‚¬â€ centered, gold, title case." },
-    "fire":        { align: "center", color: "#fb7185", bold: true,  italic: false, caseMode: "upper",    label: "Fire Ã¢â‚¬â€ centered, coral, bold uppercase." },
-    "forest":      { align: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "title",    label: "Forest Ã¢â‚¬â€ left, lime, title case." },
-    "night":       { align: "right",  color: "#a78bfa", bold: false, italic: true,  caseMode: "original", label: "Night Ã¢â‚¬â€ right, violet, italic." },
-    "candy":       { align: "center", color: "#ec4899", bold: true,  italic: false, caseMode: "original", label: "Candy Ã¢â‚¬â€ centered, pink, bold." },
-    "matrix":      { align: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "lower",    label: "Matrix Ã¢â‚¬â€ left, lime green, lowercase." },
-    "ice":         { align: "center", color: "#6ee7b7", bold: false, italic: true,  caseMode: "original", label: "Ice Ã¢â‚¬â€ centered, mint, italic." },
-    "teal":        { align: "left",   color: "#14b8a6", bold: true,  italic: false, caseMode: "original", label: "Teal Ã¢â‚¬â€ left, teal, underlined bold." },
+    "classic":     { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", label: "Classic — left, white text." },
+    "bold-center": { align: "center", color: "#facc15", bold: true,  italic: false, caseMode: "original", label: "Bold Center — centered, yellow, bold." },
+    "headline":    { align: "center", color: "#0d7ea9", bold: true,  italic: false, caseMode: "upper",    label: "Headline — centered, sky blue, caps." },
+    "glossary":    { align: "left",   color: "#16a34a", bold: false, italic: true,  caseMode: "original", label: "Glossary — left, italic, green." },
+    "compact":     { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "lower",    label: "Compact — left, lowercase." },
+    "poster":      { align: "right",  color: "#dc2626", bold: true,  italic: false, caseMode: "original", label: "Poster — right, bold, red." },
+    "neon":        { align: "center", color: "#d946ef", bold: true,  italic: false, caseMode: "original", label: "Neon — centered, fuchsia, bold." },
+    "chalk":       { align: "left",   color: "#fef9c3", bold: false, italic: false, caseMode: "original", label: "Chalk — left, cream, chalkboard." },
+    "sunrise":     { align: "center", color: "#f97316", bold: true,  italic: false, caseMode: "title",    label: "Sunrise — centered, orange, title case." },
+    "ocean":       { align: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", label: "Ocean — left, cyan, italic." },
+    "royal":       { align: "center", color: "#fbbf24", bold: true,  italic: false, caseMode: "title",    label: "Royal — centered, gold, title case." },
+    "fire":        { align: "center", color: "#fb7185", bold: true,  italic: false, caseMode: "upper",    label: "Fire — centered, coral, bold uppercase." },
+    "forest":      { align: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "title",    label: "Forest — left, lime, title case." },
+    "night":       { align: "right",  color: "#a78bfa", bold: false, italic: true,  caseMode: "original", label: "Night — right, violet, italic." },
+    "candy":       { align: "center", color: "#ec4899", bold: true,  italic: false, caseMode: "original", label: "Candy — centered, pink, bold." },
+    "matrix":      { align: "left",   color: "#84cc16", bold: false, italic: false, caseMode: "lower",    label: "Matrix — left, lime green, lowercase." },
+    "ice":         { align: "center", color: "#6ee7b7", bold: false, italic: true,  caseMode: "original", label: "Ice — centered, mint, italic." },
+    "teal":        { align: "left",   color: "#14b8a6", bold: true,  italic: false, caseMode: "original", label: "Teal — left, teal, underlined bold." },
     // KV Models
-    "kv-classic":  { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#facc15", kvValueColor: "#ffffff", label: "KV Classic Ã¢â‚¬â€ yellow key, white value." },
-    "kv-ocean":    { align: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", kvMode: true, kvKeyColor: "#06b6d4", kvValueColor: "#6ee7b7", label: "KV Ocean Ã¢â‚¬â€ cyan key, mint value." },
-    "kv-fire":     { align: "left",   color: "#fb7185", bold: true,  italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#fb7185", kvValueColor: "#fef9c3", label: "KV Fire Ã¢â‚¬â€ coral key, cream value." },
-    "kv-royal":    { align: "left",   color: "#fbbf24", bold: true,  italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#fbbf24", kvValueColor: "#ffffff", label: "KV Royal Ã¢â‚¬â€ gold key, white value." },
+    "kv-classic":  { align: "left",   color: "#ffffff", bold: false, italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#facc15", kvValueColor: "#ffffff", label: "KV Classic — yellow key, white value." },
+    "kv-ocean":    { align: "left",   color: "#06b6d4", bold: false, italic: true,  caseMode: "original", kvMode: true, kvKeyColor: "#06b6d4", kvValueColor: "#6ee7b7", label: "KV Ocean — cyan key, mint value." },
+    "kv-fire":     { align: "left",   color: "#fb7185", bold: true,  italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#fb7185", kvValueColor: "#fef9c3", label: "KV Fire — coral key, cream value." },
+    "kv-royal":    { align: "left",   color: "#fbbf24", bold: true,  italic: false, caseMode: "original", kvMode: true, kvKeyColor: "#fbbf24", kvValueColor: "#ffffff", label: "KV Royal — gold key, white value." },
     // Narration Types
-    "storyteller":  { align: "left",   color: "#fef9c3", bold: false, italic: true,  caseMode: "original", label: "Storyteller Ã¢â‚¬â€ warm, flowing narrative." },
-    "quiz":         { align: "center", color: "#06b6d4", bold: true,  italic: false, caseMode: "title",    label: "Quiz Ã¢â‚¬â€ energetic, bold question style." },
-    "dialogue":     { align: "left",   color: "#ec4899", bold: false, italic: true,  caseMode: "original", label: "Dialogue Ã¢â‚¬â€ conversational, pink italic." },
-    "broadcast":    { align: "center", color: "#ffffff", bold: true,  italic: false, caseMode: "upper",    label: "Broadcast Ã¢â‚¬â€ news-style, bold uppercase." }
+    "storyteller":  { align: "left",   color: "#fef9c3", bold: false, italic: true,  caseMode: "original", label: "Storyteller — warm, flowing narrative." },
+    "quiz":         { align: "center", color: "#06b6d4", bold: true,  italic: false, caseMode: "title",    label: "Quiz — energetic, bold question style." },
+    "dialogue":     { align: "left",   color: "#ec4899", bold: false, italic: true,  caseMode: "original", label: "Dialogue — conversational, pink italic." },
+    "broadcast":    { align: "center", color: "#ffffff", bold: true,  italic: false, caseMode: "upper",    label: "Broadcast — news-style, bold uppercase." }
   };
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Shared sync: updates BOTH stage and input-panel indicator elements Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Shared sync: updates BOTH stage and input-panel indicator elements ──
   function syncStageAlignBtns(align) {
     ["stageAlignLeftBtn","stageAlignCenterBtn","stageAlignRightBtn"].forEach((id) => {
       const btn = document.getElementById(id);
@@ -25806,7 +25806,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
     if (el2) el2.textContent = text;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Stage Alignment buttons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Stage Alignment buttons ─────────────────────────────────────────────
   ["stageAlignLeftBtn","stageAlignCenterBtn","stageAlignRightBtn"].forEach((id) => {
     const btn = document.getElementById(id);
     if (!btn) return;
@@ -25820,7 +25820,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
     });
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Stage Context Model buttons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Stage Context Model buttons ─────────────────────────────────────────
   document.querySelectorAll(".stage-model-btn[data-model]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const key = btn.dataset.model;
@@ -25837,7 +25837,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
     });
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Stage Color Swatches Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Stage Color Swatches ────────────────────────────────────────────────
   document.querySelectorAll(".stage-swatch[data-color]").forEach((sw) => {
     sw.addEventListener("click", () => {
       const color = sw.dataset.color;
@@ -25849,7 +25849,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
     });
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Stage Font Weight buttons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Stage Font Weight buttons ───────────────────────────────────────────
   [
     { id: "stageWeightNormalBtn", bold: false,  label: "Normal weight applied." },
     { id: "stageWeightBoldBtn",   bold: true,   label: "Bold weight applied." },
@@ -25870,7 +25870,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
   });
 })();
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Input Panel Font Weight Buttons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Input Panel Font Weight Buttons ─────────────────────────────────────────
 (function wireFontWeightButtons() {
   [
     { id: "weightNormalBtn", bold: false, label: "Normal weight applied." },
@@ -25893,7 +25893,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
   });
 })();
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Key-Value Mode Controls Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Key-Value Mode Controls ──────────────────────────────────────────────────
 (function wireKvModeControls() {
   const kvCheck = document.getElementById("kvModeCheck");
   const kvKeyPicker = document.getElementById("kvKeyColorPicker");
@@ -25927,7 +25927,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
   }
 })();
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Floating Show-Screen Button Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Floating Show-Screen Button ──────────────────────────────────────────────
 (function wireFloatingScreenBtn() {
   const btn = document.getElementById("floatingShowScreenBtn");
   if (!btn) return;
@@ -25942,7 +25942,7 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
     btn.classList.add("floating-screen-btn-pressed");
     setTimeout(() => btn.classList.remove("floating-screen-btn-pressed"), 220);
 
-    // Trigger the play/stage button Ã¢â‚¬â€ it handles saving + switching panels
+    // Trigger the play/stage button — it handles saving + switching panels
     const play = document.getElementById("playBtn");
     if (play && !play.disabled) {
       play.click();
@@ -26005,7 +26005,7 @@ pdfPresentBtn.addEventListener("click", () => runLockedAction("pdfPresent", [pdf
 pdfSelectAllBtn.addEventListener("click", selectAllPdfPages);
 pdfClearSelectionBtn.addEventListener("click", clearSelectedPdfPages);
 clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: true }));
-// Ã¢â€â‚¬Ã¢â€â‚¬ Dynamic Voice Picker Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Dynamic Voice Picker ────────────────────────────────────────────────────
 (function initVoicePicker() {
   const listEl    = document.getElementById("voiceListScroll");
   const searchEl  = document.getElementById("voiceSearchInput");
@@ -26024,7 +26024,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
           <span class="voice-item-name">${option.label}</span>
           <span class="voice-item-meta">${option.engine}</span>
         </span>
-        ${option.id === activeVoice ? '<span class="active-tick">Ã¢Å“â€</span>' : ""}
+        ${option.id === activeVoice ? '<span class="active-tick">✔</span>' : ""}
       </div>`).join("");
     listEl.querySelectorAll(".voice-item").forEach((item) => {
       const selectVoice = () => {
@@ -26046,22 +26046,22 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
   renderLimitedVoices();
   return;
 
-  // Locale Ã¢â€ â€™ display name + flag emoji
+  // Locale → display name + flag emoji
   const LOCALE_META = {
-    "en-IN": { label: "Indian English",     flag: "Ã°Å¸â€¡Â®Ã°Å¸â€¡Â³" },
-    "en-GB": { label: "British English",    flag: "Ã°Å¸â€¡Â¬Ã°Å¸â€¡Â§" },
-    "en-US": { label: "US English",         flag: "Ã°Å¸â€¡ÂºÃ°Å¸â€¡Â¸" },
-    "en-AU": { label: "Australian English", flag: "Ã°Å¸â€¡Â¦Ã°Å¸â€¡Âº" },
-    "en-CA": { label: "Canadian English",   flag: "Ã°Å¸â€¡Â¨Ã°Å¸â€¡Â¦" },
-    "en-IE": { label: "Irish English",      flag: "Ã°Å¸â€¡Â®Ã°Å¸â€¡Âª" },
-    "en-NZ": { label: "New Zealand",        flag: "Ã°Å¸â€¡Â³Ã°Å¸â€¡Â¿" },
-    "en-SG": { label: "Singapore English",  flag: "Ã°Å¸â€¡Â¸Ã°Å¸â€¡Â¬" },
-    "en-ZA": { label: "South African",      flag: "Ã°Å¸â€¡Â¿Ã°Å¸â€¡Â¦" },
-    "en-PH": { label: "Philippine English", flag: "Ã°Å¸â€¡ÂµÃ°Å¸â€¡Â­" },
-    "en-HK": { label: "Hong Kong English",  flag: "Ã°Å¸â€¡Â­Ã°Å¸â€¡Â°" },
-    "en-KE": { label: "Kenyan English",     flag: "Ã°Å¸â€¡Â°Ã°Å¸â€¡Âª" },
-    "en-NG": { label: "Nigerian English",   flag: "Ã°Å¸â€¡Â³Ã°Å¸â€¡Â¬" },
-    "en-TZ": { label: "Tanzanian English",  flag: "Ã°Å¸â€¡Â¹Ã°Å¸â€¡Â¿" },
+    "en-IN": { label: "Indian English",     flag: "🇮🇳" },
+    "en-GB": { label: "British English",    flag: "🇬🇧" },
+    "en-US": { label: "US English",         flag: "🇺🇸" },
+    "en-AU": { label: "Australian English", flag: "🇦🇺" },
+    "en-CA": { label: "Canadian English",   flag: "🇨🇦" },
+    "en-IE": { label: "Irish English",      flag: "🇮🇪" },
+    "en-NZ": { label: "New Zealand",        flag: "🇳🇿" },
+    "en-SG": { label: "Singapore English",  flag: "🇸🇬" },
+    "en-ZA": { label: "South African",      flag: "🇿🇦" },
+    "en-PH": { label: "Philippine English", flag: "🇵🇭" },
+    "en-HK": { label: "Hong Kong English",  flag: "🇭🇰" },
+    "en-KE": { label: "Kenyan English",     flag: "🇰🇪" },
+    "en-NG": { label: "Nigerian English",   flag: "🇳🇬" },
+    "en-TZ": { label: "Tanzanian English",  flag: "🇹🇿" },
   };
 
   let allVoices = [];
@@ -26107,7 +26107,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
     });
 
     sortedLocales.forEach(locale => {
-      const meta = LOCALE_META[locale] || { label: locale, flag: "Ã°Å¸Å’Â" };
+      const meta = LOCALE_META[locale] || { label: locale, flag: "🌐" };
       html.push(`<div class="voice-group-label">${meta.flag} ${meta.label}</div>`);
       groups[locale].forEach(v => {
         const isActive = v.shortName === activeVoice;
@@ -26123,7 +26123,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
               <span class="voice-item-meta">${v.shortName}</span>
             </span>
             <span class="voice-item-gender ${gender}">${gender}</span>
-            ${isActive ? '<span class="active-tick">Ã¢Å“â€</span>' : ""}
+            ${isActive ? '<span class="active-tick">✔</span>' : ""}
           </div>`);
       });
     });
@@ -26174,7 +26174,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
       badgeEl.textContent = match ? friendlyName(match) : activeVoice;
       renderVoices("");
     } catch (err) {
-      listEl.innerHTML = "<p class='upload-copy' style='padding:10px 14px;opacity:.5'>Could not load voices Ã¢â‚¬â€ is the TTS server running?</p>";
+      listEl.innerHTML = "<p class='upload-copy' style='padding:10px 14px;opacity:.5'>Could not load voices — is the TTS server running?</p>";
       console.warn("[VoicePicker] Failed to load voices:", err);
     }
   }
@@ -26185,7 +26185,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
   setTimeout(loadVoices, 1500);
 })();
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Stage Voices Module Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Stage Voices Module ─────────────────────────────────────────────────────
 (function initStageVoicePicker() {
   const STORAGE_KEY = EDGE_TTS_VOICE_STORAGE_KEY;
   const PREVIEW_PHRASE = "Hello! I am your AI teaching assistant. Let's learn something wonderful today.";
@@ -26230,20 +26230,20 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
   return;
 
   const LOCALE_META = {
-    "en-IN": { label: "Ã°Å¸â€¡Â®Ã°Å¸â€¡Â³ Indian English"     },
-    "en-GB": { label: "Ã°Å¸â€¡Â¬Ã°Å¸â€¡Â§ British English"    },
-    "en-US": { label: "Ã°Å¸â€¡ÂºÃ°Å¸â€¡Â¸ US English"         },
-    "en-AU": { label: "Ã°Å¸â€¡Â¦Ã°Å¸â€¡Âº Australian English" },
-    "en-CA": { label: "Ã°Å¸â€¡Â¨Ã°Å¸â€¡Â¦ Canadian English"   },
-    "en-IE": { label: "Ã°Å¸â€¡Â®Ã°Å¸â€¡Âª Irish English"      },
-    "en-NZ": { label: "Ã°Å¸â€¡Â³Ã°Å¸â€¡Â¿ New Zealand"        },
-    "en-SG": { label: "Ã°Å¸â€¡Â¸Ã°Å¸â€¡Â¬ Singapore"          },
-    "en-ZA": { label: "Ã°Å¸â€¡Â¿Ã°Å¸â€¡Â¦ South African"      },
-    "en-PH": { label: "Ã°Å¸â€¡ÂµÃ°Å¸â€¡Â­ Philippine"         },
-    "en-HK": { label: "Ã°Å¸â€¡Â­Ã°Å¸â€¡Â° Hong Kong"          },
-    "en-KE": { label: "Ã°Å¸â€¡Â°Ã°Å¸â€¡Âª Kenyan"             },
-    "en-NG": { label: "Ã°Å¸â€¡Â³Ã°Å¸â€¡Â¬ Nigerian"           },
-    "en-TZ": { label: "Ã°Å¸â€¡Â¹Ã°Å¸â€¡Â¿ Tanzanian"          },
+    "en-IN": { label: "🇮🇳 Indian English"     },
+    "en-GB": { label: "🇬🇧 British English"    },
+    "en-US": { label: "🇺🇸 US English"         },
+    "en-AU": { label: "🇦🇺 Australian English" },
+    "en-CA": { label: "🇨🇦 Canadian English"   },
+    "en-IE": { label: "🇮🇪 Irish English"      },
+    "en-NZ": { label: "🇳🇿 New Zealand"        },
+    "en-SG": { label: "🇸🇬 Singapore"          },
+    "en-ZA": { label: "🇿🇦 South African"      },
+    "en-PH": { label: "🇵🇭 Philippine"         },
+    "en-HK": { label: "🇭🇰 Hong Kong"          },
+    "en-KE": { label: "🇰🇪 Kenyan"             },
+    "en-NG": { label: "🇳🇬 Nigerian"           },
+    "en-TZ": { label: "🇹🇿 Tanzanian"          },
   };
 
   let allVoices    = [];
@@ -26307,7 +26307,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
     const match = allVoices.find(v => v.shortName === activeVoice);
     const label = match ? friendly(match) : activeVoice;
     if (badgeEl) badgeEl.textContent = label;
-    setStatus(`${allVoices.length} voices. Choose one, Ã¢â€“Â¶ preview, then Ã¢Å“â€ Use.`);
+    setStatus(`${allVoices.length} voices. Choose one, ▶ preview, then ✔ Use.`);
 
     // Update default pin
     updateDefaultPin(defaultVoice);
@@ -26315,7 +26315,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
 
   async function applyVoice(voiceId) {
     if (!voiceId) return;
-    setStatus("Switching voiceÃ¢â‚¬Â¦");
+    setStatus("Switching voice…");
     try {
       const res = await fetchAnjaliEndpoint(`${TTS_BASE}/set-voice`, {
         method: "POST",
@@ -26334,10 +26334,10 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
       resetNarrationState();
       invalidateNarrationDependentExports();
       updateNarrationUi();
-      setStatus(`Ã¢Å“â€ Now using: ${label}`);
-      console.log("[StageVoices] Active voice Ã¢â€ â€™", voiceId);
+      setStatus(`✔ Now using: ${label}`);
+      console.log("[StageVoices] Active voice →", voiceId);
     } catch (err) {
-      setStatus("Could not switch voice Ã¢â‚¬â€ is the TTS server running?");
+      setStatus("Could not switch voice — is the TTS server running?");
       console.warn("[StageVoices] set-voice failed:", err);
     }
   }
@@ -26350,16 +26350,16 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
     if (previewAudio) {
       previewAudio.pause();
       previewAudio = null;
-      previewBtn.textContent = "Ã¢â€“Â¶";
+      previewBtn.textContent = "Play";
       previewBtn.disabled = false;
-      if (previewBtn.dataset.playing === voiceId) return; // same voice Ã¢â€ â€™ just stop
+      if (previewBtn.dataset.playing === voiceId) return; // same voice → just stop
     }
 
-    previewBtn.textContent = "Ã¢ÂÂ³";
+    previewBtn.textContent = "⏳";
     previewBtn.disabled = true;
     previewBtn.dataset.playing = voiceId;
     const match = allVoices.find(v => v.shortName === voiceId);
-    setStatus(`Loading preview: ${match ? friendly(match) : voiceId}Ã¢â‚¬Â¦`);
+    setStatus(`Loading preview: ${match ? friendly(match) : voiceId}…`);
 
     try {
       const res = await fetchAnjaliEndpoint(`${TTS_BASE}/api/narrate`, {
@@ -26380,29 +26380,29 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
       const url  = URL.createObjectURL(blob);
       const audio = new Audio(url);
       previewAudio = audio;
-      previewBtn.textContent = "Ã¢ÂÂ¹";
+      previewBtn.textContent = "⏹";
       previewBtn.disabled = false;
-      setStatus(`Ã¢â€“Â¶ Previewing: ${match ? friendly(match) : voiceId} Ã¢â‚¬â€ click Ã¢Å“â€ Use to apply`);
+      setStatus(`▶ Previewing: ${match ? friendly(match) : voiceId} — click ✔ Use to apply`);
 
       audio.addEventListener("ended", () => {
         URL.revokeObjectURL(url);
         previewAudio = null;
-        previewBtn.textContent = "Ã¢â€“Â¶";
+        previewBtn.textContent = "Play";
         previewBtn.dataset.playing = "";
-        setStatus(`Preview done. Click Ã¢Å“â€ Use This Voice to apply.`);
+        setStatus(`Preview done. Click ✔ Use This Voice to apply.`);
       });
       audio.play();
     } catch (err) {
-      previewBtn.textContent = "Ã¢â€“Â¶";
+      previewBtn.textContent = "Play";
       previewBtn.disabled = false;
       previewBtn.dataset.playing = "";
-      setStatus("Preview failed Ã¢â‚¬â€ is the TTS server running?");
+      setStatus("Preview failed — is the TTS server running?");
       console.warn("[StageVoices] preview failed:", err);
     }
   }
 
   async function loadVoices() {
-    setStatus("Connecting to TTS serverÃ¢â‚¬Â¦");
+    setStatus("Connecting to TTS server…");
     try {
       const res  = await fetchAnjaliEndpoint(`${TTS_BASE}/voices`, {}, "Loading stage voice list", { attempts: 3, timeoutMs: 5000 });
       const data = await res.json();
@@ -26429,7 +26429,7 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Wire buttons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Wire buttons ──────────────────────────────────────────────────────────
   selectEl.addEventListener("change", () => {
     const v = selectEl.value;
     if (v) applyVoice(v);
@@ -26448,10 +26448,10 @@ clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: 
     applyVoice(v);
     updateDefaultPin(v);
     const match = allVoices.find(x => x.shortName === v);
-    setStatus(`Ã¢Â­Â Default voice set to: ${match ? friendly(match) : v}. It will be used on next launch.`);
+    setStatus(`⭐ Default voice set to: ${match ? friendly(match) : v}. It will be used on next launch.`);
   });
 
-  // Click the default pin row Ã¢â€ â€™ snap the dropdown to the default voice
+  // Click the default pin row → snap the dropdown to the default voice
   if (defaultRow) {
     defaultRow.style.cursor = "pointer";
     defaultRow.addEventListener("click", () => {
@@ -26513,7 +26513,7 @@ if (sc3VideoReplaceBtn) {
     void processVideoQueue();
   });
 }
-// Ã¢â€â‚¬Ã¢â€â‚¬ Pause / Resume button Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Pause / Resume button ─────────────────────────────────────────────────────
 // Pause/Resume - use event delegation so button doesn't need to exist at script load time
 document.addEventListener('click', function(e) {
   if (!e.target || e.target.id !== 'sc3PauseBtn') return;
@@ -26525,7 +26525,7 @@ document.addEventListener('click', function(e) {
     : 'linear-gradient(135deg,#f59e0b,#d97706)';
   setSingSongStatus(sc3Queue.paused ? 'Queue paused. Click Resume to continue.' : 'Queue resumed...');
 });
-// Ã¢â€â‚¬Ã¢â€â‚¬ Stop button Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Stop button ───────────────────────────────────────────────────────────────
 // Stop - use event delegation so button doesn't need to exist at script load time
 document.addEventListener('click', function(e) {
   if (!e.target || e.target.id !== 'sc3StopBtn') return;
@@ -26592,11 +26592,11 @@ if (introPosterUploadBtn && introPosterInput) {
       });
       const image = await loadImageFromDataUrl(dataUrl);
 
-      // Ã¢â€ â‚¬Ã¢â€ â‚¬ Step 1: Show size-picker modal Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬
+      // ↀↀ Step 1: Show size-picker modal ↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀↀ
       const POSTER_SIZES = [
-        { label: "A4 Portrait Ã¢â‚¬â€ 794 Ãƒâ€” 1123",  w: 794,  h: 1123 },
-        { label: "A4 Landscape Ã¢â‚¬â€ 1123 Ãƒâ€” 794", w: 1123, h: 794  },
-        { label: `Original  Ã¢â‚¬â€  ${image.naturalWidth || image.width} Ãƒâ€” ${image.naturalHeight || image.height}`,
+        { label: "A4 Portrait — 794 × 1123",  w: 794,  h: 1123 },
+        { label: "A4 Landscape — 1123 × 794", w: 1123, h: 794  },
+        { label: `Original  —  ${image.naturalWidth || image.width} × ${image.naturalHeight || image.height}`,
           w: image.naturalWidth || image.width,
           h: image.naturalHeight || image.height }
       ];
@@ -26657,7 +26657,7 @@ if (introPosterUploadBtn && introPosterInput) {
           pCtx.fillStyle = "rgba(255,255,255,0.7)";
           pCtx.font = "bold 11px 'Segoe UI',sans-serif";
           pCtx.textAlign = "center";
-          pCtx.fillText(`${w} Ãƒâ€” ${h}`, PREV_W / 2, PREV_H - 6);
+          pCtx.fillText(`${w} × ${h}`, PREV_W / 2, PREV_H - 6);
         }
 
         // Size list
@@ -26736,7 +26736,7 @@ if (introPosterUploadBtn && introPosterInput) {
 
       if (!selectedSize) { event.target.value = ""; return; } // user cancelled
 
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Step 2: Save poster state Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Step 2: Save poster state ─────────────────────────────────────
       state.introPoster.fileName   = file.name;
       state.introPoster.dataUrl    = dataUrl;
       state.introPoster.image      = image;
@@ -26744,12 +26744,12 @@ if (introPosterUploadBtn && introPosterInput) {
       state.introPoster.durationMs = DEFAULT_INTRO_POSTER_DURATION_MS;
       state.introPoster.posterWidth  = selectedSize.w;
       state.introPoster.posterHeight = selectedSize.h;
-      setIntroPosterStatus(`Poster ready: ${file.name} Ã¢â‚¬â€ ${selectedSize.w}Ãƒâ€”${selectedSize.h}. Full-screen before the lesson.`);
+      setIntroPosterStatus(`Poster ready: ${file.name} — ${selectedSize.w}×${selectedSize.h}. Full-screen before the lesson.`);
       updatePosterThumbnailUi();
       drawScene(state.mouthOpen);
-      setStatus(`Poster saved at ${selectedSize.w}Ãƒâ€”${selectedSize.h}.`);
+      setStatus(`Poster saved at ${selectedSize.w}×${selectedSize.h}.`);
 
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Step 3: Fullscreen poster-only preview Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Step 3: Fullscreen poster-only preview ───────────────────────────
       const overlay = document.createElement("div");
       overlay.style.cssText = [
         "position:fixed","inset:0","z-index:99998",
@@ -26771,7 +26771,7 @@ if (introPosterUploadBtn && introPosterInput) {
 
       // Label bar
       const label = document.createElement("div");
-      label.textContent = `${file.name}  Ã¢â‚¬â€  ${selectedSize.w} Ãƒâ€” ${selectedSize.h}  Ã¢â‚¬â€  Click or press Esc to close`;
+      label.textContent = `${file.name}  —  ${selectedSize.w} × ${selectedSize.h}  —  Click or press Esc to close`;
       label.style.cssText = "margin-top:16px;color:rgba(255,255,255,0.55);font:500 13px 'Segoe UI',sans-serif;letter-spacing:0.03em;";
       overlay.appendChild(label);
 
@@ -27031,7 +27031,7 @@ if (downloadNarrationMp3Btn) {
   });
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ AI Captions: word-level SRT generation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── AI Captions: word-level SRT generation ────────────────────────────────────
 function generateWordLevelSrt(text, durationMs, playbackRate = 1) {
   if (!text || !durationMs) return "";
   const words = text.replace(/\s+/g, " ").trim().split(" ").filter(w => w.length > 0);
@@ -27306,7 +27306,7 @@ document.addEventListener("click", async (e) => {
   e.preventDefault();
   e.stopPropagation();
   {
-    // Ã¢â€â‚¬Ã¢â€â‚¬ MODE 1: If a stage video is loaded, transcribe its audio for burned-in captions Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── MODE 1: If a stage video is loaded, transcribe its audio for burned-in captions ──
     if (state.stageVideo.element && state.stageVideo.element.src) {
       try {
         setStatus("Preparing AI transcription...");
@@ -27318,11 +27318,11 @@ document.addEventListener("click", async (e) => {
           throw new Error("The local transcription server is not running. Start it to enable AI captions.");
         }
 
-        // Ã¢â€â‚¬Ã¢â€â‚¬ Crash-free IPC path Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-        // Old code: fetch(url) Ã¢â€ â€™ arrayBuffer Ã¢â€ â€™ WAV blob Ã¢â€ â€™ base64 Ã¢â€ â€™ OOM crash
+        // ── Crash-free IPC path ─────────────────────────────────────────────
+        // Old code: fetch(url) → arrayBuffer → WAV blob → base64 → OOM crash
         // New code: pass file path to main process via IPC.
         // Main process: FFmpeg extracts 16kHz mono WAV (~9 MB for 5 min video)
-        //   Ã¢â€ â€™ sends to transcription server Ã¢â€ â€™ returns {text, segments}.
+        //   → sends to transcription server → returns {text, segments}.
         // Renderer memory usage: ~0 bytes of video data loaded here.
         if (!window.electronAPI || !window.electronAPI.transcribeVideo || !state.stageVideo.blob) {
           throw new Error("Transcription requires the Electron app. Please use the desktop app.");
@@ -27394,7 +27394,7 @@ document.addEventListener("click", async (e) => {
         captionOverlay.enabled = true;
         captionOverlay.currentText = "";
 
-        setStatus(`Ã¢Å“â€¦ AI transcription complete! ${segments.length} caption segments created. Drag the caption bar to position it, then export.`);
+        setStatus(`✅ AI transcription complete! ${segments.length} caption segments created. Drag the caption bar to position it, then export.`);
         markSceneDirty();
 
         // Start lightweight caption sync loop
@@ -27447,7 +27447,7 @@ document.addEventListener("click", async (e) => {
       return;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ MODE 2: Lesson text only Ã¢â€ â€™ generate SRT from narration timing Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── MODE 2: Lesson text only → generate SRT from narration timing ──
     const text = getEffectiveLessonText();
     if (!text || !text.trim()) {
       setStatus("Upload a stage video or enter lesson text first to generate AI captions.");
@@ -27554,7 +27554,7 @@ if (resetInputsBtn) {
       }
     } catch (_) {}
 
-    // 2. Wipe all localStorage so the app starts completely blank Ã¢â‚¬â€
+    // 2. Wipe all localStorage so the app starts completely blank —
     //    no saved draft, theme, template, caption positions, etc.
     try { window.localStorage.clear(); } catch (_) {}
 
@@ -27648,18 +27648,18 @@ setCutoutControlsStatus("These controls apply to both image and video background
 checkServerHealth();
 startAnjaliCloneMonitor();
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Electron IPC: react instantly when main-process watchdog detects Anjali down Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Electron IPC: react instantly when main-process watchdog detects Anjali down ──
 if (window.electronAPI?.onServerStatus) {
   window.electronAPI.onServerStatus((data) => {
     if (data?.server !== 'anjali') return;
 
     if (data.status === 'restarting') {
-      // Mark as offline immediately Ã¢â‚¬â€ don't wait for the next 15s poll
+      // Mark as offline immediately — don't wait for the next 15s poll
       state.anjaliCloneServerReady = false;
       state.anjaliMonitor.warming  = false;
-      state.anjaliMonitor.lastError = 'Server restartingÃ¢â‚¬Â¦';
+      state.anjaliMonitor.lastError = 'Server restarting…';
       updateServerHealthUi();
-      setNarrationGenStatus('Ã¢Å¡Â Ã¯Â¸Â Anjali AI server went offline Ã¢â‚¬â€ restarting automatically. Please waitÃ¢â‚¬Â¦');
+      setNarrationGenStatus('⚠️ Anjali AI server went offline — restarting automatically. Please wait…');
 
       // Fast-poll every 5 s until Anjali comes back, then resume normal monitor
       let fastPollTimer = null;
@@ -27669,7 +27669,7 @@ if (window.electronAPI?.onServerStatus) {
         if (!recovered) {
           fastPollTimer = setTimeout(fastPoll, 5000);
         } else {
-          setNarrationGenStatus('Ã¢Å“â€¦ Anjali AI server is back online and ready.');
+          setNarrationGenStatus('✅ Anjali AI server is back online and ready.');
         }
       };
 
@@ -27743,10 +27743,10 @@ if (autoExplainBtn) {
   });
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═══════════════════════════════════════════════════════════════════════════
 // FEATURE 1: LIVE VIDEO DURATION ESTIMATOR + WORD COUNTER
 // Shows "~2 min 45 sec" badge as the user types in the lesson textarea.
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═══════════════════════════════════════════════════════════════════════════
 (function initDurationEstimator() {
   const ANJALI_WPM = 140;        // Anjali's natural speaking rate
   const PLAYBACK_RATE = 1.8;     // Default avatar speed
@@ -27760,7 +27760,7 @@ if (autoExplainBtn) {
     const wc = words.length;
     if (wordCountEl) wordCountEl.textContent = `${wc.toLocaleString()} word${wc !== 1 ? "s" : ""}`;
     if (!durationText) return;
-    if (wc < 3) { durationText.textContent = "Ã¢â‚¬â€ min"; return; }
+    if (wc < 3) { durationText.textContent = "— min"; return; }
     const totalSec = Math.round((wc / EFFECTIVE_WPM) * 60);
     const mins = Math.floor(totalSec / 60);
     const secs = totalSec % 60;
@@ -27776,11 +27776,11 @@ if (autoExplainBtn) {
 })();
 
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═══════════════════════════════════════════════════════════════════════════
 // FEATURE 2: AUTO-SAVE DRAFTS TO LOCALSTORAGE
 // Saves the lesson text 1s after every keystroke.
-// SILENTLY restores on page reload Ã¢â‚¬â€ no popup, no friction.
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// SILENTLY restores on page reload — no popup, no friction.
+// ═══════════════════════════════════════════════════════════════════════════
 (function initAutoDraft() {
   const DRAFT_KEY    = "pp_lesson_draft_v2";
   const DRAFT_TS_KEY = "pp_lesson_draft_ts";
@@ -27789,7 +27789,7 @@ if (autoExplainBtn) {
 
   function showDraftSaved() {
     if (!draftIndicator) return;
-    draftIndicator.textContent = "Ã¢Å“â€œ Draft saved";
+    draftIndicator.textContent = "✓ Draft saved";
     draftIndicator.style.opacity = "1";
     clearTimeout(draftIndicator._timer);
     draftIndicator._timer = setTimeout(() => {
@@ -27817,14 +27817,14 @@ if (autoExplainBtn) {
       const saved = window.localStorage.getItem(DRAFT_KEY);
       if (!saved || !lessonInput) return;
       if (lessonInput.value.trim()) return; // don't overwrite if something already loaded
-      // Silently restore Ã¢â‚¬â€ no popup
+      // Silently restore — no popup
       lessonInput.value = saved;
       lessonInput.dispatchEvent(new Event("input", { bubbles: true }));
       if (draftIndicator) {
         const ts = parseInt(window.localStorage.getItem(DRAFT_TS_KEY) || "0", 10);
         const ageMin = Math.round((Date.now() - ts) / 60000);
         const label = ageMin < 1 ? "just now" : ageMin < 60 ? `${ageMin}m ago` : `${Math.round(ageMin/60)}h ago`;
-        draftIndicator.textContent = `Ã¢â€ Â© Draft restored (${label})`;
+        draftIndicator.textContent = `↩ Draft restored (${label})`;
         draftIndicator.style.opacity = "1";
         clearTimeout(draftIndicator._timer);
         draftIndicator._timer = setTimeout(() => { draftIndicator.style.opacity = "0"; }, 4000);
@@ -27858,19 +27858,19 @@ if (autoExplainBtn) {
 })();
 
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═══════════════════════════════════════════════════════════════════════════
 // FEATURE 3: SMART MATH KEYWORD AUTO-HIGHLIGHTER
 // One click: auto-detects key terms across ALL subjects and adds highlight rules.
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═══════════════════════════════════════════════════════════════════════════
 (function initAutoHighlight() {
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Colour palette per category Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-  const COLOR_NUMBERS   = "#FFD700"; // gold    Ã¢â‚¬â€ numbers & values
-  const COLOR_MATHS     = "#7FFFD4"; // aqua    Ã¢â‚¬â€ maths operation words
-  const COLOR_ENGLISH   = "#C9AAFF"; // lavenderÃ¢â‚¬â€ English / literacy terms
-  const COLOR_SCIENCE   = "#A8FF78"; // lime    Ã¢â‚¬â€ science / nature terms
-  const COLOR_SYMBOLS   = "#FF6B6B"; // coral   Ã¢â‚¬â€ operators & special symbols
+  // ── Colour palette per category ──────────────────────────────────────────
+  const COLOR_NUMBERS   = "#FFD700"; // gold    — numbers & values
+  const COLOR_MATHS     = "#7FFFD4"; // aqua    — maths operation words
+  const COLOR_ENGLISH   = "#C9AAFF"; // lavender— English / literacy terms
+  const COLOR_SCIENCE   = "#A8FF78"; // lime    — science / nature terms
+  const COLOR_SYMBOLS   = "#FF6B6B"; // coral   — operators & special symbols
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ MATHS terms Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── MATHS terms ──────────────────────────────────────────────────────────
   const MATHS_WORDS = [
     "add","adding","added","addition","plus",
     "subtract","subtracting","subtracted","subtraction","minus","take away",
@@ -27887,7 +27887,7 @@ if (autoExplainBtn) {
     "mean","median","mode","range","average","probability","data"
   ];
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ ENGLISH / LITERACY terms Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── ENGLISH / LITERACY terms ──────────────────────────────────────────────
   const ENGLISH_WORDS = [
     "noun","verb","adjective","adverb","pronoun","preposition","conjunction","interjection",
     "subject","predicate","clause","phrase","sentence","paragraph",
@@ -27900,7 +27900,7 @@ if (autoExplainBtn) {
     "inference","deduction","comprehension","analyse","evaluate","summarise"
   ];
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ SCIENCE terms Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── SCIENCE terms ─────────────────────────────────────────────────────────
   const SCIENCE_WORDS = [
     "atom","molecule","element","compound","mixture","reaction","solution",
     "energy","force","gravity","friction","magnetism","electricity","current","circuit",
@@ -27911,10 +27911,10 @@ if (autoExplainBtn) {
     "experiment","hypothesis","observation","variable","evidence","conclusion"
   ];
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Special symbols (maths operators + punctuation highlights) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-  const SPECIAL_SYMBOLS = ["Ãƒâ€”","ÃƒÂ·","Ã¢â€°Ë†","Ã¢â€°Â ","Ã¢â€°Â¤","Ã¢â€°Â¥","Ã¢Ë†Å¡","Ã¢Ë†â€˜","Ã¢Ë†Å¾","Ã¢â€ â€™","Ã¢Å¸Â¹","Ã¢Ë†Ë†"];
+  // ── Special symbols (maths operators + punctuation highlights) ───────────
+  const SPECIAL_SYMBOLS = ["×","÷","≈","≠","≤","≥","√","∑","∞","→","⟹","∈"];
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Core push helper (no duplicates) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Core push helper (no duplicates) ─────────────────────────────────────
   function pushRule(phrase, color) {
     const lc = phrase.toLowerCase();
     if (!state.keywordStyles.find(r => r.phrase.toLowerCase() === lc)) {
@@ -27931,7 +27931,7 @@ if (autoExplainBtn) {
 
     let added = 0;
 
-    // 1. Numbers (universal Ã¢â‚¬â€ works for every subject)
+    // 1. Numbers (universal — works for every subject)
     const numRe = /\b\d+(\.\d+)?(%|st|nd|rd|th)?\b/g;
     let m;
     while ((m = numRe.exec(text)) !== null) {
@@ -27984,7 +27984,7 @@ if (autoExplainBtn) {
     markSceneDirty();
     updateTextStyleUi();
     const subjectLabel = subjects.length ? ` (${subjects.join(" + ")})` : "";
-    setStatus(`Ã¢Å“Â¨ Auto-Highlight complete! ${added} term${added !== 1 ? "s" : ""} highlighted${subjectLabel}.`);
+    setStatus(`✨ Auto-Highlight complete! ${added} term${added !== 1 ? "s" : ""} highlighted${subjectLabel}.`);
   }
 
   const autoHighlightBtn = document.getElementById("autoHighlightMathBtn");
@@ -27994,11 +27994,11 @@ if (autoExplainBtn) {
 })();
 
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═══════════════════════════════════════════════════════════════════════════
 // FEATURE 4: KEYBOARD SHORTCUTS SYSTEM
 // Ctrl+Enter=ShowScreen, Ctrl+E=Export, Ctrl+P=Play, Escape=BackToInput,
-// Ctrl+Ã¢â€ â€˜/Ã¢â€ â€œ=Prev/Next slide. Shortcuts overlay toggle.
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// Ctrl+↑/↓=Prev/Next slide. Shortcuts overlay toggle.
+// ═══════════════════════════════════════════════════════════════════════════
 (function initKeyboardShortcuts() {
   // Shortcuts overlay toggle
   const shortcutsHintBtn  = document.getElementById("shortcutsHintBtn");
@@ -28023,7 +28023,7 @@ if (autoExplainBtn) {
     // Don't fire shortcuts while user is typing (unless ctrl is held)
     if (isTyping) return;
 
-    // Escape Ã¢â€ â€™ back to input panel
+    // Escape → back to input panel
     if (e.key === "Escape") {
       const editBtn = document.getElementById("editBtn");
       if (editBtn && stagePanel && !stagePanel.classList.contains("hidden")) {
@@ -28036,14 +28036,14 @@ if (autoExplainBtn) {
     if (!ctrl) return;
 
     switch (e.key) {
-      // Ctrl+Enter Ã¢â€ â€™ Show Screen
+      // Ctrl+Enter → Show Screen
       case "Enter": {
         e.preventDefault();
         const showBtn = document.getElementById("showScreenBtn");
         if (showBtn && inputPanel && !inputPanel.classList.contains("hidden")) showBtn.click();
         break;
       }
-      // Ctrl+E Ã¢â€ â€™ Export Video
+      // Ctrl+E → Export Video
       case "e":
       case "E": {
         e.preventDefault();
@@ -28051,7 +28051,7 @@ if (autoExplainBtn) {
         if (dlBtn && stagePanel && !stagePanel.classList.contains("hidden")) dlBtn.click();
         break;
       }
-      // Ctrl+P Ã¢â€ â€™ Play
+      // Ctrl+P → Play
       case "p":
       case "P": {
         e.preventDefault();
@@ -28059,14 +28059,14 @@ if (autoExplainBtn) {
         if (playBtn && stagePanel && !stagePanel.classList.contains("hidden")) playBtn.click();
         break;
       }
-      // Ctrl+ArrowUp Ã¢â€ â€™ Previous slide
+      // Ctrl+ArrowUp → Previous slide
       case "ArrowUp": {
         e.preventDefault();
         const prevBtn = document.getElementById("prevPageBtn");
         if (prevBtn) prevBtn.click();
         break;
       }
-      // Ctrl+ArrowDown Ã¢â€ â€™ Next slide
+      // Ctrl+ArrowDown → Next slide
       case "ArrowDown": {
         e.preventDefault();
         const nextBtn = document.getElementById("nextPageBtn");
@@ -28120,7 +28120,7 @@ function getMousePos(canvas, evt) {
     };
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Helper: check if pos is near a corner handle of a config box Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Helper: check if pos is near a corner handle of a config box ──────────────
 function getResizeCorner(cfg, pos, hitSize = 18) {
     const corners = [
         { name: 'nw', x: cfg.x,            y: cfg.y },
@@ -28139,7 +28139,7 @@ function getResizeCorner(cfg, pos, hitSize = 18) {
 previewCanvas.addEventListener('pointerdown', (e) => {
     const pos = getMousePos(previewCanvas, e);
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Avatar: check resize corners first, then drag Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Avatar: check resize corners first, then drag ────────────────
     if (document.getElementById("avatarEnableCheck")?.checked && !!transparentAnjaliCanvas) {
         const corner = getResizeCorner(avatarConfig, pos);
         if (corner) {
@@ -28163,7 +28163,7 @@ previewCanvas.addEventListener('pointerdown', (e) => {
         }
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Logo: check resize corners first, then drag Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Logo: check resize corners first, then drag ───────────────────
     if (document.getElementById("logoEnableCheck")?.checked && (infoKidsLogoImg.complete || infoKidsLogoImg._logoReady)) {
         // Logo drag/resize works on ALL templates
         const corner = getResizeCorner(logoConfig, pos);
@@ -28188,7 +28188,7 @@ previewCanvas.addEventListener('pointerdown', (e) => {
         }
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Caption overlay: drag Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Caption overlay: drag ──────────────────────────────────────────
     if (captionOverlay.enabled && captionOverlay.currentText) {
         if (pos.x >= captionConfig.x && pos.x <= captionConfig.x + captionConfig.w &&
             pos.y >= captionConfig.y && pos.y <= captionConfig.y + captionConfig.h) {
@@ -28205,7 +28205,7 @@ previewCanvas.addEventListener('pointermove', (e) => {
     const pos = getMousePos(previewCanvas, e);
     let dirty = false;
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Avatar resize Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Avatar resize ─────────────────────────────────────────────────
     if (avatarConfig.resizing) {
         const dx = pos.x - avatarConfig.resizeStartX;
         const dy = pos.y - avatarConfig.resizeStartY;
@@ -28227,7 +28227,7 @@ previewCanvas.addEventListener('pointermove', (e) => {
         previewCanvas.style.cursor = 'nwse-resize';
         dirty = true;
     }
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Logo resize Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Logo resize ───────────────────────────────────────────────────
     else if (logoConfig.resizing) {
         const dx = pos.x - logoConfig.resizeStartX;
         const dy = pos.y - logoConfig.resizeStartY;
@@ -28247,14 +28247,14 @@ previewCanvas.addEventListener('pointermove', (e) => {
         previewCanvas.style.cursor = 'nwse-resize';
         dirty = true;
     }
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Avatar drag Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Avatar drag ───────────────────────────────────────────────────
     else if (avatarConfig.dragging) {
         avatarConfig.x = pos.x - avatarConfig.dragOffX;
         avatarConfig.y = pos.y - avatarConfig.dragOffY;
         previewCanvas.style.cursor = 'grabbing';
         dirty = true;
     }
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Logo drag Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Logo drag ─────────────────────────────────────────────────────
     else if (captionConfig.dragging) {
         captionConfig.x = pos.x - captionConfig.dragOffX;
         captionConfig.y = pos.y - captionConfig.dragOffY;
@@ -28267,7 +28267,7 @@ previewCanvas.addEventListener('pointermove', (e) => {
         previewCanvas.style.cursor = 'grabbing';
         dirty = true;
     }
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Hover detection Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ── Hover detection ───────────────────────────────────────────────
     else {
         let hoverAvatar = false;
         if (document.getElementById("avatarEnableCheck")?.checked && !!transparentAnjaliCanvas) {
@@ -28356,7 +28356,7 @@ previewCanvas.addEventListener('wheel', (e) => {
     }
 }, {passive: false});
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Avatar default-OFF guard Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Avatar default-OFF guard ─────────────────────────────────────────────────
 // Anjali avatar is DISABLED by default. Force the checkbox unchecked on every
 // page load so browser form-restore and any stale state never re-enable it.
 (function enforceAvatarDefaultOff() {
@@ -28367,9 +28367,9 @@ previewCanvas.addEventListener('wheel', (e) => {
 document.getElementById("avatarEnableCheck")?.addEventListener('change', () => { markSceneDirty(); });
 document.getElementById("logoEnableCheck")?.addEventListener('change',   () => { markSceneDirty(); });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Idle avatar animation loop permanently disabled Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-// Avatar is gone Ã¢â‚¬â€ the rAF idle loop that checked for it is no longer needed.
-// (function startIdleAnimLoop() { ... })();  // Ã¢â€ Â dead code, removed for perf
+// ── Idle avatar animation loop permanently disabled ──────────────────────────
+// Avatar is gone — the rAF idle loop that checked for it is no longer needed.
+// (function startIdleAnimLoop() { ... })();  // ← dead code, removed for perf
 
 
 // -- FLOATING COLOR PALETTE FOR QUICK DRAG & DROP COLORING --
@@ -28561,7 +28561,7 @@ if (translateToTeluguBtn) {
 
 setPureInputMode(false);
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Input Style Controls (Line Spacing / Font Size / Letter Spacing) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Input Style Controls (Line Spacing / Font Size / Letter Spacing) ──────────
 // Sliders live above the lessonInput textarea. Changes apply instantly and are
 // saved to localStorage so your preferred settings survive every reload.
 (function initInputStyleControls() {
@@ -28641,7 +28641,7 @@ setPureInputMode(false);
     textarea.style.letterSpacing = `${v}em`;
     valLS.textContent = `${v.toFixed(3)}em`;
     save(parseFloat(sliderLH.value), parseFloat(sliderFS.value), v);
-    // Canvas: letter spacing Ã¢â‚¬â€ bust cache so new spacing applies to row widths
+    // Canvas: letter spacing — bust cache so new spacing applies to row widths
     updateDisplayStyle({ canvasLetterSpacing: v });
     invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
     markSceneDirty && markSceneDirty();
@@ -28742,7 +28742,7 @@ document.addEventListener('change', function _topLevelTplChange(e) {
   const DOTS       = ['\u280b','\u2819','\u2839','\u2838','\u283c','\u2834','\u2826','\u2827','\u2807','\u280f'];
   const style = document.createElement('style');
   style.textContent = `
-    #cb-voice-banner{position:fixed;top:0;left:0;right:0;z-index:99999;background:linear-gradient(90deg,#0f172a,#1e293b);color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;box-shadow:0 2px 16px rgba(0,0,0,.5);transition:transform .4s ease,opacity .4s ease;}
+    #cb-voice-banner{position:fixed;top:64px;left:auto;right:12px;z-index:9998;max-width:min(460px,calc(100vw - 24px));border-radius:9px;background:linear-gradient(90deg,#0f172a,#1e293b);color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;box-shadow:0 2px 16px rgba(0,0,0,.5);transition:transform .4s ease,opacity .4s ease;pointer-events:none;}
     #cb-voice-banner.cb-hidden{transform:translateY(-100%);opacity:0;pointer-events:none;}
     #cb-voice-inner{display:flex;align-items:center;gap:10px;padding:8px 16px;}
     #cb-voice-spinner{font-size:16px;flex-shrink:0;color:#60a5fa;}
@@ -28760,7 +28760,7 @@ document.addEventListener('change', function _topLevelTplChange(e) {
   document.head.appendChild(style);
   const banner = document.createElement('div');
   banner.id = 'cb-voice-banner';
-  banner.innerHTML = '<div id="cb-voice-inner"><span id="cb-voice-spinner">' + DOTS[0] + '</span><span id="cb-voice-ok">&#10003; Ready</span><span id="cb-voice-text"><strong>Voice Presentator</strong><span id="cb-voice-sub"> Loading EVS C5 lesson voice from sc3.mp4Ã¢â‚¬Â¦</span></span><div id="cb-voice-bar-wrap"><div id="cb-voice-bar"></div></div></div>';
+  banner.innerHTML = '<div id="cb-voice-inner"><span id="cb-voice-spinner">' + DOTS[0] + '</span><span id="cb-voice-ok">&#10003; Ready</span><span id="cb-voice-text"><strong>Voice Presentator</strong><span id="cb-voice-sub"> Loading EVS C5 lesson voice from sc3.mp4…</span></span><div id="cb-voice-bar-wrap"><div id="cb-voice-bar"></div></div></div>';
   document.body.prepend(banner);
   const spinner = document.getElementById('cb-voice-spinner');
   const sub     = document.getElementById('cb-voice-sub');
@@ -28788,7 +28788,7 @@ document.addEventListener('change', function _topLevelTplChange(e) {
       sub.textContent = ' Loading sc3 voice model... ' + elapsed + 's';
       pollTimer = setTimeout(poll, POLL_MS);
     }).catch(function() {
-      sub.textContent = ' Waiting for voice server on port 8426Ã¢â‚¬Â¦';
+      sub.textContent = ' Waiting for voice server on port 8426…';
       pollTimer = setTimeout(poll, POLL_MS);
     });
   }

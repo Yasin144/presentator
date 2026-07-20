@@ -60,14 +60,21 @@ def _is_garbage(text: str) -> bool:
     """Detect hallucination loops or nonsense output."""
     if not text or len(text.strip()) < 3:
         return True
-    # Repeated phrase pattern: "i'n i'n i'n..." or "A A A A"
-    words = text.split()
-    if len(words) > 6:
-        # If more than 60% of words are identical → garbage
-        from collections import Counter
-        most_common_count = Counter(words).most_common(1)[0][1]
-        if most_common_count / len(words) > 0.55:
+
+    words = [w.lower() for w in text.split()]
+    
+    # Check for consecutive word repetitions, e.g., "word word word" or "the the the"
+    for i in range(len(words) - 2):
+        if words[i] == words[i+1] and words[i] == words[i+2]:
             return True
+
+    # Check for single word repetition
+    if len(words) >= 3:
+        from collections import Counter
+        top_word, top_count = Counter(words).most_common(1)[0]
+        if top_count / len(words) > 0.65:
+            return True
+
     # Welsh hallucination marker
     if text.strip().startswith("Mae'n") or "i'n i'n i'n" in text:
         return True

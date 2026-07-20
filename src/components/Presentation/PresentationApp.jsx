@@ -116,6 +116,23 @@ function createObjectUrlAudio(base64, mimeType) {
   return { audio, url };
 }
 
+async function narrateEdgeTimedCompat(payload) {
+  const api = window.electronAPI;
+  if (!api) throw new Error('Electron narration bridge is unavailable.');
+  if (typeof api.narrateEdgeTtsTimed === 'function') {
+    try {
+      const result = await api.narrateEdgeTtsTimed(payload);
+      if (result?.ok) return { ...result, wordTimings: Array.isArray(result.wordTimings) ? result.wordTimings : [] };
+      if (result?.error && !/no handler registered/i.test(String(result.error))) return result;
+    } catch (error) {
+      if (!/no handler registered/i.test(String(error?.message || error))) throw error;
+    }
+  }
+  if (typeof api.narrateEdgeTts !== 'function') throw new Error('Edge TTS narration is unavailable.');
+  const result = await api.narrateEdgeTts(payload);
+  return { ...result, wordTimings: Array.isArray(result?.wordTimings) ? result.wordTimings : [] };
+}
+
 function waitForAudioReady(audio, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     let intervalId = null;
@@ -492,7 +509,7 @@ async function createStageCanvasCapture({ stageElement, durationMs, onProgress }
   };
 }
 
-export default function PresentationApp() {
+export default function PresentationApp({ active = true }) {
   // --- Core State ---
   const [context, setContext] = useState('The screen was dark for a moment. Then, character by character, the words began to appear. It felt less like a computer program and more like someone was there, typing just for me. No gimmicks, no 3D tricks—just the raw, beautiful rhythm of a story being told in real-time.');
   const [isPresenting, setIsPresenting] = useState(false);
@@ -566,7 +583,7 @@ export default function PresentationApp() {
     edgeAudioBase64Ref.current = '';
     edgeWordTimingsRef.current = [];
     sc3AudioBase64Ref.current = '';
-  }, [context, selectedEdgeVoice, selectedSc3Voice]);
+  }, [context, selectedEdgeVoice, selectedSc3Voice, theme.animationSpeed]);
 
   useEffect(() => {
     const isShowingFull = isPresenting || isExporting;
@@ -600,6 +617,11 @@ export default function PresentationApp() {
   }, [context]);
 
   useEffect(() => {
+    if (!active) {
+      if (window.speechSynthesis.onvoiceschanged) window.speechSynthesis.onvoiceschanged = null;
+      window.speechSynthesis.cancel();
+      return undefined;
+    }
     const loadVoices = () => {
       const allVoices = window.speechSynthesis.getVoices();
       if (allVoices.length === 0) return;
@@ -663,14 +685,14 @@ export default function PresentationApp() {
       clearTimeout(introFallbackTimeoutRef.current);
       clearTimeout(posterTimeoutRef.current);
     };
-  }, [selectedVoice]);
+  }, [active, selectedVoice]);
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
+      audioRef.current.pause();
       if (audioRef.current.dataset?.objectUrl) {
         URL.revokeObjectURL(audioRef.current.dataset.objectUrl);
       }
-      audioRef.current.pause();
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
       audioRef.current.oncanplaythrough = null;
@@ -760,6 +782,7 @@ export default function PresentationApp() {
     for (let i = 0; i < len; i++) {
       binary += String.fromCharCode(uint8[i]);
     }
+    await audioCtx.close().catch(() => {});
     return btoa(binary);
   };
 
@@ -878,7 +901,7 @@ export default function PresentationApp() {
           audioBase64 = edgeAudioBase64Ref.current;
           if (!audioBase64) {
             // Use the NEW timed endpoint to get audio + exact WordBoundary timestamps
-            const result = await window.electronAPI.narrateEdgeTtsTimed({
+            const result = await narrateEdgeTimedCompat({
               text: context,
               voice: selectedEdgeVoice,
               rate: rateStr
@@ -1216,7 +1239,7 @@ export default function PresentationApp() {
         let edgeBase64 = edgeAudioBase64Ref.current;
         if (!edgeBase64) {
           // Use the timed endpoint to also capture word timestamps for export sync
-          const result = await window.electronAPI.narrateEdgeTtsTimed({
+          const result = await narrateEdgeTimedCompat({
             text: context,
             voice: selectedEdgeVoice,
             rate: rateStr

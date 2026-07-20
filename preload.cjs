@@ -3,6 +3,9 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const burnProgressHandlers = new Map();
+const translateDubProgressHandlers = new Map();
+const myExporterProgressHandlers = new Map();
+const agentProgressHandlers = new Map();
 
 // ─── Expose a secure, limited API to the renderer via window.electronAPI ─────
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -23,9 +26,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemInfo: () =>
     ipcRenderer.invoke('get-system-info'),
 
-  // Autonomous Presentator agent. Model credentials stay in the main process.
+  // ── Autonomous Super Agent ──────────────────────────────────────────────────
+  // Model credentials stay in the main process.
+
   presentatorAgentThink: (payload) =>
     ipcRenderer.invoke('presentator-agent-think', payload),
+
+  presentatorAgentCancel: () =>
+    ipcRenderer.invoke('presentator-agent-cancel'),
+
+  onPresentatorAgentProgress: (callback) => {
+    const handler = (_, data) => callback(data);
+    agentProgressHandlers.set(callback, handler);
+    ipcRenderer.on('presentator-agent-progress', handler);
+  },
+
+  offPresentatorAgentProgress: (callback) => {
+    const handler = agentProgressHandlers.get(callback);
+    if (handler) {
+      ipcRenderer.removeListener('presentator-agent-progress', handler);
+      agentProgressHandlers.delete(callback);
+    }
+  },
 
   presentatorAgentRestartServer: (serverName) =>
     ipcRenderer.invoke('presentator-agent-restart-server', serverName),
@@ -38,6 +60,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   presentatorAgentSaveData: (data) =>
     ipcRenderer.invoke('presentator-agent-save-data', data),
+
+  presentatorAgentListCheckpoints: () =>
+    ipcRenderer.invoke('presentator-agent-list-checkpoints'),
+
+  presentatorAgentRestoreCheckpoint: (request) =>
+    ipcRenderer.invoke('presentator-agent-restore-checkpoint', request),
+
+  presentatorAgentValidateWebApp: (request) =>
+    ipcRenderer.invoke('presentator-agent-validate-web-app', request),
 
   presentatorAgentInspectCode: (request) =>
     ipcRenderer.invoke('presentator-agent-inspect-code', request),
@@ -57,6 +88,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   presentatorAgentImportReference: (request) =>
     ipcRenderer.invoke('presentator-agent-import-reference', request),
 
+  // ── New Super Agent Power Tools ─────────────────────────────────────────────
+
+  presentatorAgentListFiles: (request) =>
+    ipcRenderer.invoke('presentator-agent-list-files', request),
+
+  presentatorAgentReadFile: (request) =>
+    ipcRenderer.invoke('presentator-agent-read-file', request),
+
+  presentatorAgentWriteFile: (request) =>
+    ipcRenderer.invoke('presentator-agent-write-file', request),
+
+  presentatorAgentRunCommand: (request) =>
+    ipcRenderer.invoke('presentator-agent-run-command', request),
+
+  presentatorAgentSearchFiles: (request) =>
+    ipcRenderer.invoke('presentator-agent-search-files', request),
+
+  presentatorAgentAnalyzeCode: (request) =>
+    ipcRenderer.invoke('presentator-agent-analyze-code', request),
+
+  presentatorAgentRunBuild: () =>
+    ipcRenderer.invoke('presentator-agent-run-build'),
+
+  presentatorAgentDiffFiles: (request) =>
+    ipcRenderer.invoke('presentator-agent-diff-files', request),
+
+  presentatorAgentGenerateSfx: (request) =>
+    ipcRenderer.invoke('presentator-agent-generate-sfx', request),
+
+  presentatorAgentMorphAudio: (request) =>
+    ipcRenderer.invoke('presentator-agent-morph-audio', request),
+
   // ── Server management ──────────────────────────────────────────────────────
 
   // Ask the main process to restart the Anjali AI server
@@ -67,6 +130,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // rejecting a valid local WAV response when Windows resets the socket close.
   narrateEdgeTts: (payload) =>
     ipcRenderer.invoke('narrate-edge-tts', payload),
+
+  narrateEdgeTtsTimed: async (payload) => {
+    try {
+      return await ipcRenderer.invoke('narrate-edge-tts-timed', payload);
+    } catch (error) {
+      if (!/no handler registered/i.test(String(error?.message || error))) throw error;
+      const result = await ipcRenderer.invoke('narrate-edge-tts', payload);
+      return { ...result, wordTimings: Array.isArray(result?.wordTimings) ? result.wordTimings : [] };
+    }
+  },
+
+  narrateSc3Text: (payload) =>
+    ipcRenderer.invoke('narrate-sc3-text', payload),
+
+  narrateSc3Tts: (payload) =>
+    ipcRenderer.invoke('narrate-sc3-tts', payload),
+
+  narrateUploadedVideoVoice: (payload) =>
+    ipcRenderer.invoke('narrate-uploaded-video-voice', payload),
 
   // Ask the main process to restart the video export / FFmpeg server
   restartVideoExport: () =>
@@ -131,6 +213,53 @@ contextBridge.exposeInMainWorld('electronAPI', {
   probeVideoMeta: (opts) =>
     ipcRenderer.invoke('probe-video-meta', opts),
 
+  myExporterProbe: (opts) =>
+    ipcRenderer.invoke('my-exporter-probe', opts),
+
+  myExporterWaveform: (opts) =>
+    ipcRenderer.invoke('my-exporter-waveform', opts),
+
+  myExporterPreflight: (opts) =>
+    ipcRenderer.invoke('my-exporter-preflight', opts),
+
+  myExporterPickMedia: () =>
+    ipcRenderer.invoke('my-exporter-pick-media'),
+
+  myExporterPickAudio: () =>
+    ipcRenderer.invoke('my-exporter-pick-audio'),
+
+  myExporterCropSave: (opts) =>
+    ipcRenderer.invoke('my-exporter-crop-save', opts),
+
+  myExporterCaptionCacheLoad: (key) =>
+    ipcRenderer.invoke('my-exporter-caption-cache-load', { key }),
+
+  myExporterCaptionCacheSave: (key, data) =>
+    ipcRenderer.invoke('my-exporter-caption-cache-save', { key, data }),
+
+  myExporterExport: (opts) =>
+    ipcRenderer.invoke('my-exporter-export', opts),
+
+  myExporterCancel: () =>
+    ipcRenderer.invoke('my-exporter-cancel'),
+
+  myExporterDeleteProject: (filePath) =>
+    ipcRenderer.invoke('my-exporter-delete-project', { filePath }),
+
+  onMyExporterProgress: (callback) => {
+    const handler = (_, data) => callback(data);
+    myExporterProgressHandlers.set(callback, handler);
+    ipcRenderer.on('my-exporter-progress', handler);
+  },
+
+  offMyExporterProgress: (callback) => {
+    const handler = myExporterProgressHandlers.get(callback);
+    if (handler) {
+      ipcRenderer.removeListener('my-exporter-progress', handler);
+      myExporterProgressHandlers.delete(callback);
+    }
+  },
+
   // Extract 16kHz mono WAV audio natively using FFmpeg (returns on-disk path, NOT bytes)
   extractAudio: (opts) =>
     ipcRenderer.invoke('extract-audio', opts),
@@ -143,9 +272,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mergeAudioIntoVideo: (opts) =>
     ipcRenderer.invoke('merge-audio-into-video', opts),
 
+  exportTranslatedVideo: (opts) =>
+    ipcRenderer.invoke('export-translated-video', opts),
+
+  exportSyncedTranslatedVideo: (opts) =>
+    ipcRenderer.invoke('export-synced-translated-video', opts),
+
+  onTranslateDubProgress: (callback) => {
+    const handler = (_, data) => callback(data);
+    translateDubProgressHandlers.set(callback, handler);
+    ipcRenderer.on('translate-dub-progress', handler);
+  },
+
+  offTranslateDubProgress: (callback) => {
+    const handler = translateDubProgressHandlers.get(callback);
+    if (handler) {
+      ipcRenderer.removeListener('translate-dub-progress', handler);
+      translateDubProgressHandlers.delete(callback);
+    }
+  },
+
   // Desktop notification — alerts user when a task completes
   showNotification: (title, body, opts) =>
     ipcRenderer.invoke('show-notification', { title, body, ...opts }),
+
+  shutdownComputer: (opts) =>
+    ipcRenderer.invoke('shutdown-computer-after-export', opts),
 
   // Open a file with the OS default handler (e.g. play a burned video in media player)
   openFile: (filePath) =>

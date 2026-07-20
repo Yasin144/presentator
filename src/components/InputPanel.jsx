@@ -1795,23 +1795,6 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
 
     </section>
 
-    {/* \u2500\u2500 Floating Show Screen Button \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */}
-    <button
-      id="floatingShowScreenBtn"
-      className="floating-screen-btn"
-      type="button"
-      aria-label="Show presentation screen"
-      title="Show Screen"
-    >
-      <svg className="floating-screen-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="2" y="3" width="20" height="14" rx="2.5" stroke="currentColor" strokeWidth="2"/>
-        <path d="M8 21h8M12 17v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-        <path d="M9 9.5 L12 7.5 L15 9.5 L12 11.5 Z" fill="currentColor" opacity="0.85"/>
-      </svg>
-      <span className="floating-screen-label">Show Screen</span>
-      <span className="floating-screen-pulse"></span>
-    </button>
-
     </>
   );
 }

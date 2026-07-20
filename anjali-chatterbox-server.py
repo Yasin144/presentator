@@ -1,9 +1,9 @@
 """
-Voice Presentator â€” Chatterbox TTS Server
+Voice Presentator — Chatterbox TTS Server
 ==========================================
 Clones the EXACT voice from EVS C5 8th Lesson sc3.mp4.
 NO Edge TTS. NO fallback. NO other voice.
-Chatterbox loads FIRST â€” HTTP server starts only when voice is ready.
+Chatterbox loads FIRST — HTTP server starts only when voice is ready.
 """
 import io
 import json
@@ -283,9 +283,9 @@ def _transliterate_to_phonetic(text: str, lang: str) -> str:
 
     # Post-processing for natural Chatterbox pronunciation:
     # 1. Collapse triple+ same consonants (e.g. 'lll' → 'll')
-    phonetic = _re.sub(r'([bcdfghjklmnpqrstvwxyz]){2,}', r'', phonetic)
+    phonetic = _re.sub(r'([bcdfghjklmnpqrstvwxyz]){2,}', r'', phonetic)
     # 2. Max 2 identical vowels
-    phonetic = _re.sub(r'([aeiou]){2,}', r'', phonetic)
+    phonetic = _re.sub(r'([aeiou]){2,}', r'', phonetic)
     # 3. Fix awkward 'uu' that English reads as /juː/ → keep as is (oo is better)
     phonetic = phonetic.replace('uu', 'oo')
     # 4. Spaces
@@ -564,7 +564,7 @@ os.environ["TRANSFORMERS_OFFLINE"]  = os.environ.get("TRANSFORMERS_OFFLINE", "0"
 print(f"[Voice] HF cache → {_HF_CACHE}", flush=True)
 
 
-# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Config ─────────────────────────────────────────────────────────────────
 PROJECT_ROOT  = Path(__file__).resolve().parent
 PORT          = 8426
 CACHE_LIMIT   = 256
@@ -580,7 +580,7 @@ CURRENT_VOICE = "sc3"
 VOICE_REF_WAV = VOICE_MAP["sc3"]
 VOICE_REF_SRC = str(Path.home() / "Downloads" / "paragraph.mp4")
 
-# â”€â”€ Load Chatterbox SYNCHRONOUSLY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Load Chatterbox SYNCHRONOUSLY ──────────────────────────────────────────
 # The HTTP server does NOT start until the model and voice are fully ready.
 # This guarantees the FIRST narration ever uses the paragraph.mp4 cloned voice.
 print("+------------------------------------------------------------------+", flush=True)
@@ -647,7 +647,7 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-# â”€â”€ Audio helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Audio helpers ──────────────────────────────────────────────────────────
 
 def _to_wav(tensor) -> bytes:
     audio = tensor.squeeze().cpu().float()
@@ -769,7 +769,7 @@ def _trim_silence(wav: bytes, threshold_db: float = -45.0, tail_ms: int = 60) ->
 
 
 
-# â”€â”€ Text cleaner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Text cleaner ──────────────────────────────────────────────────────────
 
 def _clean_indian_slang(text: str) -> str:
     """
@@ -1081,7 +1081,7 @@ def _expand_numbers(text: str) -> str:
 
 
 
-# â”€â”€ Synthesis engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Synthesis engine ───────────────────────────────────────────────────────
 
 _cache      = OrderedDict()
 _cache_lock = threading.Lock()
@@ -1134,7 +1134,7 @@ def _disk_cache_set(clean_text: str, voice: str, wav_bytes: bytes):
         print(f"[Cache] Failed to write to disk cache: {exc}", flush=True)
 
 
-# Real-time synthesis progress â€” polled by the app banner
+# Real-time synthesis progress — polled by the app banner
 _progress = {
     "active":  False,
     "stage":   "idle",
@@ -1148,11 +1148,11 @@ _progress_lock = threading.Lock()
 _current_synth_text = ""
 
 STAGES = [
-    ("Cleaning textâ€¦",               5),
-    ("Preparing voice embeddingsâ€¦",  15),
-    ("Generating speech tokensâ€¦",    20),
-    ("Synthesising audio waveformâ€¦", 82),
-    ("Encoding WAVâ€¦",                92),
+    ("Cleaning text…",               5),
+    ("Preparing voice embeddings…",  15),
+    ("Generating speech tokens…",    20),
+    ("Synthesising audio waveform…", 82),
+    ("Encoding WAV…",                92),
     ("Done",                        100),
 ]
 
@@ -1469,7 +1469,7 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
         return wav
 
 
-# â”€â”€ HTTP Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── HTTP Handler ───────────────────────────────────────────────────────────
 
 _DISC = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
 
@@ -1608,7 +1608,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/api/preload":
-            self._json({"ok": True, "message": "sc3.mp4 voice clone is ready â€” no preload needed."})
+            self._json({"ok": True, "message": "sc3.mp4 voice clone is ready — no preload needed."})
             return
 
         if self.path == "/set-voice":
@@ -1659,14 +1659,14 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
 
-# â”€â”€ Start server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Start server ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     sep = "=" * 66
     print(f"+{sep}+", flush=True)
-    print(f"|   Voice Presentator  â€”  http://127.0.0.1:{PORT}                    |", flush=True)
+    print(f"|   Voice Presentator  —  http://127.0.0.1:{PORT}                    |", flush=True)
     print(f"|   Engine : Chatterbox TTS (sc3.mp4 voice clone)                 |", flush=True)
-    print(f"|   Locked : ONLY sc3.mp4 voice â€” no other voice possible         |", flush=True)
+    print(f"|   Locked : ONLY sc3.mp4 voice — no other voice possible         |", flush=True)
     print(f"+{sep}+", flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.serve_forever()

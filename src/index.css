@@ -4740,3 +4740,267 @@ kbd {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* --------------------------------------------------------------------------
+   Pattan Classic UI layer
+   Visual overrides only: no layout state, interaction, or workflow behavior.
+   -------------------------------------------------------------------------- */
+:root,
+body[data-theme="dark"] {
+  --classic-ink: #0c0d0f;
+  --classic-surface: #131518;
+  --classic-raised: #191c20;
+  --classic-soft: #20242a;
+  --classic-line: rgba(255, 255, 255, 0.09);
+  --classic-line-strong: rgba(255, 255, 255, 0.16);
+  --classic-text: #f3f0e8;
+  --classic-muted: #a9a69f;
+  --classic-brass: #c7a86a;
+  --classic-brass-bright: #e1c386;
+  --classic-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  --bg-start: #101215;
+  --bg-mid: #0c0e10;
+  --bg-end: #08090b;
+  --panel-bg: #15171a;
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text-main: var(--classic-text);
+  --text-strong: #fffdf7;
+  --text-muted: var(--classic-muted);
+  --eyebrow: var(--classic-brass-bright);
+  --surface-soft: #1a1d21;
+  --surface-muted: #17191d;
+  --surface-ghost: #202329;
+  --field-bg: #101215;
+  --field-border: rgba(255, 255, 255, 0.12);
+  --field-focus: var(--classic-brass);
+  --focus-ring: rgba(199, 168, 106, 0.18);
+  --primary-a: #b28e4f;
+  --primary-b: #d0b273;
+  --accent-a: #b28e4f;
+  --accent-b: #d0b273;
+}
+
+html,
+body,
+#root {
+  background: var(--classic-ink) !important;
+}
+
+body {
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif !important;
+  background-image:
+    radial-gradient(circle at 50% -20%, rgba(199, 168, 106, 0.07), transparent 36%),
+    linear-gradient(180deg, #101215 0%, #090a0c 100%) !important;
+  letter-spacing: -0.005em;
+}
+
+body::before {
+  opacity: 0.2;
+}
+
+::selection {
+  color: #111;
+  background: var(--classic-brass-bright);
+}
+
+* {
+  scrollbar-color: #42464d transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #42464d;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.app-topbar {
+  height: 58px !important;
+  padding: 0 22px !important;
+  background: rgba(12, 13, 15, 0.96) !important;
+  border-bottom: 1px solid var(--classic-line) !important;
+  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.22) !important;
+  backdrop-filter: blur(18px);
+}
+
+.app-topbar > div:first-child span {
+  color: var(--classic-text) !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.16em !important;
+}
+
+.app-nav-button {
+  min-height: 34px;
+  padding: 7px 16px !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: #8f9298 !important;
+  box-shadow: none !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em;
+}
+
+.app-nav-button:hover {
+  color: var(--classic-text) !important;
+  background: rgba(255, 255, 255, 0.045) !important;
+}
+
+.app-nav-button[data-active="true"] {
+  color: #17130d !important;
+  border-color: #d5ba80 !important;
+  background: linear-gradient(180deg, #dec38a, #b89354) !important;
+  box-shadow: 0 5px 16px rgba(199, 168, 106, 0.16) !important;
+}
+
+.app-shell {
+  gap: 18px !important;
+  padding-inline: 18px !important;
+}
+
+.panel,
+.modal-card,
+.dialog-card,
+.card {
+  border: 1px solid var(--classic-line) !important;
+  border-radius: 16px !important;
+  background: var(--classic-surface) !important;
+  box-shadow: var(--classic-shadow) !important;
+  backdrop-filter: none !important;
+}
+
+.panel::after,
+.panel-input::before {
+  display: none !important;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit !important;
+}
+
+input,
+select,
+textarea {
+  border-color: var(--classic-line-strong) !important;
+  border-radius: 9px !important;
+  background-color: #101215 !important;
+  color: var(--classic-text) !important;
+  box-shadow: none !important;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--classic-brass) !important;
+  outline: 3px solid rgba(199, 168, 106, 0.12) !important;
+  outline-offset: 0;
+}
+
+button {
+  border-radius: 8px !important;
+  letter-spacing: 0.01em;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--classic-brass-bright) !important;
+  outline-offset: 2px !important;
+}
+
+/* Bring Tailwind-styled modules into the same classic visual family. */
+#error-checker-root,
+.cb-page,
+.bg-\[\#212121\] {
+  background-color: var(--classic-ink) !important;
+  color: var(--classic-text) !important;
+}
+
+.bg-\[\#171717\],
+.bg-\[\#1a1a1a\],
+.bg-\[\#2b2b2b\],
+.bg-\[\#2f2f2f\],
+.bg-\[\#292929\] {
+  background-color: var(--classic-surface) !important;
+}
+
+.rounded-3xl,
+.rounded-\[26px\] {
+  border-radius: 16px !important;
+}
+
+.rounded-2xl,
+.rounded-xl {
+  border-radius: 10px !important;
+}
+
+.border-white\/5,
+.border-white\/10 {
+  border-color: var(--classic-line) !important;
+}
+
+.text-emerald-300,
+.text-emerald-400,
+.text-indigo-300,
+.text-indigo-400,
+.text-violet-400 {
+  color: var(--classic-brass-bright) !important;
+}
+
+.bg-emerald-400,
+.bg-indigo-500,
+.bg-violet-500 {
+  background-color: var(--classic-brass) !important;
+}
+
+.shadow-xl,
+.shadow-2xl {
+  box-shadow: var(--classic-shadow) !important;
+}
+
+.cb-page {
+  --tw-ring-color: rgba(199, 168, 106, 0.3);
+}
+
+.cb-page .bg-slate-950,
+.cb-page .bg-\[\#050814\],
+.cb-page .bg-\[\#070b14\] {
+  background-color: var(--classic-ink) !important;
+}
+
+.cb-page .bg-slate-900,
+.cb-page .bg-slate-900\/70,
+.cb-page .bg-slate-800,
+.cb-page .bg-white\/5 {
+  background-color: var(--classic-surface) !important;
+}
+
+@media (max-width: 760px) {
+  .app-topbar {
+    padding: 0 8px !important;
+  }
+
+  .app-nav-button {
+    padding-inline: 9px !important;
+    font-size: 10px !important;
+  }
+}

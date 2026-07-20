@@ -23,6 +23,8 @@ export const CAPTION_LANGUAGES = [
   'English',
   'Hindi',
   'Tamil',
+  'Kannada',
+  'Malayalam',
   'Urdu',
   'Arabic',
 ] as const;
@@ -52,13 +54,15 @@ export const LANG_CODE: Record<string, string> = {
   English: 'en',
   Hindi: 'hi',
   Tamil: 'ta',
+  Kannada: 'kn',
+  Malayalam: 'ml',
   Urdu: 'ur',
   Arabic: 'ar',
 };
 
 // Human-readable name from BCP-47 code
 export const CODE_TO_NAME: Record<string, string> = {
-  te:'Telugu', en:'English', hi:'Hindi', ta:'Tamil', ur:'Urdu', ar:'Arabic',
+  te:'Telugu', en:'English', hi:'Hindi', ta:'Tamil', kn:'Kannada', ml:'Malayalam', ur:'Urdu', ar:'Arabic',
   fr:'French', de:'German', es:'Spanish', zh:'Chinese', ja:'Japanese',
   ko:'Korean', ru:'Russian', pt:'Portuguese', it:'Italian', nl:'Dutch',
   tr:'Turkish', pl:'Polish', sv:'Swedish', da:'Danish', fi:'Finnish',

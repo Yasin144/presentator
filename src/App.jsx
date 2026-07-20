@@ -1,9 +1,11 @@
-import React, { useEffect, useState, useCallback, lazy, Suspense } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import InputPanel from './components/InputPanel';
 import StagePanel from './components/StagePanel';
 import ErrorCheckerApp from './components/ErrorChecker/ErrorCheckerApp';
 import PresentationApp from './components/Presentation/PresentationApp';
 import AgentStudio from './components/AgentStudio/AgentStudio';
+import DirectorStudio from './components/Director/DirectorStudio';
+import MyExporter from './components/MyExporter/MyExporter';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
@@ -48,6 +50,41 @@ class CaptionErrorBoundary extends React.Component {
   }
 }
 
+// Generic error boundary that catches crashes in any module without taking down the whole app.
+// When a module crashes, it shows a recovery card instead of a blank/frozen screen.
+class ModuleErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error(`[ModuleErrorBoundary:${this.props.moduleName}] crash:`, error, info);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    const message = String(this.state.error?.message || this.state.error || 'Unknown error');
+    return (
+      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050814', color: '#fff', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
+        <div style={{ width: 'min(560px, 92vw)', border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(127,29,29,0.18)', borderRadius: 18, padding: 22, boxShadow: '0 24px 80px rgba(0,0,0,0.45)' }}>
+          <div style={{ fontSize: 12, fontWeight: 900, color: '#fca5a5', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{this.props.moduleName} module crashed</div>
+          <div style={{ marginTop: 10, fontSize: 18, fontWeight: 800 }}>This module hit an error. The rest of the app is still running.</div>
+          <pre style={{ marginTop: 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#fecaca', background: 'rgba(0,0,0,0.28)', borderRadius: 10, padding: 12, fontSize: 12 }}>{message}</pre>
+          <button
+            onClick={() => this.setState({ error: null })}
+            style={{ marginTop: 16, padding: '9px 18px', borderRadius: 10, border: 0, background: '#6366f1', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+          >Try Again</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 function loadStyle() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null') || DEFAULTS; }
   catch (_) { return DEFAULTS; }
@@ -68,8 +105,89 @@ function App() {
   const [captionOpen, setCaptionOpen]   = useState(false);
   const [captionResetKey, setCaptionResetKey] = useState(0);
   const [style, setStyle]               = useState(loadStyle);
-  const [currentModule, setCurrentModule] = useState('presentator'); // presentator | errorChecker | presentation | agent
+  const [currentModule, setCurrentModule] = useState('presentator'); // presentator | errorChecker | presentation | agent | director | exporter
   const [hideHeader, setHideHeader]     = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const commands = useMemo(() => [
+    // NAVIGATION
+    { id: 'nav-presentator', category: '🧭 Navigation', title: 'Go to Presentator', desc: 'Switch to main lesson presentation engine', action: () => { setCaptionOpen(false); setCurrentModule('presentator'); } },
+    { id: 'nav-checker', category: '🧭 Navigation', title: 'Go to Checker', desc: 'Perform AI script consistency & error check', action: () => { setCaptionOpen(false); setCurrentModule('errorChecker'); } },
+    { id: 'nav-presentation', category: '🧭 Navigation', title: 'Go to Presentation Mode', desc: 'Run presenter view with slide transitions', action: () => { setCaptionOpen(false); setCurrentModule('presentation'); } },
+    { id: 'nav-agent', category: '🧭 Navigation', title: 'Go to Super Agent Studio', desc: 'Interact with AI agent tools & diagnostics', action: () => { setCaptionOpen(false); setCurrentModule('agent'); } },
+    { id: 'nav-director', category: '🧭 Navigation', title: 'Go to AI Director', desc: 'Assemble projects & timeline templates', action: () => { setCaptionOpen(false); setCurrentModule('director'); } },
+    { id: 'nav-exporter', category: '🧭 Navigation', title: 'Go to My Exporter', desc: 'Compile final video with voice, logo & captions', action: () => { window.dispatchEvent(new Event('pp:close-translate-audio')); setCaptionOpen(false); setCurrentModule('exporter'); } },
+    
+    // QUICK ACTIONS
+    { id: 'act-burner', category: '⚡ Quick Actions', title: 'Open Caption Burner', desc: 'Hardburn subtitles with Whisper model', action: () => { setCaptionOpen(true); } },
+    { id: 'act-toggle-style', category: '⚡ Quick Actions', title: 'Toggle Input Styles Panel', desc: 'Show/hide line & letter spacing controls', action: () => { setPanelOpen(prev => !prev); } },
+    { id: 'act-reset-style', category: '⚡ Quick Actions', title: 'Reset Input Styles', desc: 'Reset font scaling, letter spacing & line height to defaults', action: () => { reset(); if (typeof window.ppSetFontScale === 'function') window.ppSetFontScale(1); if (typeof window.ppSetCanvasLineSpacing === 'function') window.ppSetCanvasLineSpacing(2.1); if (typeof window.ppSetCanvasLetterSpacing === 'function') window.ppSetCanvasLetterSpacing(0.01); } },
+
+    // WORKSPACE LAYOUTS
+    { id: 'lay-default', category: '🎨 Workspace Layouts', title: 'Layout: Default', desc: 'Set Exporter layout: Media library + Preview + Inspector', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'default' })); } },
+    { id: 'lay-organize', category: '🎨 Workspace Layouts', title: 'Layout: Organize', desc: 'Set Exporter layout: Large media list view for sorting', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'organize' })); } },
+    { id: 'lay-timeline', category: '🎨 Workspace Layouts', title: 'Layout: Timeline', desc: 'Set Exporter layout: Maximized timeline height for audio focus', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'timeline' })); } },
+    { id: 'lay-shortvideo', category: '🎨 Workspace Layouts', title: 'Layout: Short Video', desc: 'Set Exporter layout: Portrait 9:16 layout formatting', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'shortvideo' })); } },
+    { id: 'lay-classic', category: '🎨 Workspace Layouts', title: 'Layout: Classic Editor', desc: 'Set Exporter layout: Classic timeline-focused look', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'classic' })); } },
+    { id: 'lay-dual', category: '🎨 Workspace Layouts', title: 'Layout: Dual View', desc: 'Set Exporter layout: Compare dual video players side-by-side', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'dual' })); } },
+
+    // FONT ADJUSTMENTS
+    { id: 'size-inc', category: '⚙️ Font Controls', title: 'Increase Font Size (+0.1rem)', desc: 'Enlarge current editor text size', action: () => { setStyle(prev => { const n = Math.min(1.6, prev.fontSize + 0.1); if (typeof window.ppSetFontScale === 'function') window.ppSetFontScale(n); return { ...prev, fontSize: n }; }); } },
+    { id: 'size-dec', category: '⚙️ Font Controls', title: 'Decrease Font Size (-0.1rem)', desc: 'Shrink current editor text size', action: () => { setStyle(prev => { const n = Math.max(0.8, prev.fontSize - 0.1); if (typeof window.ppSetFontScale === 'function') window.ppSetFontScale(n); return { ...prev, fontSize: n }; }); } },
+    { id: 'line-inc', category: '⚙️ Font Controls', title: 'Increase Line Spacing (+0.2)', desc: 'Add height padding between text rows', action: () => { setStyle(prev => { const n = Math.min(3.2, prev.lineHeight + 0.2); if (typeof window.ppSetCanvasLineSpacing === 'function') window.ppSetCanvasLineSpacing(n); return { ...prev, lineHeight: n }; }); } },
+    { id: 'line-dec', category: '⚙️ Font Controls', title: 'Decrease Line Spacing (-0.2)', desc: 'Reduce height padding between text rows', action: () => { setStyle(prev => { const n = Math.max(1.2, prev.lineHeight - 0.2); if (typeof window.ppSetCanvasLineSpacing === 'function') window.ppSetCanvasLineSpacing(n); return { ...prev, lineHeight: n }; }); } },
+  ], []);
+
+  const filteredCommands = useMemo(() => {
+    if (!searchQuery) return commands;
+    const query = searchQuery.toLowerCase();
+    return commands.filter(cmd => 
+      cmd.title.toLowerCase().includes(query) || 
+      cmd.desc.toLowerCase().includes(query) || 
+      cmd.category.toLowerCase().includes(query)
+    );
+  }, [searchQuery, commands]);
+
+  // Keep selectedIndex in bounds when query shifts
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Toggle Command Palette with Ctrl+K or Cmd+K
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(prev => !prev);
+        setSearchQuery('');
+        return;
+      }
+      
+      if (!commandPaletteOpen) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setCommandPaletteOpen(false);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(prev => (prev + 1) % Math.max(1, filteredCommands.length));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(prev => (prev - 1 + filteredCommands.length) % Math.max(1, filteredCommands.length));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (filteredCommands[selectedIndex]) {
+          filteredCommands[selectedIndex].action();
+          setCommandPaletteOpen(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [commandPaletteOpen, filteredCommands, selectedIndex]);
+
 
   useEffect(() => {
     const handleStateChange = (e) => {
@@ -103,6 +221,24 @@ function App() {
   }, []);
 
   const reset = useCallback(() => { setStyle(DEFAULTS); }, []);
+
+  const sendDirectorProjectToPresentator = useCallback(({ text, action, settings }) => {
+    try {
+      localStorage.setItem('pattan-director-active-project-v1', JSON.stringify({ text, settings, updatedAt: new Date().toISOString() }));
+    } catch (_) {}
+    setCaptionOpen(false);
+    setCurrentModule('presentator');
+    window.setTimeout(() => {
+      const lesson = document.getElementById('lessonInput');
+      if (!lesson) return;
+      lesson.value = text;
+      lesson.dispatchEvent(new Event('input', { bubbles: true }));
+      lesson.focus();
+      if (action === 'narrate') {
+        window.setTimeout(() => document.getElementById('loadAnjaliNarrationBtn')?.click(), 350);
+      }
+    }, 120);
+  }, []);
 
   useEffect(() => {
     // Cache-buster: change this version string any time a legacy JS file changes
@@ -167,7 +303,7 @@ function App() {
     <>
       {/* ── Top Navigation Bar (Hidden when Caption Burner is full-screen or presenting) ── */}
       {!captionOpen && !hideHeader && (
-        <header style={{
+        <header className="app-topbar" style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -184,9 +320,31 @@ function App() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 800, color: '#f97316', letterSpacing: '0.3px', fontFamily: "system-ui" }}>🎤 PATTAN</span>
+            <button 
+              onClick={() => setCommandPaletteOpen(true)}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '6px',
+                padding: '3px 8px',
+                color: 'rgba(255, 255, 255, 0.45)',
+                fontSize: '10px',
+                fontFamily: 'monospace, system-ui, sans-serif',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'all 0.15s ease'
+              }}
+              title="Open Command Palette (Ctrl+K)"
+            >
+              <span>⌘K</span>
+            </button>
           </div>
           <div style={{ display: 'flex', gap: '2px' }}>
             <button
+              className="app-nav-button"
+              data-active={currentModule === 'presentator'}
               onClick={() => setCurrentModule('presentator')}
               style={{
                 padding: '6px 14px',
@@ -203,6 +361,8 @@ function App() {
               }}
             >Presentator</button>
             <button
+              className="app-nav-button"
+              data-active={currentModule === 'errorChecker'}
               onClick={() => setCurrentModule('errorChecker')}
               style={{
                 padding: '6px 14px',
@@ -219,6 +379,8 @@ function App() {
               }}
             >Checker</button>
             <button
+              className="app-nav-button"
+              data-active={currentModule === 'presentation'}
               onClick={() => setCurrentModule('presentation')}
               style={{
                 padding: '6px 14px',
@@ -235,6 +397,8 @@ function App() {
               }}
             >Presentation</button>
             <button
+              className="app-nav-button"
+              data-active={currentModule === 'agent'}
               onClick={() => { setCaptionOpen(false); setCurrentModule('agent'); }}
               style={{
                 padding: '6px 14px',
@@ -250,6 +414,33 @@ function App() {
                 fontFamily: "system-ui"
               }}
             >Super Agent</button>
+            <button
+              className="app-nav-button"
+              data-active={currentModule === 'director'}
+              onClick={() => { setCaptionOpen(false); setCurrentModule('director'); }}
+              style={{
+                padding: '6px 14px', borderRadius: '20px', border: 'none',
+                background: currentModule === 'director' ? 'linear-gradient(135deg,#d4af6a,#8f6b35)' : 'transparent',
+                color: currentModule === 'director' ? '#17130d' : 'rgba(255,255,255,0.5)',
+                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: currentModule === 'director' ? '0 4px 12px rgba(199,168,106,0.25)' : 'none',
+                fontFamily: 'system-ui'
+              }}
+            >AI Director</button>
+            <button
+              className="app-nav-button"
+              data-active={currentModule === 'exporter'}
+              onPointerDown={(event) => { if (event.button === 0) { window.dispatchEvent(new Event('pp:close-translate-audio')); setCaptionOpen(false); setCurrentModule('exporter'); } }}
+              onClick={() => { window.dispatchEvent(new Event('pp:close-translate-audio')); setCaptionOpen(false); setCurrentModule('exporter'); }}
+              style={{
+                padding: '6px 14px', borderRadius: '20px', border: 'none',
+                background: currentModule === 'exporter' ? 'linear-gradient(135deg,#d4af6a,#8f6b35)' : 'transparent',
+                color: currentModule === 'exporter' ? '#17130d' : 'rgba(255,255,255,0.5)',
+                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: currentModule === 'exporter' ? '0 4px 12px rgba(199,168,106,0.25)' : 'none',
+                fontFamily: 'system-ui'
+              }}
+            >My Exporter</button>
           </div>
           <div style={{ width: '12px' }}></div>
         </header>
@@ -409,19 +600,242 @@ function App() {
 
         {/* ── Error Checker UI ── */}
         <div style={{ display: (!captionOpen && currentModule === 'errorChecker') ? 'block' : 'none', height: '100%', paddingTop: '50px', boxSizing: 'border-box' }}>
-          <ErrorCheckerApp />
+          <ModuleErrorBoundary moduleName="Error Checker">
+            <ErrorCheckerApp />
+          </ModuleErrorBoundary>
         </div>
 
         {/* ── Presentation UI ── */}
         <div style={{ display: (!captionOpen && currentModule === 'presentation') ? 'block' : 'none', height: '100%', paddingTop: (!captionOpen && !hideHeader) ? '50px' : 0, boxSizing: 'border-box' }}>
-          <PresentationApp />
+          <ModuleErrorBoundary moduleName="Presentation">
+            <PresentationApp active={!captionOpen && currentModule === 'presentation'} />
+          </ModuleErrorBoundary>
         </div>
 
         {/* ── Standalone Super Agent Studio ── */}
         <div style={{ display: (!captionOpen && currentModule === 'agent') ? 'block' : 'none', height: '100%', paddingTop: '50px', boxSizing: 'border-box' }}>
-          <AgentStudio />
+          <ModuleErrorBoundary moduleName="Super Agent">
+            <AgentStudio />
+          </ModuleErrorBoundary>
+        </div>
+
+        {/* ── AI Director production workspace ── */}
+        <div style={{ display: (!captionOpen && currentModule === 'director') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
+          <ModuleErrorBoundary moduleName="AI Director">
+            <DirectorStudio
+              onSendToPresentator={sendDirectorProjectToPresentator}
+              onOpenCaptions={() => setCaptionOpen(true)}
+              onOpenPresentation={() => setCurrentModule('presentation')}
+              onOpenExporter={() => { setCaptionOpen(false); setCurrentModule('exporter'); }}
+            />
+          </ModuleErrorBoundary>
+        </div>
+
+        {/* ── My Exporter timeline editor ── */}
+        {/* IMPORTANT: Always kept mounted (hidden via display:none) to prevent crash-on-remount.
+            The old code used conditional rendering ({condition && <MyExporter/>}) which unmounted
+            and remounted MyExporter on every tab switch. This caused:
+              1. IPC listener leaks (onMyExporterProgress registered multiple times)
+              2. All useState initializers re-running (heavy localStorage + probe calls)
+              3. React reconciliation errors from rapidly-cycling heavy component trees
+            Solution: keep it always in the DOM, just toggle display. The active prop lets
+            MyExporter know when it is visible so it can pause/resume playback etc. */}
+        <div style={{ display: (!captionOpen && currentModule === 'exporter') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
+          <ModuleErrorBoundary moduleName="My Exporter">
+            <MyExporter active={!captionOpen && currentModule === 'exporter'} />
+          </ModuleErrorBoundary>
         </div>
       </div>
+
+      {/* ── Universal Command Palette Overlay ── */}
+      {commandPaletteOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(5, 8, 20, 0.75)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          zIndex: 100000,
+          display: 'flex',
+          justifyContent: 'center',
+          paddingTop: '80px',
+          animation: 'fadeIn 0.2s ease-out'
+        }} onClick={() => setCommandPaletteOpen(false)}>
+          <style>{`
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes slideDown { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+            .cmd-item {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding: 10px 14px;
+              margin: 4px 0;
+              border-radius: 10px;
+              cursor: pointer;
+              background: transparent;
+              transition: all 0.15s ease;
+              border: 1px solid transparent;
+            }
+            .cmd-item:hover {
+              background: rgba(255, 255, 255, 0.04);
+            }
+            .cmd-item-active {
+              background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2)) !important;
+              border-color: rgba(99, 102, 241, 0.4) !important;
+              box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+            }
+            .cmd-scrollbar::-webkit-scrollbar {
+              width: 6px;
+            }
+            .cmd-scrollbar::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            .cmd-scrollbar::-webkit-scrollbar-thumb {
+              background: rgba(255, 255, 255, 0.15);
+              border-radius: 3px;
+            }
+            .cmd-scrollbar::-webkit-scrollbar-thumb:hover {
+              background: rgba(255, 255, 255, 0.3);
+            }
+          `}</style>
+          
+          <div style={{
+            width: '100%',
+            maxWidth: '560px',
+            background: 'linear-gradient(160deg, #101423, #0b0d18)',
+            border: '1px solid rgba(99, 102, 241, 0.25)',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.8), 0 0 40px rgba(99, 102, 241, 0.05)',
+            borderRadius: '16px',
+            height: 'fit-content',
+            maxHeight: '480px',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            animation: 'slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            fontFamily: "system-ui, -apple-system, sans-serif"
+          }} onClick={(e) => e.stopPropagation()}>
+            
+            {/* Search Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              padding: '16px',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+              position: 'relative'
+            }}>
+              <span style={{ fontSize: '18px', marginRight: '12px', opacity: 0.7 }}>🔍</span>
+              <input
+                autoFocus
+                type="text"
+                placeholder="Type a command or search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: '#fff',
+                  fontSize: '15px',
+                  lineHeight: '1.5'
+                }}
+              />
+              <div style={{
+                fontSize: '10px',
+                padding: '4px 8px',
+                background: 'rgba(255, 255, 255, 0.06)',
+                borderRadius: '6px',
+                color: 'rgba(255, 255, 255, 0.5)',
+                fontWeight: 'bold',
+                letterSpacing: '0.05em'
+              }}>ESC TO CLOSE</div>
+            </div>
+
+            {/* Scrollable list */}
+            <div className="cmd-scrollbar" style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '12px'
+            }}>
+              {filteredCommands.length === 0 ? (
+                <div style={{
+                  padding: '24px',
+                  textAlign: 'center',
+                  color: 'rgba(255, 255, 255, 0.4)',
+                  fontSize: '13px'
+                }}>No commands found matching "{searchQuery}"</div>
+              ) : (
+                filteredCommands.map((cmd, idx) => {
+                  const isActive = idx === selectedIndex;
+                  return (
+                    <div
+                      key={cmd.id}
+                      className={`cmd-item ${isActive ? 'cmd-item-active' : ''}`}
+                      onClick={() => {
+                        cmd.action();
+                        setCommandPaletteOpen(false);
+                      }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                        <span style={{
+                          color: isActive ? '#fff' : '#e0e4f0',
+                          fontSize: '13.5px',
+                          fontWeight: 600
+                        }}>{cmd.title}</span>
+                        <span style={{
+                          color: isActive ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.4)',
+                          fontSize: '11px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>{cmd.desc}</span>
+                      </div>
+                      <span style={{
+                        fontSize: '9.5px',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        padding: '3px 7px',
+                        borderRadius: '4px',
+                        background: isActive ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.04)',
+                        color: isActive ? '#fff' : 'rgba(255,255,255,0.4)',
+                        marginLeft: '12px',
+                        flexShrink: 0
+                      }}>{cmd.category}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer / Helper bar */}
+            <div style={{
+              padding: '10px 16px',
+              borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+              background: 'rgba(0,0,0,0.15)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '11px',
+              color: 'rgba(255, 255, 255, 0.4)'
+            }}>
+              <div>
+                <span>Use </span>
+                <kbd style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 5px', borderRadius: '3px', margin: '0 2px' }}>↑</kbd>
+                <kbd style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 5px', borderRadius: '3px', margin: '0 2px' }}>↓</kbd>
+                <span> to navigate, </span>
+                <kbd style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 5px', borderRadius: '3px', margin: '0 2px' }}>Enter</kbd>
+                <span> to run</span>
+              </div>
+              <div>Press <kbd style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 5px', borderRadius: '3px' }}>Ctrl + K</kbd> anywhere</div>
+            </div>
+
+          </div>
+        </div>
+      )}
     </>
   );
 

@@ -1,7 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'pattan-agent-studio-v1';
-const MAX_ROUNDS = 12;
+const MAX_ROUNDS = 20;
+
+const DAILY_ACTIONS = [
+  { icon: 'wrench', label: 'Health Check', prompt: 'Check every Presentator server and important workflow. Report only failures, risks, and the exact next action.' },
+  { icon: 'spark', label: 'Daily Brief', prompt: 'Give me a concise daily workspace brief: active work, recent outputs, likely unfinished tasks, and the three best next actions.' },
+  { icon: 'file', label: 'Summarize Files', prompt: 'Analyze all attached references and give me an executive summary, key facts, action items, and anything inconsistent or missing.' },
+  { icon: 'image', label: 'Lesson Visual', prompt: 'Create a polished classroom-ready educational visual from my attached reference or current topic.' },
+  { icon: 'video', label: 'Video Scene', prompt: 'Create a high-quality eight-second educational video scene using my attached image or topic.' },
+  { icon: 'wrench', label: 'Fix My Module', prompt: 'Inspect the current Presentator module, diagnose the real failure, apply the smallest safe repair, and verify it.' },
+];
 
 const makeChat = () => ({
   id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -11,6 +20,22 @@ const makeChat = () => ({
   references: [],
   assets: [],
 });
+
+const escapeHtml = value => String(value || '').replace(/[&<>"']/g, character => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[character]));
+
+const createInstantWebsite = request => {
+  const objective = escapeHtml(String(request || 'New website').replace(/\s+/g, ' ').trim());
+  return `<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${objective}</title><style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,sans-serif;background:linear-gradient(135deg,#fff7ed,#fdf2f8);color:#292524}nav{display:flex;justify-content:space-between;align-items:center;padding:22px 7%;background:#ffffffcc;backdrop-filter:blur(14px);position:sticky;top:0}.brand{font-size:1.25rem;font-weight:900;color:#db2777}.links{display:flex;gap:22px}a{color:inherit;text-decoration:none;font-weight:700}.hero{min-height:72vh;display:grid;place-items:center;text-align:center;padding:70px 7%}.hero div{max-width:850px}.tag{display:inline-block;padding:8px 14px;border-radius:999px;background:#fce7f3;color:#be185d;font-weight:800}h1{font-size:clamp(2.6rem,7vw,5.8rem);line-height:.95;margin:24px 0;background:linear-gradient(90deg,#db2777,#f97316);color:transparent;background-clip:text}p{font-size:1.12rem;line-height:1.7;color:#57534e}.cta{display:inline-block;margin-top:20px;padding:15px 24px;border-radius:14px;background:#db2777;color:white;box-shadow:0 14px 35px #db277744}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;padding:30px 7% 80px}.card{background:white;border-radius:22px;padding:26px;box-shadow:0 18px 50px #9f123922;transition:.25s}.card:hover{transform:translateY(-7px)}.icon{font-size:3rem}footer{text-align:center;padding:30px;background:#292524;color:white}@media(max-width:600px){.links{display:none}}
+</style></head><body><nav><div class="brand">✨ Dream Studio</div><div class="links"><a href="#features">Explore</a><a href="#contact">Contact</a></div></nav>
+<main><section class="hero"><div><span class="tag">LIVE STARTER • AI IS REFINING</span><h1>${objective}</h1><p>Your working preview is ready immediately. Super Agent is now improving the copy, visuals, interactions, and final details in the background.</p><a class="cta" href="#features">Explore now →</a></div></section>
+<section id="features" class="cards"><article class="card"><div class="icon">💖</div><h2>Made with care</h2><p>A warm, trustworthy experience designed around your goal.</p></article><article class="card"><div class="icon">✨</div><h2>Premium quality</h2><p>Polished responsive design for desktop and mobile visitors.</p></article><article class="card"><div class="icon">🛡️</div><h2>Safe and clear</h2><p>Accessible structure, friendly navigation, and clear actions.</p></article></section></main><footer id="contact">Created by Pattan Super Agent • Refinement in progress</footer>
+</body></html>`;
+};
 
 const loadChats = () => {
   try {
@@ -51,6 +76,201 @@ const Icon = ({ name, size = 18, className = '' }) => {
   );
 };
 
+function AssistantMessageBlock({ message }) {
+  const [showThoughts, setShowThoughts] = useState(false);
+  const planItems = Array.isArray(message.plan) ? message.plan : [];
+  const actionItems = Array.isArray(message.actions) ? message.actions : [];
+  const durationSec = message.performance?.totalDurationMs
+    ? (message.performance.totalDurationMs / 1000).toFixed(1)
+    : null;
+
+  return (
+    <div className="group max-w-[82%] pt-1">
+      {/* Collapsible Thoughts Block */}
+      {message.thinking && (
+        <div className="mb-3">
+          <button
+            onClick={() => setShowThoughts(prev => !prev)}
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-[11px] font-medium transition-colors border border-white/5"
+          >
+            <span>💭</span>
+            <span>{showThoughts ? 'Hide Super Agent Decision Summary' : 'Show Super Agent Decision Summary'}</span>
+            {durationSec && <span className="opacity-60">({durationSec}s)</span>}
+          </button>
+          
+          {showThoughts && (
+            <div className="mt-2 p-3.5 rounded-xl bg-black/40 border border-white/5 text-[12.5px] text-white/60 leading-6 font-mono whitespace-pre-wrap max-h-[300px] overflow-y-auto dark-scrollbar">
+              {message.thinking}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Checklist Plan Block */}
+      {planItems.length > 0 && (
+        <div className="mb-3 p-3.5 rounded-xl bg-white/[0.02] border border-white/5">
+          <div className="text-[11.5px] font-semibold text-white/40 mb-2 uppercase tracking-wider flex items-center gap-1.5">
+            <span>📋</span> Execution Plan
+          </div>
+          <div className="space-y-1.5">
+            {planItems.map((step, idx) => (
+              <div key={idx} className="flex items-start gap-2.5 text-[12.5px] text-white/80 leading-5">
+                <span className="text-emerald-400 mt-0.5">✔</span>
+                <span>{step}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Dispatched Actions/Tools List */}
+      {actionItems.length > 0 && (
+        <div className="mb-3.5 flex flex-wrap gap-2">
+          {actionItems.map((act, idx) => (
+            <div key={idx} className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10.5px] font-medium font-mono" title={act.reason}>
+              <span>🛠</span>
+              <span>{act.tool}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Main Text Content */}
+      <div className="text-[14px] leading-7 whitespace-pre-wrap bg-[#1a1a1a] border border-white/5 rounded-2xl px-4 py-3 shadow-lg">{message.text}</div>
+      
+      {/* Footer Copy & Model indicator */}
+      <div className="mt-2 opacity-0 group-hover:opacity-100 flex items-center gap-2">
+        <button onClick={() => navigator.clipboard.writeText(message.text)} className="text-white/35 hover:text-white" title="Copy">
+          <Icon name="copy" size={15} />
+        </button>
+        {message.model && <span className="text-[9px] text-white/25">{message.model}</span>}
+      </div>
+    </div>
+  );
+}
+
+function CodeCanvas({ canvas, onChange, onClose }) {
+  const [previewIssue, setPreviewIssue] = useState('');
+  const [previewLoaded, setPreviewLoaded] = useState(false);
+  useEffect(() => {
+    const receivePreviewStatus = event => {
+      if (event.data?.source !== 'pattan-code-canvas') return;
+      if (event.data.type === 'error') setPreviewIssue(String(event.data.message || 'Unknown preview error'));
+    };
+    window.addEventListener('message', receivePreviewStatus);
+    return () => window.removeEventListener('message', receivePreviewStatus);
+  }, []);
+  useEffect(() => {
+    if (!canvas) return undefined;
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [canvas, onClose]);
+  if (!canvas) return null;
+  const canPreview = canvas.preview && canvas.language === 'html';
+  const errorReporter = `<script>window.addEventListener('error',function(e){parent.postMessage({source:'pattan-code-canvas',type:'error',message:e.message+' at '+(e.filename||'inline')+':'+(e.lineno||0)},'*')});window.addEventListener('unhandledrejection',function(e){parent.postMessage({source:'pattan-code-canvas',type:'error',message:'Unhandled promise: '+String(e.reason)},'*')});</script>`;
+  const previewDocument = canPreview
+    ? (/<head[^>]*>/i.test(canvas.code) ? canvas.code.replace(/<head[^>]*>/i, match => `${match}${errorReporter}`) : `${errorReporter}${canvas.code}`)
+    : '';
+  const previewUrl = canPreview ? `data:text/html;charset=utf-8,${encodeURIComponent(previewDocument)}` : '';
+  return (
+    <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center px-5 pb-5 pt-[100px]">
+      <div className="w-full h-full max-w-[1500px] max-h-[calc(100vh-120px)] rounded-2xl border border-white/10 bg-[#0b0d14] shadow-2xl overflow-hidden flex flex-col">
+        <header className="h-14 shrink-0 px-4 flex items-center justify-between border-b border-white/10 bg-[#11141e]">
+          <div className="min-w-0">
+            <div className="text-sm font-bold truncate">{canvas.title || 'Code Canvas'}</div>
+            <div className="text-[10px] uppercase tracking-widest text-emerald-400">{canvas.language} • Live Code Canvas</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="h-8 px-3 rounded-lg bg-emerald-500 text-black text-xs font-bold hover:bg-emerald-400">← Back to Prompt</button>
+            <button onClick={() => navigator.clipboard.writeText(canvas.code)} className="h-8 px-3 rounded-lg border border-white/10 text-xs hover:bg-white/5">Copy code</button>
+            <button onClick={onClose} className="w-8 h-8 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center"><Icon name="close" size={15} /></button>
+          </div>
+        </header>
+        <div className={`flex-1 min-h-0 grid ${canPreview ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <div className="min-w-0 min-h-0 flex flex-col border-r border-white/10">
+            <div className="h-9 shrink-0 px-4 flex items-center text-[10px] font-bold uppercase tracking-widest text-white/40 bg-[#0e1018]">Editable source</div>
+            <textarea
+              value={canvas.code}
+              onChange={event => { setPreviewIssue(''); setPreviewLoaded(false); onChange(event.target.value); }}
+              spellCheck={false}
+              className="flex-1 min-h-0 w-full resize-none bg-[#080a10] p-5 font-mono text-[12px] leading-6 text-emerald-100 outline-none dark-scrollbar"
+            />
+          </div>
+          {canPreview && (
+            <div className="min-w-0 min-h-0 flex flex-col bg-white">
+              <div className="h-9 shrink-0 px-4 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-black/50 bg-slate-100 border-b border-slate-200">
+                <span>Live preview</span>
+                <span className={previewIssue ? 'text-red-600' : previewLoaded ? 'text-emerald-700' : ''}>{previewIssue ? `Runtime error: ${previewIssue}` : previewLoaded ? 'Rendered • no runtime errors' : 'Rendering…'}</span>
+              </div>
+              <iframe title={canvas.title || 'Code preview'} src={previewUrl} onLoad={() => setPreviewLoaded(true)} sandbox="allow-scripts allow-forms allow-modals" className="flex-1 min-h-0 w-full border-0 bg-white" />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MissionDashboard({ mission, onClose, liveStatus, liveElapsed }) {
+  if (!mission) return null;
+  const elapsed = mission.finishedAt && mission.startedAt
+    ? Math.max(0, Math.round((mission.finishedAt - mission.startedAt) / 1000))
+    : liveElapsed;
+  const successfulTools = mission.tools.filter(item => item.ok).length;
+  const failedTools = mission.tools.length - successfulTools;
+  return (
+    <div className="fixed inset-0 z-[290] bg-black/75 backdrop-blur-md flex items-center justify-center p-6">
+      <div className="w-full max-w-4xl max-h-[85vh] overflow-hidden rounded-2xl border border-white/10 bg-[#0d1018] shadow-2xl flex flex-col">
+        <header className="h-16 shrink-0 px-5 flex items-center justify-between border-b border-white/10 bg-[#121622]">
+          <div><div className="text-sm font-black">Mission Control</div><div className="text-[10px] text-emerald-400 uppercase tracking-widest">Super Agent execution telemetry</div></div>
+          <button onClick={onClose} className="w-9 h-9 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center"><Icon name="close" size={15} /></button>
+        </header>
+        <div className="p-5 overflow-y-auto dark-scrollbar space-y-5">
+          <div className="rounded-xl border border-white/5 bg-white/[0.025] p-4">
+            <div className="text-[10px] uppercase tracking-widest text-white/35">Objective</div>
+            <div className="mt-2 text-sm leading-6 text-white/90">{mission.objective || 'No active mission'}</div>
+          </div>
+          {!mission.finishedAt && (
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-start justify-between gap-4">
+              <div><div className="text-[10px] uppercase tracking-widest text-blue-300/60">Working now</div><div className="mt-1.5 text-sm text-blue-100">{liveStatus || mission.status}</div><div className="mt-1 text-[11px] text-white/40">The local model returns its plan as one complete response, so token-by-token progress is unavailable. Completed tools appear below immediately.</div></div>
+              <span className="shrink-0 font-mono text-sm text-blue-300">{liveElapsed}s</span>
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[
+              ['Status', mission.status],
+              ['Reasoning', mission.reasoningProfile || 'Selecting'],
+              ['Round', `${mission.round}/${MAX_ROUNDS}`],
+              ['Tools', String(mission.tools.length)],
+              ['Elapsed', `${elapsed}s`],
+            ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/5 bg-[#141824] p-3"><div className="text-[9px] uppercase tracking-widest text-white/30">{label}</div><div className="mt-1.5 text-xs font-bold text-emerald-300 truncate">{value}</div></div>)}
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-white/5 bg-[#111520] p-4">
+              <div className="flex justify-between text-[11px] font-bold"><span>Execution log</span><span className="text-white/40">{successfulTools} passed • {failedTools} failed</span></div>
+              <div className="mt-3 space-y-2 max-h-72 overflow-y-auto dark-scrollbar">
+                {mission.tools.length ? mission.tools.map((item, index) => <div key={`${item.tool}-${index}`} className="flex items-start gap-2 rounded-lg bg-black/20 px-3 py-2 text-[11px]"><span className={item.ok ? 'text-emerald-400' : 'text-red-400'}>{item.ok ? '✓' : '!'}</span><div className="min-w-0"><div className="font-mono text-white/80 truncate">{item.tool}</div>{item.error && <div className="text-red-300/80 mt-1 break-words">{item.error}</div>}</div></div>) : <div className="text-[11px] text-white/30">Waiting for tool execution…</div>}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/5 bg-[#111520] p-4 space-y-3">
+              <div className="text-[11px] font-bold">Quality gates</div>
+              {[
+                ['Code Canvas delivered', mission.canvasOpened],
+                ['Browser validation completed', mission.browserValidated],
+                ['Build/test completed', mission.buildValidated],
+                ['No unresolved tool failures', failedTools === 0],
+              ].map(([label, passed]) => <div key={label} className="flex items-center justify-between text-[11px]"><span className="text-white/60">{label}</span><span className={passed ? 'text-emerald-400' : 'text-white/25'}>{passed ? 'Passed' : 'Pending'}</span></div>)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AgentStudio() {
   const [chats, setChats] = useState(loadChats);
   const [activeId, setActiveId] = useState('');
@@ -61,10 +281,19 @@ export default function AgentStudio() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [health, setHealth] = useState(null);
+  const [checkingHealth, setCheckingHealth] = useState(false);
+  const [codeCanvas, setCodeCanvas] = useState(null);
+  const [agentMemory, setAgentMemory] = useState({ preferences: {}, projectMemory: {}, recoveryHistory: [], workHistory: [] });
+  const [mission, setMission] = useState(null);
+  const [missionOpen, setMissionOpen] = useState(false);
+  const [operationStartedAt, setOperationStartedAt] = useState(0);
+  const [operationElapsed, setOperationElapsed] = useState(0);
   const cancelledRef = useRef(false);
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
   const progressTimerRef = useRef(null);
+  const inputRef = useRef(null);
 
   const activeChat = useMemo(
     () => chats.find(chat => chat.id === activeId) || chats[0],
@@ -78,8 +307,17 @@ export default function AgentStudio() {
   useEffect(() => {
     const persistable = chats.map(chat => ({
       ...chat,
-      references: chat.references.map(({ imageBase64, frames, ...reference }) => reference),
-      assets: chat.assets.map(({ preview, ...asset }) => asset),
+      references: chat.references.map(reference => {
+        const copy = { ...reference };
+        delete copy.imageBase64;
+        delete copy.frames;
+        return copy;
+      }),
+      assets: chat.assets.map(asset => {
+        const copy = { ...asset };
+        delete copy.preview;
+        return copy;
+      }),
     }));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
   }, [chats]);
@@ -89,6 +327,68 @@ export default function AgentStudio() {
   }, [activeChat?.messages, activeChat?.assets, busy]);
 
   useEffect(() => () => window.clearInterval(progressTimerRef.current), []);
+
+  useEffect(() => {
+    if (!busy || !operationStartedAt) return undefined;
+    const updateElapsed = () => setOperationElapsed(Math.max(0, Math.floor((Date.now() - operationStartedAt) / 1000)));
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [busy, operationStartedAt]);
+
+  const refreshHealth = async () => {
+    if (!window.electronAPI?.getServerHealth) return;
+    setCheckingHealth(true);
+    try {
+      setHealth(await window.electronAPI.getServerHealth());
+    } catch {
+      setHealth(null);
+    } finally {
+      setCheckingHealth(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshHealth();
+    const handleShortcut = event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.onPresentatorAgentProgress) return undefined;
+    const handleBrainProgress = progressEvent => {
+      const characters = Number(progressEvent?.generatedCharacters || 0);
+      const profile = String(progressEvent?.profile || 'fast');
+      const nextStatus = progressEvent?.stage === 'parsing'
+        ? `Brain finished generating ${characters.toLocaleString()} characters • preparing actions`
+        : progressEvent?.stage === 'ready'
+          ? `Brain ready • ${profile} mode • starting generation`
+          : `Brain generating live • ${characters.toLocaleString()} characters received`;
+      setStatus(nextStatus);
+      setMission(current => current ? {
+        ...current,
+        status: nextStatus,
+        reasoningProfile: profile,
+      } : current);
+    };
+    api.onPresentatorAgentProgress(handleBrainProgress);
+    return () => api.offPresentatorAgentProgress?.(handleBrainProgress);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    window.electronAPI?.presentatorAgentLoadData?.().then(result => {
+      if (active && result?.ok && result.data) setAgentMemory(current => ({ ...current, ...result.data }));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   const updateActiveChat = (updater) => {
     setChats(previous => previous.map(chat => (
@@ -123,6 +423,8 @@ export default function AgentStudio() {
   const beginProgress = (label, estimateMs = 20000) => {
     window.clearInterval(progressTimerRef.current);
     setStatus(label);
+    setOperationStartedAt(Date.now());
+    setOperationElapsed(0);
     setProgress(3);
     const started = Date.now();
     progressTimerRef.current = window.setInterval(() => {
@@ -136,6 +438,7 @@ export default function AgentStudio() {
     window.clearInterval(progressTimerRef.current);
     setProgress(100);
     setStatus(label);
+    setOperationStartedAt(0);
     window.setTimeout(() => setProgress(0), 900);
   };
 
@@ -148,6 +451,7 @@ export default function AgentStudio() {
     } catch (error) {
       window.clearInterval(progressTimerRef.current);
       setStatus(`Stopped: ${error.message}`);
+      setOperationStartedAt(0);
       setProgress(0);
       throw error;
     }
@@ -217,6 +521,71 @@ export default function AgentStudio() {
     if (tool === 'restart_application') {
       return { tool, ...(await window.electronAPI.presentatorAgentRestartApp()) };
     }
+    if (tool === 'list_files') {
+      return { tool, ...(await window.electronAPI.presentatorAgentListFiles(args)) };
+    }
+    if (tool === 'read_file') {
+      return { tool, ...(await window.electronAPI.presentatorAgentReadFile(args)) };
+    }
+    if (tool === 'write_file') {
+      return { tool, ...(await window.electronAPI.presentatorAgentWriteFile(args)) };
+    }
+    if (tool === 'run_terminal_command') {
+      return {
+        tool,
+        ...(await withProgress('Running command', 60000, () =>
+          window.electronAPI.presentatorAgentRunCommand(args)
+        )),
+      };
+    }
+    if (tool === 'search_in_files') {
+      return { tool, ...(await window.electronAPI.presentatorAgentSearchFiles(args)) };
+    }
+    if (tool === 'analyze_code') {
+      return {
+        tool,
+        ...(await withProgress('Analyzing code quality', 20000, () =>
+          window.electronAPI.presentatorAgentAnalyzeCode(args)
+        )),
+      };
+    }
+    if (tool === 'run_build_check') {
+      return {
+        tool,
+        ...(await withProgress('Checking build validity', 60000, () =>
+          window.electronAPI.presentatorAgentRunBuild()
+        )),
+      };
+    }
+    if (tool === 'open_code_canvas') {
+      const language = String(args.language || 'text').toLowerCase();
+      const code = String(args.code || '');
+      if (!code.trim()) return { tool, ok: false, error: 'The code canvas requires non-empty code.' };
+      setCodeCanvas({
+        title: String(args.title || 'Generated Code'),
+        language,
+        code,
+        preview: args.preview !== false,
+      });
+      return { tool, ok: true, language, previewVisible: language === 'html' && args.preview !== false, characters: code.length };
+    }
+    if (tool === 'diff_files') {
+      return { tool, ...(await window.electronAPI.presentatorAgentDiffFiles(args)) };
+    }
+    if (tool === 'list_checkpoints') {
+      return { tool, ...(await window.electronAPI.presentatorAgentListCheckpoints()) };
+    }
+    if (tool === 'restore_checkpoint') {
+      return { tool, ...(await window.electronAPI.presentatorAgentRestoreCheckpoint(args)) };
+    }
+    if (tool === 'validate_web_app') {
+      return {
+        tool,
+        ...(await withProgress('Testing app in isolated browser', 20000, () =>
+          window.electronAPI.presentatorAgentValidateWebApp(args)
+        )),
+      };
+    }
     if (tool === 'generate_image') {
       const generated = await withProgress('Generating high-quality local image', 150000, () =>
         window.electronAPI.presentatorAgentGenerateImage(args)
@@ -250,6 +619,7 @@ export default function AgentStudio() {
     return { tool, ok: false, error: `Tool ${tool} is not available in Agent Studio.` };
   };
 
+
   const buildReferencePayload = () => {
     const references = activeChat.references.map(reference => ({
       name: reference.name,
@@ -275,6 +645,12 @@ export default function AgentStudio() {
     let toolResults = [];
     let latestGeneratedImagePath = '';
     let videoCreated = false;
+    let codeCanvasOpened = false;
+    const validationImages = [];
+    const isCodeRequest = /\b(code|coding|app|application|website|webpage|component|game|dashboard|calculator|script|program|html|css|javascript|typescript|python|react|software|developer|develop)\b/i.test(request);
+    const isVisualCodeRequest = /\b(app|application|website|webpage|component|game|dashboard|calculator|html|css|javascript|react)\b/i.test(request);
+    const isDirectImageRequest = /\b(create|generate|make|draw|design|produce)\b[\s\S]{0,80}\b(image|picture|photo|illustration|artwork|poster|wallpaper)\b/i.test(request)
+      && !/\b(video|animate|animation|mp4|website|webpage|app|application|code)\b/i.test(request);
     const wantsVideo = /\b(video|animate|animation|mp4|8[- ]?second)\b/i.test(request);
     const uploadedImagePath = activeChat.references.find(reference => reference.kind === 'image')?.filePath || '';
     const conversation = conversationOverride || [
@@ -282,9 +658,44 @@ export default function AgentStudio() {
       { role: 'user', text: request },
     ].slice(-14);
     const referencePayload = buildReferencePayload();
+    const instantCanvas = isVisualCodeRequest ? createInstantWebsite(request) : '';
+    if (instantCanvas) {
+      codeCanvasOpened = true;
+      setCodeCanvas({ title: request.slice(0, 80) || 'Generated Website', language: 'html', code: instantCanvas, preview: true });
+    }
+    setMission({ objective: request, status: instantCanvas ? 'Starter canvas ready; AI is refining' : 'Running', reasoningProfile: isVisualCodeRequest ? 'fast' : '', round: 0, tools: instantCanvas ? [{ tool: 'instant_code_canvas', ok: true, error: '' }] : [], canvasOpened: Boolean(instantCanvas), browserValidated: false, buildValidated: false, startedAt: Date.now(), finishedAt: 0 });
 
     try {
+      if (isDirectImageRequest) {
+        setMission(current => current ? { ...current, round: 1, status: 'Starting image generator', reasoningProfile: 'direct' } : current);
+        const imageAction = {
+          tool: 'generate_image',
+          args: {
+            prompt: `${request}. Full 3D cinematic scene, physically based materials, realistic depth, premium 4K presentation quality`,
+            negativePrompt: 'flat 2D, blurry, pixelated, distorted, malformed, low quality, watermark, text, logo',
+            seed: 0,
+          },
+          reason: 'Direct image request; start generation without an unnecessary planning round.',
+        };
+        const outcome = await executeAction(imageAction);
+        setMission(current => current ? {
+          ...current,
+          status: outcome?.ok ? 'Image created' : 'Image generation failed',
+          tools: [...current.tools, { tool: imageAction.tool, ok: Boolean(outcome?.ok), error: outcome?.ok ? '' : String(outcome?.error || 'Tool failed') }],
+          finishedAt: Date.now(),
+        } : current);
+        if (!outcome?.ok) throw new Error(outcome?.error || 'Image generation failed.');
+        addMessage('assistant', `Image created successfully: ${outcome.fileName || 'generated image'}.`, {
+          model: 'Local image generator',
+          thinking: 'The image request was routed directly to generation.',
+          plan: ['Generate the requested image', 'Save and display the result'],
+          actions: [imageAction],
+        });
+        setStatus('Ready');
+        return;
+      }
       for (let round = 0; round < MAX_ROUNDS && !cancelledRef.current; round += 1) {
+        setMission(current => current ? { ...current, round: round + 1, status: round ? 'Verifying and repairing' : 'Analyzing objective' } : current);
         const response = await withProgress(
           round === 0 ? 'Local brain is analyzing' : `Verifying step ${round + 1}`,
           22000,
@@ -293,6 +704,7 @@ export default function AgentStudio() {
             currentState: {
               module: 'Agent Studio',
               referenceCount: activeChat.references.length,
+              memory: agentMemory,
               generatedAssets: activeChat.assets.map(asset => ({
                 kind: asset.kind,
                 name: asset.name,
@@ -302,13 +714,32 @@ export default function AgentStudio() {
             conversation,
             toolResults,
             ...referencePayload,
+            referenceImages: [...referencePayload.referenceImages, ...validationImages].slice(-6),
           })
         );
         if (!response?.ok) throw new Error(response?.error || 'The local brain failed.');
+        setMission(current => current ? { ...current, reasoningProfile: response.reasoningProfile || current.reasoningProfile } : current);
         const result = response.result || {};
-        if (result.message) addMessage('assistant', result.message, { model: response.model });
+        if (result.message) {
+          addMessage('assistant', result.message, {
+            model: response.model,
+            thinking: result.thinking || '',
+            plan: result.plan || [],
+            actions: result.actions || [],
+            performance: response.performance
+          });
+        }
         const actions = Array.isArray(result.actions) ? result.actions : [];
-        if (!actions.length) break;
+        if (!actions.length) {
+          if (isCodeRequest && !codeCanvasOpened) {
+            toolResults = [{
+              action: { tool: 'open_code_canvas', args: {}, reason: 'Required delivery step for a coding request.' },
+              outcome: { ok: false, error: 'The coding request is not complete: create the full code and call open_code_canvas with a runnable preview before finishing.' },
+            }];
+            continue;
+          }
+          break;
+        }
 
         toolResults = [];
         for (const action of actions.slice(0, 5)) {
@@ -330,11 +761,26 @@ export default function AgentStudio() {
             continue;
           }
           const outcome = await executeAction(normalizedAction);
+          setMission(current => current ? {
+            ...current,
+            status: outcome?.ok ? 'Executing and verifying' : 'Recovering from failure',
+            tools: [...current.tools, { tool: normalizedAction?.tool || 'unknown', ok: Boolean(outcome?.ok), error: outcome?.ok ? '' : String(outcome?.error || 'Tool failed') }].slice(-100),
+            canvasOpened: current.canvasOpened || (normalizedAction?.tool === 'open_code_canvas' && Boolean(outcome?.ok)),
+            browserValidated: current.browserValidated || (normalizedAction?.tool === 'validate_web_app' && Boolean(outcome?.ok)),
+            buildValidated: current.buildValidated || (['run_build_check', 'run_terminal_command', 'apply_code_patch'].includes(normalizedAction?.tool) && Boolean(outcome?.ok) && (normalizedAction?.tool !== 'run_terminal_command' || /\b(build|test|check|lint|tsc)\b/i.test(String(normalizedAction?.args?.command || '')))),
+          } : current);
+          if (normalizedAction?.tool === 'validate_web_app' && outcome?.screenshotBase64) {
+            validationImages.push(outcome.screenshotBase64);
+            delete outcome.screenshotBase64;
+          }
           if (normalizedAction?.tool === 'generate_image' && outcome?.ok) {
             latestGeneratedImagePath = outcome.imagePath;
           }
           if (normalizedAction?.tool === 'create_animated_video' && outcome?.ok) {
             videoCreated = true;
+          }
+          if (normalizedAction?.tool === 'open_code_canvas' && outcome?.ok) {
+            codeCanvasOpened = true;
           }
           toolResults.push({ action: normalizedAction, outcome });
         }
@@ -349,28 +795,45 @@ export default function AgentStudio() {
           videoCreated = Boolean(videoOutcome?.ok);
           toolResults.push({ action: videoAction, outcome: videoOutcome });
         }
-        if (result.done) break;
+        if (result.done && (!isCodeRequest || codeCanvasOpened)) break;
       }
+      const memoryEntry = { request, completedAt: Date.now(), status: cancelledRef.current ? 'cancelled' : 'completed' };
+      const nextMemory = {
+        ...agentMemory,
+        workHistory: [...(agentMemory.workHistory || []), memoryEntry].slice(-100),
+      };
+      setAgentMemory(nextMemory);
+      window.electronAPI?.presentatorAgentSaveData?.(nextMemory).catch(() => {});
       setStatus(cancelledRef.current ? 'Stopped safely' : 'Ready');
+      setMission(current => current ? { ...current, status: cancelledRef.current ? 'Cancelled safely' : 'Completed', finishedAt: Date.now() } : current);
     } catch (error) {
       addMessage('assistant', `I could not complete that run: ${error.message}`);
       setStatus('Needs attention');
       setProgress(0);
+      setMission(current => current ? { ...current, status: 'Needs attention', finishedAt: Date.now(), tools: [...current.tools, { tool: 'mission', ok: false, error: error.message }] } : current);
     } finally {
       setBusy(false);
     }
   };
 
-  const submit = () => {
-    const request = input.trim();
+  const launchRequest = (rawRequest) => {
+    const request = String(rawRequest || '').trim();
     if (!request || busy) return;
     setInput('');
+    setMissionOpen(true);
     if (activeChat.title === 'New chat') {
       updateActiveChat(chat => ({ ...chat, title: request.slice(0, 42) }));
     }
     addMessage('user', request);
     runAgent(request);
   };
+
+  const submit = () => launchRequest(input);
+
+  const healthValues = health
+    ? ['anjali', 'edgeTts', 'transcribe', 'videoExport', 'sc3Singing', 'translation'].map(key => [key, Boolean(health[key])])
+    : [];
+  const healthyCount = healthValues.filter(([, value]) => value).length;
 
   const retryLast = () => {
     const lastUser = [...activeChat.messages].reverse().find(message => message.role === 'user');
@@ -395,7 +858,7 @@ export default function AgentStudio() {
 
   return (
     <div
-      className="h-full w-full flex bg-[#212121] text-white overflow-hidden"
+      className="h-full w-full flex bg-gradient-to-br from-[#0f111a] to-[#0a0b10] text-white overflow-hidden font-sans"
       onDragOver={event => { event.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={event => {
@@ -404,164 +867,230 @@ export default function AgentStudio() {
         importFiles(event.dataTransfer.files);
       }}
     >
+      <MissionDashboard mission={missionOpen ? mission : null} liveStatus={status} liveElapsed={operationElapsed} onClose={() => setMissionOpen(false)} />
+      <CodeCanvas
+        canvas={codeCanvas}
+        onChange={code => setCodeCanvas(current => current ? { ...current, code } : current)}
+        onClose={() => setCodeCanvas(null)}
+      />
       {dragging && (
-        <div className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-          <div className="rounded-3xl border-2 border-dashed border-emerald-300 bg-[#171717] px-14 py-12 text-center">
-            <Icon name="upload" size={44} className="mx-auto text-emerald-300" />
-            <div className="text-lg font-semibold mt-3">Drop references here</div>
-            <div className="text-sm text-white/45 mt-1">Documents, images, and videos</div>
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-none transition-all duration-300">
+          <div className="rounded-3xl border-2 border-dashed border-emerald-400 bg-[#141722]/90 p-12 text-center max-w-sm shadow-[0_0_50px_rgba(16,185,129,0.2)]">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+              <Icon name="upload" size={32} className="text-emerald-400 animate-bounce" />
+            </div>
+            <div className="text-lg font-bold mt-3 text-emerald-300">Drop References Here</div>
+            <div className="text-sm text-white/50 mt-1.5">Documents, images, and videos will be attached directly</div>
           </div>
         </div>
       )}
 
-      <aside className={`${sidebarOpen ? 'w-[240px]' : 'w-0'} shrink-0 bg-[#171717] border-r border-white/5 transition-all overflow-hidden`}>
-        <div className="w-[240px] h-full flex flex-col p-3">
-          <button onClick={newChat} className="h-11 rounded-xl border border-white/10 hover:bg-white/5 flex items-center gap-3 px-3 text-sm">
-            <Icon name="plus" />
-            New chat
+      {/* Glassmorphic Sidebar */}
+      <aside className={`${sidebarOpen ? 'w-[260px]' : 'w-0'} shrink-0 bg-[#11131c]/80 backdrop-blur-xl border-r border-white/5 transition-all duration-300 overflow-hidden`}>
+        <div className="w-[260px] h-full flex flex-col p-4">
+          <button onClick={newChat} className="h-11 rounded-xl border border-white/10 hover:border-emerald-500/35 hover:bg-emerald-500/5 hover:text-emerald-300 flex items-center justify-center gap-2.5 px-4 text-xs font-semibold uppercase tracking-wider transition-all duration-200 shadow-sm">
+            <Icon name="plus" size={14} />
+            New Session
           </button>
-          <div className="mt-4 px-2 text-[11px] font-semibold text-white/35">Recent</div>
-          <div className="flex-1 overflow-y-auto mt-2 space-y-1 dark-scrollbar">
+          
+          <div className="mt-6 px-2 text-[10px] font-bold text-white/30 uppercase tracking-widest">Recent Chats</div>
+          <div className="flex-1 overflow-y-auto mt-3 space-y-1.5 dark-scrollbar pr-1">
             {chats.map(chat => (
-              <div key={chat.id} className={`group flex items-center rounded-lg ${chat.id === activeId ? 'bg-[#2f2f2f]' : 'hover:bg-white/5'}`}>
-                <button onClick={() => setActiveId(chat.id)} className="flex-1 min-w-0 px-3 py-2.5 text-left text-[13px] truncate">
+              <div key={chat.id} className={`group flex items-center rounded-xl transition-all duration-150 ${chat.id === activeId ? 'bg-[#1a1d29] border border-white/5 shadow-md shadow-black/20' : 'hover:bg-white/[0.03]'}`}>
+                <button onClick={() => setActiveId(chat.id)} className={`flex-1 min-w-0 px-3.5 py-3 text-left text-[13px] truncate ${chat.id === activeId ? 'text-emerald-300 font-medium' : 'text-white/60'}`}>
                   {chat.title}
                 </button>
-                <button onClick={() => deleteChat(chat.id)} className="opacity-0 group-hover:opacity-100 px-2 text-white/35 hover:text-red-300">
-                  <Icon name="close" size={15} />
+                <button onClick={() => deleteChat(chat.id)} className="opacity-0 group-hover:opacity-100 px-3 text-white/30 hover:text-red-400 transition-all">
+                  <Icon name="close" size={13} />
                 </button>
               </div>
             ))}
           </div>
-          <div className="border-t border-white/5 pt-3 px-2">
-            <div className="text-xs font-semibold">Pattan Local Brain</div>
-            <div className="text-[10px] text-emerald-300/70 mt-1">Offline • No quota • D drive</div>
+
+          <div className="border-t border-white/5 pt-4 px-1 mt-auto">
+            <div className="text-xs font-bold text-white/80">Pattan Local Brain</div>
+            <div className="text-[10px] text-emerald-400/80 mt-1 flex items-center gap-1.5 font-medium">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Offline • No Quota • D Drive
+            </div>
+            
+            <button onClick={refreshHealth} disabled={checkingHealth} className="mt-4 w-full rounded-xl border border-white/5 bg-[#161822] p-3 text-left hover:border-white/10 hover:bg-[#1b1e2c] transition-all duration-200 disabled:opacity-50">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-white/70">System Health Pulse</span>
+                <span className={`font-bold ${healthValues.length && healthyCount === healthValues.length ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {checkingHealth ? 'Checking…' : healthValues.length ? `${healthyCount}/${healthValues.length} Online` : 'Verify now'}
+                </span>
+              </div>
+              {healthValues.length > 0 && (
+                <div className="mt-2.5 flex gap-1.5">
+                  {healthValues.map(([name, online]) => (
+                    <span key={name} title={`${name}: ${online ? 'online' : 'offline'}`} className={`h-1.5 flex-1 rounded-full transition-colors ${online ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)]' : 'bg-red-500'}`} />
+                  ))}
+                </div>
+              )}
+            </button>
           </div>
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 h-full flex flex-col relative">
-        <header className="h-14 shrink-0 flex items-center justify-between px-4 border-b border-white/5 bg-[#212121]/95 backdrop-blur">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(value => !value)} className="w-9 h-9 rounded-lg hover:bg-white/5 flex items-center justify-center">
-              <Icon name="menu" />
+      {/* Main Studio Body */}
+      <main className="flex-1 min-w-0 h-full flex flex-col relative bg-transparent">
+        <header className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-white/5 bg-[#0f111a]/85 backdrop-blur-md z-10">
+          <div className="flex items-center gap-3.5">
+            <button onClick={() => setSidebarOpen(value => !value)} className="w-10 h-10 rounded-xl hover:bg-white/5 flex items-center justify-center transition-colors border border-transparent hover:border-white/10">
+              <Icon name="menu" size={18} />
             </button>
             <div>
-              <div className="text-sm font-semibold">Super Agent</div>
-              <div className="text-[10px] text-white/40">{status}</div>
+              <div className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
+                Super Agent 
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono">v4.6 PRO</span>
+              </div>
+              <div className="text-[10px] text-white/40 font-medium mt-0.5">{status}</div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={retryLast} disabled={busy || !activeChat.messages.length} className="h-9 px-3 rounded-lg hover:bg-white/5 disabled:opacity-25 text-xs flex items-center gap-2">
-              <Icon name="retry" size={17} />
-              Retry
+          <div className="flex items-center gap-2.5">
+            <button onClick={() => setMissionOpen(true)} disabled={!mission} className="h-9 px-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-300 disabled:opacity-20 text-xs font-semibold transition-all">Mission Control</button>
+            <button onClick={retryLast} disabled={busy || !activeChat.messages.length} className="h-9 px-4 rounded-xl border border-white/10 hover:bg-white/5 text-white/70 hover:text-white disabled:opacity-20 text-xs font-semibold flex items-center gap-2 transition-all">
+              <Icon name="retry" size={15} />
+              Retry Last
             </button>
-            <button onClick={newChat} className="h-9 px-3 rounded-lg bg-white text-black text-xs font-semibold">New chat</button>
+            <button onClick={newChat} className="h-9 px-4 rounded-xl bg-white text-black hover:bg-white/90 text-xs font-bold shadow-lg shadow-white/5 transition-all">New Chat</button>
           </div>
         </header>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto dark-scrollbar">
+        {/* Chat History Panel */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto dark-scrollbar bg-transparent">
           {!activeChat.messages.length && !activeChat.assets.length ? (
-            <div className="min-h-full flex flex-col items-center justify-center px-6 pb-24">
-              <div className="w-14 h-14 rounded-2xl bg-white text-black flex items-center justify-center shadow-xl">
-                <Icon name="spark" size={26} />
+            <div className="min-h-full flex flex-col items-center justify-center px-6 pb-20">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#10b981] to-[#3b82f6] text-white flex items-center justify-center shadow-xl shadow-emerald-500/10 border border-white/10 animate-pulse">
+                <Icon name="spark" size={30} />
               </div>
-              <h1 className="text-2xl font-semibold mt-6">What are we creating?</h1>
-              <p className="text-sm text-white/45 mt-2 text-center max-w-md">
-                Upload a document, image, or video as reference. I can analyze it, generate local images, create eight-second video scenes, diagnose Presentator, and validate repairs.
+              <h1 className="text-2xl font-black mt-6 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/60">What are we building today?</h1>
+              <p className="text-xs text-white/40 mt-2 text-center max-w-sm font-medium leading-5">
+                Drop documents, image frames, or scripts. I can inspect modules, generate local SD images, animate scenes, or run build checks.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-8 max-w-2xl w-full">
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mt-9 max-w-2xl w-full">
                 {[
-                  ['image', 'Generate an educational image'],
-                  ['video', 'Create an 8-second video scene'],
-                  ['file', 'Analyze an uploaded document'],
-                  ['wrench', 'Find and repair an internal problem'],
-                ].map(([icon, text]) => (
-                  <button key={text} onClick={() => setInput(text)} className="min-h-[72px] rounded-2xl border border-white/10 bg-[#2f2f2f] hover:bg-[#383838] p-4 text-left text-sm flex items-start gap-3 transition-colors">
-                    <Icon name={icon} className="text-white/55 shrink-0" />
-                    {text}
+                  ['image', 'Generate educational visual asset', 'Generate a high-res Stable Diffusion frame'],
+                  ['video', 'Animate frame into 8s scene', 'Convert visual path to video track'],
+                  ['file', 'Inspect file parameters & details', 'Run static analyzer and metrics check'],
+                  ['wrench', 'Audit app codebase & build status', 'Find problems and apply repairs'],
+                ].map(([icon, label, desc]) => (
+                  <button key={label} onClick={() => setInput(label)} className="min-h-[76px] rounded-2xl border border-white/5 bg-[#131520]/60 hover:bg-[#1a1d2d] hover:border-emerald-500/25 p-4 text-left flex items-start gap-4 transition-all duration-200 group shadow-md">
+                    <div className="w-10 h-10 rounded-xl bg-white/5 group-hover:bg-emerald-500/10 flex items-center justify-center shrink-0 border border-white/5 group-hover:border-emerald-500/20 transition-all">
+                      <Icon name={icon} className="text-white/60 group-hover:text-emerald-400 shrink-0" size={18} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-white/90 group-hover:text-white transition-colors">{label}</div>
+                      <div className="text-[10px] text-white/45 mt-1 leading-4">{desc}</div>
+                    </div>
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="max-w-3xl mx-auto px-5 py-8 space-y-7">
+            <div className="max-w-3xl mx-auto px-6 py-9 space-y-8">
               {activeChat.messages.map(message => (
                 <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {message.role === 'assistant' && (
-                    <div className="w-8 h-8 shrink-0 rounded-full bg-white text-black flex items-center justify-center">
-                      <Icon name="spark" size={17} />
+                    <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-[#10b981] to-[#059669] text-white flex items-center justify-center shadow-md border border-white/10">
+                      <Icon name="spark" size={16} />
                     </div>
                   )}
-                  <div className={`group max-w-[82%] ${message.role === 'user' ? 'bg-[#2f2f2f] rounded-3xl px-5 py-3' : 'pt-1'}`}>
-                    <div className="text-[14px] leading-7 whitespace-pre-wrap">{message.text}</div>
-                    {message.role === 'assistant' && (
-                      <div className="mt-2 opacity-0 group-hover:opacity-100 flex items-center gap-2">
-                        <button onClick={() => navigator.clipboard.writeText(message.text)} className="text-white/35 hover:text-white" title="Copy">
-                          <Icon name="copy" size={15} />
-                        </button>
-                        {message.model && <span className="text-[9px] text-white/25">{message.model}</span>}
-                      </div>
-                    )}
-                  </div>
+                  {message.role === 'user' ? (
+                    <div className="group max-w-[82%] bg-gradient-to-br from-[#2f3954] to-[#1e2538] text-white border border-white/5 rounded-3xl rounded-tr-none px-5 py-3.5 shadow-lg shadow-black/20">
+                      <div className="text-[13.5px] leading-7 whitespace-pre-wrap font-medium">{message.text}</div>
+                    </div>
+                  ) : (
+                    <AssistantMessageBlock message={message} />
+                  )}
                 </div>
               ))}
 
               {activeChat.assets.map(asset => (
-                <div key={asset.id} className="ml-12 rounded-2xl border border-white/10 bg-[#2b2b2b] overflow-hidden max-w-xl">
+                <div key={asset.id} className="ml-12 rounded-2xl border border-white/5 bg-[#141622] overflow-hidden max-w-xl shadow-xl">
                   {asset.kind === 'image' ? (
-                    <img src={asset.preview} alt={asset.name} className="w-full max-h-[430px] object-contain bg-black" />
+                    <img src={asset.preview} alt={asset.name} className="w-full max-h-[400px] object-contain bg-black" />
                   ) : (
                     <video src={`file:///${asset.path.replace(/\\/g, '/')}`} controls className="w-full bg-black" />
                   )}
-                  <div className="p-3 flex items-center justify-between">
-                    <div className="text-xs truncate">{asset.name}</div>
-                    <button onClick={() => window.electronAPI.showItemInFolder(asset.path)} className="text-[10px] text-emerald-300 hover:underline">Show in folder</button>
+                  <div className="p-3.5 flex items-center justify-between border-t border-white/5">
+                    <div className="text-xs truncate text-white/80 font-medium">{asset.name}</div>
+                    <button onClick={() => window.electronAPI.showItemInFolder(asset.path)} className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold hover:underline">Show in folder</button>
                   </div>
                 </div>
               ))}
-
             </div>
           )}
         </div>
 
-        <div className="shrink-0 px-4 pb-4 pt-2 bg-gradient-to-t from-[#212121] via-[#212121] to-transparent">
+        {/* Bottom Input Area */}
+        <div className="shrink-0 px-6 pb-6 pt-2 bg-gradient-to-t from-[#0a0b10] via-[#0a0b10]/95 to-transparent">
           <div className="max-w-3xl mx-auto">
             {progress > 0 && (
-              <div className="mb-3 rounded-2xl border border-white/10 bg-[#2b2b2b] px-4 py-3 shadow-xl">
-                <div className="flex items-center gap-3">
-                  <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10">
-                    <Icon name="spark" size={16} className="text-white" />
-                    {busy && <span className="absolute inset-0 rounded-full border border-transparent border-t-emerald-400 animate-spin" />}
+              <div className="mb-4 rounded-2xl border border-white/5 bg-[#121420]/90 backdrop-blur px-4.5 py-3.5 shadow-2xl shadow-emerald-500/5">
+                <div className="flex items-center gap-3.5">
+                  <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                    <Icon name="spark" size={17} className="text-emerald-400" />
+                    {busy && <span className="absolute inset-0 rounded-xl border border-transparent border-t-emerald-400 animate-spin" />}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-3 text-xs">
-                      <span className="truncate font-medium text-white/85">{status}</span>
-                      <span className="font-mono text-emerald-300">{progress}%</span>
+                    <div className="flex items-center justify-between gap-3 text-[11px] font-semibold">
+                      <span className="truncate text-white/85">{status}</span>
+                      <span className="font-mono text-emerald-400">{operationElapsed}s elapsed</span>
                     </div>
-                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
-                      <div className="h-full rounded-full bg-white transition-all duration-500" style={{ width: `${progress}%` }} />
+                    <div className="mt-1 text-[10px] text-white/35">
+                      {/Local brain|analyzing|Verifying step/i.test(status)
+                        ? 'The offline AI is reading context and generating its next verified action. Complex code tasks can take several minutes on the local 4B model.'
+                        : /image/i.test(status)
+                          ? 'The local image model is generating pixels; this is compute-intensive and progress arrives only when generation finishes.'
+                          : /build|validat|command|test/i.test(status)
+                            ? 'A real build, command, or validation is running. The result will appear when the process returns output.'
+                            : 'The current tool is still running locally. Mission Control shows the active round and completed actions.'}
+                    </div>
+                    <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/5">
+                      <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                     </div>
                   </div>
                 </div>
               </div>
             )}
+            
             {activeChat.references.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto pb-2 dark-scrollbar">
+              <div className="flex gap-2 overflow-x-auto pb-2.5 dark-scrollbar pr-1">
                 {activeChat.references.map(reference => (
-                  <div key={reference.id} className="shrink-0 max-w-[210px] h-11 rounded-xl border border-white/10 bg-[#2f2f2f] px-3 flex items-center gap-2">
-                    <Icon name={kindIcon[reference.kind]} size={16} className="text-white/70" />
-                    <span className="text-[11px] truncate flex-1">{reference.name}</span>
-                    <button onClick={() => removeReference(reference.id)} className="text-white/35 hover:text-white">
-                      <Icon name="close" size={14} />
+                  <div key={reference.id} className="shrink-0 max-w-[210px] h-10 rounded-xl border border-white/5 bg-[#161924] px-3 flex items-center gap-2 shadow-sm">
+                    <Icon name={kindIcon[reference.kind]} size={14} className="text-white/60" />
+                    <span className="text-[11px] truncate flex-1 text-white/80">{reference.name}</span>
+                    <button onClick={() => removeReference(reference.id)} className="text-white/30 hover:text-white transition-colors">
+                      <Icon name="close" size={13} />
                     </button>
                   </div>
                 ))}
               </div>
             )}
 
-            <div className="rounded-[26px] bg-[#2f2f2f] border border-white/10 shadow-2xl focus-within:border-white/20">
+            {/* Quick Actions */}
+            <div className="mb-3 flex gap-2 overflow-x-auto pb-1.5 dark-scrollbar pr-1" aria-label="Daily quick actions">
+              {DAILY_ACTIONS.map(action => (
+                <button
+                  key={action.label}
+                  onClick={() => launchRequest(action.prompt)}
+                  disabled={busy}
+                  className="shrink-0 rounded-xl border border-white/5 bg-[#12141f] px-3.5 py-2 text-[11px] text-white/65 hover:border-emerald-500/25 hover:bg-[#1a1d2e] hover:text-emerald-300 disabled:opacity-30 flex items-center gap-2 transition-all shadow-sm"
+                  title={action.prompt}
+                >
+                  <Icon name={action.icon} size={13} className="text-emerald-400/80" />
+                  {action.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Glassmorphic Rounded Input Box */}
+            <div className="rounded-3xl bg-[#131622]/85 border border-white/5 shadow-2xl shadow-black/50 focus-within:border-emerald-500/40 focus-within:ring-2 focus-within:ring-emerald-500/5 transition-all overflow-hidden">
               <textarea
+                ref={inputRef}
                 value={input}
                 onChange={event => setInput(event.target.value)}
                 onKeyDown={event => {
@@ -570,12 +1099,12 @@ export default function AgentStudio() {
                     submit();
                   }
                 }}
-                placeholder="Message Super Agent"
-                className="w-full min-h-[58px] max-h-44 resize-none bg-transparent px-5 pt-4 text-sm outline-none placeholder:text-white/30"
+                placeholder="Message Super Agent — Shift+Enter for new line..."
+                className="w-full min-h-[64px] max-h-40 resize-none bg-transparent px-6 pt-4.5 text-[13.5px] outline-none placeholder:text-white/25 leading-6 text-white"
                 disabled={busy}
               />
-              <div className="h-12 flex items-center justify-between px-3 pb-2">
-                <div className="flex items-center gap-1">
+              <div className="h-12 flex items-center justify-between px-4 pb-2">
+                <div className="flex items-center gap-1.5">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -587,24 +1116,24 @@ export default function AgentStudio() {
                       event.target.value = '';
                     }}
                   />
-                  <button onClick={() => fileInputRef.current?.click()} disabled={uploading || busy} className="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center disabled:opacity-30" title="Add references">
-                    <Icon name="plus" size={19} />
+                  <button onClick={() => fileInputRef.current?.click()} disabled={uploading || busy} className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 hover:text-white border border-white/5 flex items-center justify-center disabled:opacity-20 transition-all" title="Add references">
+                    <Icon name="plus" size={17} />
                   </button>
-                  <span className="text-[10px] text-white/30">PDF • DOCX • images • videos</span>
+                  <span className="text-[10px] text-white/30 font-medium">Add references (PDF, text, images, MP4)</span>
                 </div>
                 {busy ? (
-                  <button onClick={() => { cancelledRef.current = true; setStatus('Stopping after current step'); }} className="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center" title="Stop">
-                    <Icon name="stop" size={17} />
+                  <button onClick={async () => { cancelledRef.current = true; setStatus('Stopping now'); await window.electronAPI?.presentatorAgentCancel?.(); }} className="w-9 h-9 rounded-full bg-emerald-500 text-black hover:bg-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 transition-all" title="Stop now">
+                    <Icon name="stop" size={15} />
                   </button>
                 ) : (
-                  <button onClick={submit} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center disabled:opacity-20" title="Send">
-                    <Icon name="send" size={18} />
+                  <button onClick={submit} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-white text-black hover:bg-white/90 disabled:bg-white/10 disabled:text-white/20 flex items-center justify-center transition-all shadow-md shadow-white/5" title="Send">
+                    <Icon name="send" size={16} />
                   </button>
                 )}
               </div>
             </div>
-            <div className="text-center text-[10px] text-white/25 mt-2">
-              Local AI can make mistakes. Review generated media and repairs.
+            <div className="text-center text-[9.5px] text-white/20 mt-3 font-medium">
+              Super Agent operates locally on your machine. Review final code builds and generated media.
             </div>
           </div>
         </div>

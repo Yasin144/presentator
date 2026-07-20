@@ -31,8 +31,10 @@ class ImageRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=2000)
     negativePrompt: str = Field(default="", max_length=1000)
     seed: int = Field(default=0, ge=0, le=2_147_483_647)
-    width: int = Field(default=576, ge=256, le=768)
-    height: int = Field(default=320, ge=256, le=768)
+    width: int = Field(default=768, ge=256, le=768)
+    height: int = Field(default=432, ge=256, le=768)
+    outputWidth: int = Field(default=3840, ge=1024, le=3840)
+    outputHeight: int = Field(default=2160, ge=576, le=2160)
 
 
 def load_pipeline():
@@ -88,24 +90,27 @@ def generate_image(request: ImageRequest):
         seed = request.seed or int(time.time()) % 2_147_483_647
         generator = torch.Generator(device="cpu").manual_seed(seed)
         prompt = (
-            f"{request.prompt.strip()}, high quality, detailed, coherent anatomy, "
-            "professional cinematic lighting, clean composition, presentation-ready, widescreen"
+            f"{request.prompt.strip()}, premium full 3D cinematic render, physically based materials, "
+            "ray-traced global illumination, volumetric lighting, realistic depth and shadows, "
+            "masterpiece, best quality, extremely detailed, sharp focus, coherent anatomy, "
+            "realistic fine textures, professional cinematic lighting, balanced color grading, "
+            "clean composition, presentation-ready, 16:9 widescreen, no text, no watermark"
         )
         result = pipe(
             prompt=prompt,
             negative_prompt=request.negativePrompt.strip() or None,
-            num_inference_steps=4,
-            guidance_scale=8.0,
+            num_inference_steps=8,
+            guidance_scale=7.5,
             lcm_origin_steps=50,
-            width=(request.width // 64) * 64,
-            height=(request.height // 64) * 64,
+            width=(request.width // 8) * 8,
+            height=(request.height // 8) * 8,
             generator=generator,
         )
         file_name = f"presentator-{int(time.time())}-{uuid.uuid4().hex[:8]}.png"
         output_path = OUTPUT_DIR / file_name
         image = result.images[0]
-        image = image.resize((image.width * 2, image.height * 2), Image.Resampling.LANCZOS)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1.2, percent=115, threshold=3))
+        image = image.resize((request.outputWidth, request.outputHeight), Image.Resampling.LANCZOS)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1.35, percent=125, threshold=3))
         image.save(output_path, format="PNG", optimize=True)
         last_error = ""
         return {
@@ -113,6 +118,9 @@ def generate_image(request: ImageRequest):
             "imagePath": str(output_path),
             "fileName": file_name,
             "seed": seed,
+            "width": image.width,
+            "height": image.height,
+            "qualityProfile": "4K full 3D cinematic",
             "elapsedSeconds": round(time.perf_counter() - started, 2),
         }
     except Exception as error:

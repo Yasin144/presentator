@@ -5,14 +5,17 @@
   window.__translateDubModuleLoaded = true;
 
   const LANGUAGES = [
-    { code: "te", label: "Telugu", voice: "te-IN-ShrutiNeural" },
-    { code: "hi", label: "Hindi", voice: "hi-IN-SwaraNeural" },
-    { code: "en", label: "English", voice: "en-IN-NeerjaNeural" },
+    { code: "te", label: "Telugu", voice: "te-IN-ShrutiNeural", voices: [{ id: "te-IN-ShrutiNeural", name: "Shruti — Female" }, { id: "te-IN-MohanNeural", name: "Mohan — Male" }] },
+    { code: "hi", label: "Hindi", voice: "hi-IN-SwaraNeural", voices: [{ id: "hi-IN-SwaraNeural", name: "Swara — Female" }, { id: "hi-IN-MadhurNeural", name: "Madhur — Male" }] },
+    { code: "en", label: "English", voice: "en-IN-NeerjaNeural", voices: [{ id: "en-IN-NeerjaNeural", name: "Neerja — Female" }, { id: "en-IN-PrabhatNeural", name: "Prabhat — Male" }] },
+    { code: "ta", label: "Tamil", voice: "ta-IN-PallaviNeural", voices: [{ id: "ta-IN-PallaviNeural", name: "Pallavi — Female" }, { id: "ta-IN-ValluvarNeural", name: "Valluvar — Male" }] },
+    { code: "kn", label: "Kannada", voice: "kn-IN-SapnaNeural", voices: [{ id: "kn-IN-SapnaNeural", name: "Sapna — Female" }, { id: "kn-IN-GaganNeural", name: "Gagan — Male" }] },
+    { code: "ml", label: "Malayalam", voice: "ml-IN-SobhanaNeural", voices: [{ id: "ml-IN-SobhanaNeural", name: "Sobhana — Female" }, { id: "ml-IN-MidhunNeural", name: "Midhun — Male" }] },
   ];
 
   const state = {
     target: LANGUAGES[0],
-    captionLanguage: "English",
+    captionLanguage: "Auto Detect",
     voiceEngine: "original",
     file: null,
     filePath: "",
@@ -20,6 +23,7 @@
     transcript: "",
     segments: [],
     translatedSegments: [],
+    captionSegments: [],
     translated: "",
     audioBase64: "",
     audioUrl: "",
@@ -71,12 +75,48 @@
   }
 
   function getPreviewCaptionSegments() {
-    const source = state.translatedSegments.length ? state.translatedSegments : state.segments;
+    const source = state.captionSegments.length ? state.captionSegments : (state.translatedSegments.length ? state.translatedSegments : state.segments);
     return (source || []).filter((segment) => {
       const start = Number(segment.start) || 0;
       return stripIgnoredIntroCaption(segment.text || segment.translatedText || "", start)
         && stripIgnoredIntroCaption(segment.translatedText || segment.text || "", start);
     });
+  }
+
+  function languageLabel(code) {
+    const value = String(code || "").toLowerCase();
+    if (value.startsWith("te") || value === "telugu") return "Telugu";
+    if (value.startsWith("hi") || value === "hindi") return "Hindi";
+    if (value.startsWith("en") || value === "english") return "English";
+    if (value.startsWith("ta") || value === "tamil") return "Tamil";
+    if (value.startsWith("kn") || value === "kannada") return "Kannada";
+    if (value.startsWith("ml") || value === "malayalam") return "Malayalam";
+    return "Auto Detect";
+  }
+
+  function resolvedCaptionLanguage(forGeneratedVideo) {
+    if (state.captionLanguage !== "Auto Detect") return state.captionLanguage;
+    return forGeneratedVideo ? state.target.label : languageLabel(state.detectedLanguage);
+  }
+
+  function applyEditedTextToCaptionSegments(value) {
+    const text = cleanText(value);
+    const current = state.translatedSegments.length ? state.translatedSegments : state.segments;
+    if (!text || !current.length) return;
+    const words = text.split(/\s+/).filter(Boolean);
+    const weights = current.map((segment) => Math.max(1, cleanText(segment.translatedText || segment.text).split(/\s+/).filter(Boolean).length));
+    const totalWeight = weights.reduce((sum, count) => sum + count, 0);
+    let cursor = 0;
+    state.translatedSegments = current.map((segment, index) => {
+      const remainingSegments = current.length - index - 1;
+      const remainingWords = words.length - cursor;
+      const count = index === current.length - 1
+        ? remainingWords
+        : Math.max(1, Math.min(remainingWords - remainingSegments, Math.round((words.length * weights[index]) / totalWeight)));
+      const translatedText = words.slice(cursor, cursor + Math.max(0, count)).join(" ");
+      cursor += Math.max(0, count);
+      return { ...segment, translatedText };
+    }).filter((segment) => cleanText(segment.translatedText));
   }
 
   function getPreservedIntroSeconds() {
@@ -123,11 +163,13 @@
   function updateVideoCaptionPreview() {
     if (!els.videoPreview || !els.videoCaption) return;
     const time = Number(els.videoPreview.currentTime) || 0;
-    const segment = getPreviewCaptionSegments().find((item) => {
+    const previewSegments = getPreviewCaptionSegments();
+    let segment = previewSegments.find((item) => {
       const start = Number(item.start) || 0;
       const end = Number(item.end) || 0;
       return time >= start && time <= end;
     });
+    if (!segment && els.videoPreview.paused && previewSegments.length) segment = previewSegments[0];
     const start = Number(segment?.start) || 0;
     els.videoCaption.textContent = segment
       ? stripIgnoredIntroCaption(segment.translatedText || segment.text || "", start)
@@ -288,8 +330,9 @@
         height = Math.max(2, Number(meta?.height) || height);
       } catch (_) {}
     }
-    const captions = captionItemsFromSegments(state.translatedSegments.length ? state.translatedSegments : state.segments);
-    const fontName = state.target.code === "te" ? "Nirmala UI" : "Arial";
+    const captions = captionItemsFromSegments(state.captionSegments.length ? state.captionSegments : (state.translatedSegments.length ? state.translatedSegments : state.segments));
+    const captionCode = captionLanguageCode(resolvedCaptionLanguage(false));
+    const fontName = ["te", "hi", "ta", "kn", "ml"].includes(captionCode) ? "Nirmala UI" : "Arial";
     const fontSize = Math.max(30, Math.round(height * 0.052));
     const marginV = Math.max(42, Math.round(height * 0.09));
     const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Karaoke,${fontName},${fontSize},&H0000FFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,4,1,2,50,50,${marginV},1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
@@ -333,13 +376,13 @@
     const detail = {
       files: useGeneratedVideo ? [] : [state.file],
       filePaths: useGeneratedVideo ? [generatedVideoPath] : [],
-      language: useGeneratedVideo ? state.target.label : (state.captionLanguage || "English"),
+      language: resolvedCaptionLanguage(useGeneratedVideo),
       autoStart: autoStart !== false,
       // A generated translated MP4 must be transcribed from its real audio in
       // Local AI Captioning. Do not reuse source-language/prebuilt captions.
       captions: useGeneratedVideo
         ? []
-        : captionItemsFromSegments(state.translatedSegments.length ? state.translatedSegments : state.segments),
+        : captionItemsFromSegments(state.captionSegments.length ? state.captionSegments : (state.translatedSegments.length ? state.translatedSegments : state.segments)),
     };
     const voicePresentatorTab = Array.from(document.querySelectorAll("button")).find((button) =>
       (button.textContent || "").trim() === "Voice Presentator"
@@ -419,6 +462,18 @@
     }
   }
 
+  function captionLanguageCode(label) {
+    return { English: "en", Telugu: "te", Hindi: "hi", Tamil: "ta", Kannada: "kn", Malayalam: "ml" }[label] || "";
+  }
+
+  async function refreshCaptionSegments() {
+    if (!state.segments.length) { state.captionSegments = []; return; }
+    if (state.captionLanguage === "Auto Detect") state.captionSegments = state.segments.map((segment) => ({ ...segment, translatedText: segment.text }));
+    else if (state.captionLanguage === state.target.label && state.translatedSegments.length) state.captionSegments = state.translatedSegments.map((segment) => ({ ...segment }));
+    else state.captionSegments = await translateSegmentTexts(state.segments, captionLanguageCode(state.captionLanguage));
+    updateVideoCaptionPreview();
+  }
+
   async function pickFile(event) {
     const file = event.target.files && event.target.files[0];
     state.file = file || null;
@@ -427,6 +482,7 @@
     state.transcript = "";
     state.segments = [];
     state.translatedSegments = [];
+    state.captionSegments = [];
     state.translated = "";
     state.audioBase64 = "";
     state.exportedVideoPath = "";
@@ -449,7 +505,7 @@
       if (api().getPathForFile) {
         state.filePath = api().getPathForFile(file);
       }
-      state.voiceEngine = isVideoFile(file) ? "original" : "edge";
+      state.voiceEngine = "edge";
       syncVoiceButtons();
       setProgress(0, "Ready", "");
       setStatus(isVideoFile(file)
@@ -497,6 +553,9 @@
       state.transcript = getTranscript(transcribed);
       state.segments = Array.isArray(transcribed.segments) ? transcribed.segments : [];
       state.detectedLanguage = transcribed.language || transcribed.detectedLanguage || "auto";
+      if (state.captionLanguage === "Auto Detect") {
+        setStatus("Detected spoken language: " + languageLabel(state.detectedLanguage) + ".");
+      }
       if (!state.transcript) {
         els.transcript.value = "";
         els.translation.value = "";
@@ -521,13 +580,18 @@
       }
       if (!state.translated) throw new Error("Translation returned empty text.");
       els.translation.value = state.translated;
+      await refreshCaptionSegments();
 
       if (isVideoFile(state.file)) {
         showPreExportCaptionPreview();
         setProgress(70, "Generating preview", state.voiceEngine === "original" ? "Uploaded video voice" : (state.voiceEngine === "sc3" ? "SC3 preview voice" : "TTS preview voice"));
         await synthesizeTranslatedAudio("Step 4 of 4: generating preview audio. Export will wait for your click.");
+        if (state.translatedSegments.length) {
+          setProgress(82, "Synchronizing preview", "Building the selected voice over the original video background");
+          await exportSyncedTranslatedVideoNow("Building synchronized voice preview.");
+        }
         setProgress(100, "Preview ready", "Export MP3, Export MP4, or open AI Video Captioning when ready");
-        setStatus("Preview ready. Play the video to review the translated captions, listen to the generated audio, then choose Export MP3, Export MP4, or AI Video Captioning. Captions will use: " + state.captionLanguage + ".");
+        setStatus("Preview ready. Voice: " + state.target.label + ". Captions: " + resolvedCaptionLanguage(false) + ". Play the video to verify synchronization.");
         speakAlert("Translation preview is ready. Please listen, then export.");
       } else {
         setProgress(70, "Generating audio", state.voiceEngine === "sc3" ? "SC3 voice" : "TTS voice");
@@ -551,10 +615,10 @@
     const text = cleanText(els.translation.value || state.translated);
     if (!text) throw new Error("Translated text is empty.");
     setStatus(message || "Generating translated audio.");
-    const useUploadedVoice = state.voiceEngine === "original" && isVideoFile(state.file);
+    const useUploadedVoice = state.voiceEngine === "original" && Boolean(state.filePath);
     const useSc3 = state.voiceEngine === "sc3";
     const narrate = useUploadedVoice ? api().narrateUploadedVideoVoice : (useSc3 ? api().narrateSc3Text : api().narrateEdgeTts);
-    if (!narrate) throw new Error((useUploadedVoice ? "Uploaded video voice" : (useSc3 ? "SC3" : "TTS")) + " narration API is not available.");
+    if (!narrate) throw new Error((useUploadedVoice ? "Uploaded audio/video voice" : (useSc3 ? "SC3" : "TTS")) + " narration API is not available.");
     const audio = await narrate({
       text,
       videoPath: useUploadedVoice ? state.filePath : undefined,
@@ -568,7 +632,10 @@
     if (!audio || !audio.audioBase64) throw new Error((audio && audio.error) || "Audio generation failed.");
     state.translated = text;
     state.audioBase64 = audio.audioBase64;
+    els.audio.pause();
     els.audio.src = base64ToBlobUrl(audio.audioBase64, audio.contentType || "audio/mpeg");
+    els.audio.load();
+    try { els.audio.currentTime = 0; } catch (_) {}
     els.save.disabled = false;
     els.exportVideo.disabled = !isVideoFile(state.file);
   }
@@ -748,13 +815,20 @@
 
   function setTarget(code) {
     const selected = LANGUAGES.find((lang) => lang.code === code) || LANGUAGES[0];
-    state.target = selected;
+    state.target = { ...selected, voice: selected.voice || selected.voices?.[0]?.id };
     if (els.langs) {
       els.langs.querySelectorAll("button").forEach((button) => {
         button.classList.toggle("is-active", button.dataset.lang === selected.code);
       });
     }
-    setStatus("Target language: " + selected.label + ".");
+    if (els.voiceModel) {
+      els.voiceModel.innerHTML = "";
+      (selected.voices || []).forEach((model) => {
+        const option = document.createElement("option"); option.value = model.id; option.textContent = model.name; els.voiceModel.appendChild(option);
+      });
+      els.voiceModel.value = state.target.voice;
+    }
+    setStatus("Voice language: " + selected.label + ". Caption language: " + resolvedCaptionLanguage(false) + ".");
   }
 
   function openModule() {
@@ -780,7 +854,7 @@
       '  <div class="tdub-head">',
       '    <div>',
       '      <h2 class="tdub-title">Video and Audio Translator</h2>',
-      '      <p class="tdub-subtitle">Upload audio or video, choose Telugu, Hindi, or English first, then the app transcribes, translates, and creates the new voice audio.</p>',
+      '      <p class="tdub-subtitle">Choose one language and voice model. Translation, synchronized narration and captions will use that same language.</p>',
       '    </div>',
       '    <button class="tdub-close" type="button" title="Close">X</button>',
       '  </div>',
@@ -792,17 +866,22 @@
       '        <div class="tdub-file-name">No file selected</div>',
       '      </label>',
       '      <div class="tdub-lang-row"></div>',
+      '      <div class="tdub-model-row"><label>Voice Model</label><select class="tdub-voice-model"></select><small>Voice, translated text and captions stay linked.</small></div>',
       '      <div class="tdub-voice-row">',
       '        <button class="tdub-voice is-active" type="button" data-engine="original">Clone Original Voice</button>',
       '        <button class="tdub-voice" type="button" data-engine="edge">TTS Sync Voice</button>',
       '        <button class="tdub-voice" type="button" data-engine="sc3">SC3 Voice</button>',
       '      </div>',
       '      <div class="tdub-caption-lang">',
-      '        <label>Caption Language</label>',
+      '        <label>Caption Language — choose separately</label>',
       '        <select class="tdub-caption-select">',
-      '          <option value="English" selected>English</option>',
+      '          <option value="Auto Detect" selected>Auto Detect</option>',
+      '          <option value="English">English</option>',
       '          <option value="Telugu">Telugu</option>',
       '          <option value="Hindi">Hindi</option>',
+      '          <option value="Tamil">Tamil</option>',
+      '          <option value="Kannada">Kannada</option>',
+      '          <option value="Malayalam">Malayalam</option>',
       '        </select>',
       '      </div>',
       '      <div class="tdub-actions">',
@@ -862,6 +941,7 @@
       generate: root.querySelector(".tdub-generate"),
       caption: root.querySelector(".tdub-caption"),
       captionSelect: root.querySelector(".tdub-caption-select"),
+      voiceModel: root.querySelector(".tdub-voice-model"),
       status: root.querySelector(".tdub-status"),
       progressFill: root.querySelector(".tdub-progress-fill"),
       progressPct: root.querySelector(".tdub-progress-pct"),
@@ -886,7 +966,11 @@
       button.className = "tdub-lang";
       button.dataset.lang = lang.code;
       button.textContent = lang.label;
-      button.addEventListener("click", () => setTarget(lang.code));
+      button.addEventListener("click", async () => {
+        if (state.busy) return;
+        setTarget(lang.code);
+        if (state.file) await processUpload();
+      });
       els.langs.appendChild(button);
     });
 
@@ -895,9 +979,20 @@
     els.process.addEventListener("click", processUpload);
     els.generate.addEventListener("click", regenerateAudio);
     els.caption.addEventListener("click", generateCaptions);
-    els.captionSelect.addEventListener("change", () => {
-      state.captionLanguage = els.captionSelect.value || "English";
-      setStatus("Caption language: " + state.captionLanguage + ".");
+    els.captionSelect.addEventListener("change", async () => {
+      state.captionLanguage = els.captionSelect.value || "Auto Detect";
+      state.exportedVideoPath = "";
+      state.captionedVideoPath = "";
+      if (state.segments.length) await refreshCaptionSegments();
+      if (isVideoFile(state.file)) showPreExportCaptionPreview();
+      setStatus("Voice: " + state.target.label + ". Captions: " + resolvedCaptionLanguage(false) + ". Export will keep both synchronized.");
+    });
+    if (els.voiceModel) els.voiceModel.disabled = state.busy;
+    els.voiceModel.addEventListener("change", async () => {
+      state.target = { ...state.target, voice: els.voiceModel.value || state.target.voice };
+      const model = state.target.voices?.find((item) => item.id === state.target.voice);
+      setStatus(`${state.target.label} voice model: ${model?.name || state.target.voice}. Captions remain ${state.target.label}.`);
+      if (cleanText(state.translated)) await regenerateAudio();
     });
     els.exportVideo.addEventListener("click", exportVideo);
     els.save.addEventListener("click", saveAudio);
@@ -907,21 +1002,32 @@
     els.videoFolder.addEventListener("click", () => {
       if (state.exportedVideoPath && api().showItemInFolder) api().showItemInFolder(state.exportedVideoPath);
     });
+    els.audio.addEventListener("ended", () => { try { els.audio.currentTime = 0; } catch (_) {} });
+    els.audio.addEventListener("loadedmetadata", () => {
+      if (cleanText(state.translated).length > 30 && Number(els.audio.duration) > 0 && Number(els.audio.duration) < 2) {
+        setStatus("Generated audio is unexpectedly short. Regenerate it or choose another voice model.", true);
+      }
+    });
     ["loadedmetadata", "timeupdate", "seeking", "play", "pause"].forEach((eventName) => {
       els.videoPreview.addEventListener(eventName, updateVideoCaptionPreview);
     });
     els.translation.addEventListener("input", () => {
       state.translated = els.translation.value;
+      applyEditedTextToCaptionSegments(state.translated);
       state.audioBase64 = "";
       state.exportedVideoPath = "";
       state.captionedVideoPath = "";
-      clearVideoPreview();
+      if (isVideoFile(state.file)) {
+        showPreExportCaptionPreview();
+        updateVideoCaptionPreview();
+      }
       if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
       state.audioUrl = "";
       els.audio.removeAttribute("src");
       els.save.disabled = true;
-      els.exportVideo.disabled = true;
+      els.exportVideo.disabled = !isVideoFile(state.file) || !cleanText(els.translation.value);
       els.generate.disabled = !cleanText(els.translation.value);
+      setStatus("Caption text edited. The preview remains available, and Export MP4 will burn these edited captions. Regenerate MP3 only if you also want the narration audio updated.");
     });
     root.querySelectorAll(".tdub-voice").forEach((button) => {
       button.addEventListener("click", () => {
@@ -957,7 +1063,9 @@
   function ensureNavButton() {
     const header = document.querySelector("header");
     if (!header) return;
-    const nav = Array.from(header.children).find((child) => child.querySelector && child.querySelector("button"));
+    const nav = Array.from(header.children).find((child) => 
+      child.querySelector && Array.from(child.querySelectorAll("button")).some(b => (b.textContent || "").trim() === "My Exporter")
+    );
     if (!nav) return;
     if (navButton && nav.contains(navButton)) return;
 
@@ -966,13 +1074,24 @@
     navButton.className = "tdub-nav-button";
     navButton.textContent = "Translate Audio";
     navButton.addEventListener("click", openModule);
-    nav.appendChild(navButton);
+    const exporterButton = Array.from(nav.querySelectorAll("button")).find((button) =>
+      (button.textContent || "").trim() === "My Exporter"
+    );
+    nav.insertBefore(navButton, exporterButton || null);
+
+    // Switching to any normal app page must close the full-screen translator;
+    // otherwise the selected page opens underneath it and appears unresponsive.
+    nav.addEventListener("click", (event) => {
+      const button = event.target && event.target.closest ? event.target.closest("button") : null;
+      if (button && button !== navButton) closeModule();
+    });
   }
 
   function boot() {
     ensureStyles();
     ensureRoot();
     ensureNavButton();
+    window.addEventListener("pp:close-translate-audio", closeModule);
     const observer = new MutationObserver(ensureNavButton);
     observer.observe(document.body, { childList: true, subtree: true });
   }

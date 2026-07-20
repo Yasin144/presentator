@@ -11,8 +11,8 @@ interface BurnVideoMeta {
 }
 
 const SPEECH_GAP_SECONDS = 0.75;
-const CAPTION_WORD_LIMIT = 8;
-const CAPTION_BOTTOM_OFFSET_PX = 25;
+const CAPTION_WORD_LIMIT = 6;
+const CAPTION_BOTTOM_OFFSET_PX = 80;
 
 async function getFFmpeg(): Promise<FFmpeg> {
   if (ff?.loaded) return ff;
@@ -63,6 +63,26 @@ function shapeCaptionText(text: string, settings: CaptionSettings) {
 
 function captionBottomSafety(fontSize: number, lineCount = 1) {
   return CAPTION_BOTTOM_OFFSET_PX;
+}
+
+function normalizeDisplayedCaptionWords(input: WordItem[]): WordItem[] {
+  const words = input.map(word => ({
+    ...word,
+    text: String(word.text || '').replace(/\binfo\s*kids\b/i, 'Info Kids').trim(),
+  }));
+  const letterCounts = new Map<string, number>();
+  for (const word of words) {
+    const token = word.text.replace(/[^A-Za-z]/g, '').toUpperCase();
+    if (token.length === 1) letterCounts.set(token, (letterCounts.get(token) || 0) + 1);
+  }
+  const dominant = [...letterCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (!dominant || dominant[1] < 2) return words;
+  const lessonLetter = dominant[0];
+  return words.map((word, index) => {
+    if (word.text.toLowerCase() !== 'for') return word;
+    const previous = String(words[index - 1]?.text || '').replace(/[^A-Za-z]/g, '').toUpperCase();
+    return previous === lessonLetter ? word : { ...word, text: `${lessonLetter} for` };
+  });
 }
 
 function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionItem[] {
@@ -206,8 +226,8 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
   // Swap primary and secondary colors for standard karaoke behavior:
   // - SecondaryColour (sec) is the inactive/unhighlighted color (normal text, e.g. White).
   // - PrimaryColour (pri) is the active/highlighted color (highlighted text, e.g. Yellow).
-  const pri = hexToAssColor(s.style === 'white-yellow' ? '#facc15' : (s.highlightColor || '#facc15'));
-  const sec = hexToAssColor(s.style === 'white-yellow'
+  const pri = hexToAssColor(s.style === 'white-yellow' || s.style === 'karaoke' ? '#facc15' : (s.highlightColor || '#facc15'));
+  const sec = hexToAssColor(s.style === 'white-yellow' || s.style === 'karaoke'
     ? '#ffffff'
     : s.fontColor==='White'?'#ffffff':s.fontColor==='Yellow'?'#facc15':s.fontColor==='Cyan'?'#22d3ee':'#000000');
 
@@ -226,7 +246,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
     borderStyle = 1;
     outline = 0;
     shadow = 1; // small drop-shadow so text is readable on bright backgrounds
-  } else if (s.style === 'white-yellow') {
+  } else if (s.style === 'white-yellow' || s.style === 'karaoke') {
     borderStyle = 1;
     outline = 0;
     shadow = 0;
@@ -294,10 +314,10 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
   };
 
   const lines = timelineCaps.flatMap(c => {
-    const words: WordItem[] = c.words?.length ? c.words : c.text.trim().split(/\s+/).map((t,i,a)=>({
+    const words: WordItem[] = normalizeDisplayedCaptionWords(c.words?.length ? c.words : c.text.trim().split(/\s+/).map((t,i,a)=>({
       text:t, start:c.start+(i/a.length)*(c.end-c.start), end:c.start+((i+1)/a.length)*(c.end-c.start)
-    }));
-    if (s.style === 'white-yellow') {
+    })));
+    if (s.style === 'white-yellow' || s.style === 'karaoke') {
       const validWords = words.filter(w => w.end > w.start);
       const posPrefix = posPrefixFor(words);
       const activeLines = validWords.map((word, activeIndex) => {

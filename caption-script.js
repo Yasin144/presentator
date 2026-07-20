@@ -1,4 +1,4 @@
-﻿/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
+/** Guard: returns true only if img is a fully-loaded, non-broken HTMLImageElement */
 function isImageReady(img) {
     if (!img) return false;
     // HTMLVideoElement / HTMLCanvasElement / ImageBitmap are always drawable
@@ -6,7 +6,7 @@ function isImageReady(img) {
     if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) return true;
     // OffscreenCanvas
     if (typeof OffscreenCanvas !== "undefined" && img instanceof OffscreenCanvas) return true;
-    // HTMLImageElement â€” must be complete AND have natural size
+    // HTMLImageElement — must be complete AND have natural size
     if (img instanceof HTMLImageElement) {
         return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
     }
@@ -17,7 +17,7 @@ function isImageReady(img) {
 let captionWorker = null;
 let transcriber = null; // Keeping as a placeholder for any lingering references
 const CAPTION_WORD_LIMIT = 8;
-const CAPTION_BOTTOM_OFFSET_PX = 25;
+const CAPTION_BOTTOM_OFFSET_PX = 80;
 const SHORT_CAPTION_GAP_SECONDS = 0.75;
 
 function bootCaptionStudio() {
@@ -106,13 +106,13 @@ function bootCaptionStudio() {
     }
 
     function updateCaptionStyleValueLabels() {
-        if (sizeSlider && sizeValue) sizeValue.textContent = `${sliderPercent(sizeSlider)}% Â· ${Math.round(Number(sizeSlider.value))}px`;
-        if (gapSlider && gapValue) gapValue.textContent = `${sliderPercent(gapSlider)}% Â· ${Math.round(Number(gapSlider.value))}`;
+        if (sizeSlider && sizeValue) sizeValue.textContent = `${sliderPercent(sizeSlider)}% · ${Math.round(Number(sizeSlider.value))}px`;
+        if (gapSlider && gapValue) gapValue.textContent = `${sliderPercent(gapSlider)}% · ${Math.round(Number(gapSlider.value))}`;
         if (widthSlider && widthValue) widthValue.textContent = `${Math.round(Number(widthSlider.value))}%`;
         if (strokeSlider && strokeValue) strokeValue.textContent = `${Math.round(Number(strokeSlider.value))}%`;
         if (syncSlider && syncValue) {
             const seconds = (Number(syncSlider.value || 0) / 1000).toFixed(1);
-            syncValue.textContent = `${sliderPercent(syncSlider)}% Â· ${seconds}s`;
+            syncValue.textContent = `${sliderPercent(syncSlider)}% · ${seconds}s`;
         }
     }
 
@@ -197,40 +197,40 @@ function bootCaptionStudio() {
 
     const emojiDict = {
         // Finance / Tech / Science
-        'money': 'ðŸ’°', 'dollar': 'ðŸ’µ', 'cash': 'ðŸ’²', 'buy': 'ðŸ›ï¸', 'rich': 'ðŸ¤‘', 'sell': 'ðŸ“ˆ', 'business': 'ðŸ¢',
-        'rocket': 'ðŸš€', 'space': 'ðŸŒŒ', 'sky': 'â˜ï¸', 'moon': 'ðŸŒ•', 'star': 'â­', 'magic': 'âœ¨', 'sparkle': 'âœ¨', 'planet': 'ðŸª',
-        'computer': 'ðŸ’»', 'tech': 'ðŸ¤–', 'robot': 'ðŸ¤–', 'app': 'ðŸ“±', 'phone': 'ðŸ“±', 'internet': 'ðŸŒ', 'code': 'ðŸ’»', 'ai': 'ðŸ§ ',
+        'money': '💰', 'dollar': '💵', 'cash': '💲', 'buy': '🛍️', 'rich': '🤑', 'sell': '📈', 'business': '🏢',
+        'rocket': '🚀', 'space': '🌌', 'sky': '☁️', 'moon': '🌕', 'star': '⭐', 'magic': '✨', 'sparkle': '✨', 'planet': '🪐',
+        'computer': '💻', 'tech': '🤖', 'robot': '🤖', 'app': '📱', 'phone': '📱', 'internet': '🌐', 'code': '💻', 'ai': '🧠',
 
         // Emotions / Reactions
-        'happy': 'ðŸ˜Š', 'smile': 'ðŸ˜ƒ', 'love': 'â¤ï¸', 'heart': 'ðŸ’–', 'good': 'ðŸ‘', 'like': 'ðŸ‘', 'awesome': 'ðŸ˜Ž', 'cool': 'ðŸ˜Ž',
-        'sad': 'ðŸ˜¢', 'cry': 'ðŸ˜­', 'tear': 'ðŸ’§', 'bad': 'ðŸ‘Ž', 'angry': 'ðŸ˜ ', 'mad': 'ðŸ˜¡', 'scared': 'ðŸ˜±', 'shock': 'ðŸ˜²',
-        'laugh': 'ðŸ˜‚', 'funny': 'ðŸ¤£', 'lol': 'ðŸ˜†', 'joke': 'ðŸ¤¡', 'silly': 'ðŸ¤ª', 'fun': 'ðŸ¥³',
-        'fire': 'ðŸ”¥', 'hot': 'ðŸ¥µ', 'burn': 'ðŸ”¥', 'lit': 'ðŸ”¥', 'boom': 'ðŸ’¥', 'explosion': 'ðŸ’£', 'crash': 'ðŸ’¥',
+        'happy': '😊', 'smile': '😃', 'love': '❤️', 'heart': '💖', 'good': '👍', 'like': '👍', 'awesome': '😎', 'cool': '😎',
+        'sad': '😢', 'cry': '😭', 'tear': '💧', 'bad': '👎', 'angry': '😠', 'mad': '😡', 'scared': '😱', 'shock': '😲',
+        'laugh': '😂', 'funny': '🤣', 'lol': '😆', 'joke': '🤡', 'silly': '🤪', 'fun': '🥳',
+        'fire': '🔥', 'hot': '🥵', 'burn': '🔥', 'lit': '🔥', 'boom': '💥', 'explosion': '💣', 'crash': '💥',
 
         // Time / Thinking
-        'time': 'â³', 'clock': 'ðŸ•°ï¸', 'wait': 'âŒ›', 'fast': 'âš¡', 'slow': 'ðŸ¢', 'today': 'ðŸ“…', 'tomorrow': 'ðŸ“†', 'now': 'â±ï¸',
-        'idea': 'ðŸ’¡', 'brain': 'ðŸ§ ', 'mind': 'ðŸ§ ', 'think': 'ðŸ¤”', 'question': 'â“', 'why': 'ðŸ¤·', 'how': 'ðŸ¤·', 'know': 'ðŸ§ ', 'smart': 'ðŸ¤“',
-        'yes': 'âœ…', 'no': 'âŒ', 'stop': 'ðŸ›‘', 'go': 'ðŸš¦', 'danger': 'âš ï¸', 'warning': 'âš ï¸',
+        'time': '⏳', 'clock': '🕰️', 'wait': '⌛', 'fast': '⚡', 'slow': '🐢', 'today': '📅', 'tomorrow': '📆', 'now': '⏱️',
+        'idea': '💡', 'brain': '🧠', 'mind': '🧠', 'think': '🤔', 'question': '❓', 'why': '🤷', 'how': '🤷', 'know': '🧠', 'smart': '🤓',
+        'yes': '✅', 'no': '❌', 'stop': '🛑', 'go': '🚦', 'danger': '⚠️', 'warning': '⚠️',
 
         // Nursery Rhymes / Stories / Animals
-        'dog': 'ðŸ¶', 'cat': 'ðŸ±', 'cow': 'ðŸ®', 'sheep': 'ðŸ‘', 'pig': 'ðŸ·', 'horse': 'ðŸ´', 'bird': 'ðŸ¦', 'fish': 'ðŸŸ', 'animal': 'ðŸ¾', 'mouse': 'ðŸ­', 'lion': 'ðŸ¦', 'tiger': 'ðŸ¯', 'bear': 'ðŸ»', 'monkey': 'ðŸµ', 'duck': 'ðŸ¦†', 'frog': 'ðŸ¸', 'bug': 'ðŸ›', 'spider': 'ðŸ•·ï¸',
-        'baby': 'ðŸ‘¶', 'boy': 'ðŸ‘¦', 'girl': 'ðŸ‘§', 'man': 'ðŸ‘¨', 'woman': 'ðŸ‘©', 'king': 'ðŸ‘‘', 'queen': 'ðŸ‘‘', 'princess': 'ðŸ‘¸', 'knight': 'ðŸ¤º', 'dragon': 'ðŸ‰', 'monster': 'ðŸ‘¹', 'ghost': 'ðŸ‘»',
-        'house': 'ðŸ ', 'home': 'ðŸ¡', 'castle': 'ðŸ°', 'village': 'ðŸ˜ï¸', 'bed': 'ðŸ›Œ', 'sleep': 'ðŸ˜´', 'dream': 'ðŸ’­',
+        'dog': '🐶', 'cat': '🐱', 'cow': '🐮', 'sheep': '🐑', 'pig': '🐷', 'horse': '🐴', 'bird': '🐦', 'fish': '🐟', 'animal': '🐾', 'mouse': '🐭', 'lion': '🦁', 'tiger': '🐯', 'bear': '🐻', 'monkey': '🐵', 'duck': '🦆', 'frog': '🐸', 'bug': '🐛', 'spider': '🕷️',
+        'baby': '👶', 'boy': '👦', 'girl': '👧', 'man': '👨', 'woman': '👩', 'king': '👑', 'queen': '👑', 'princess': '👸', 'knight': '🤺', 'dragon': '🐉', 'monster': '👹', 'ghost': '👻',
+        'house': '🏠', 'home': '🏡', 'castle': '🏰', 'village': '🏘️', 'bed': '🛌', 'sleep': '😴', 'dream': '💭',
         
         // Nature / Elements
-        'sun': 'â˜€ï¸', 'day': 'ðŸŒž', 'light': 'â˜€ï¸', 'morning': 'ðŸŒ…', 'night': 'ðŸŒ™', 'evening': 'ðŸŒ‡',
-        'tree': 'ðŸŒ³', 'forest': 'ðŸŒ²', 'flower': 'ðŸŒ¸', 'rose': 'ðŸŒ¹', 'leaf': 'ðŸƒ', 'plant': 'ðŸŒ¿', 'nature': 'ðŸžï¸',
-        'water': 'ðŸ’§', 'rain': 'ðŸŒ§ï¸', 'snow': 'â„ï¸', 'cold': 'ðŸ¥¶', 'ocean': 'ðŸŒŠ', 'sea': 'ðŸŒŠ', 'wind': 'ðŸ’¨', 'storm': 'â›ˆï¸',
+        'sun': '☀️', 'day': '🌞', 'light': '☀️', 'morning': '🌅', 'night': '🌙', 'evening': '🌇',
+        'tree': '🌳', 'forest': '🌲', 'flower': '🌸', 'rose': '🌹', 'leaf': '🍃', 'plant': '🌿', 'nature': '🏞️',
+        'water': '💧', 'rain': '🌧️', 'snow': '❄️', 'cold': '🥶', 'ocean': '🌊', 'sea': '🌊', 'wind': '💨', 'storm': '⛈️',
 
         // General Speaking / Vlog / Education
-        'video': 'ðŸ“¹', 'channel': 'ðŸ“º', 'subscribe': 'ðŸ””', 'welcome': 'ðŸ‘‹', 'hello': 'ðŸ‘‹', 'hi': 'ðŸ‘‹', 'bye': 'ðŸ‘‹', 'friends': 'ðŸ‘¥', 'people': 'ðŸ‘¥',
-        'learn': 'ðŸ“š', 'study': 'ðŸ“–', 'book': 'ðŸ“•', 'school': 'ðŸ«', 'teacher': 'ðŸ‘©â€ðŸ«', 'student': 'ðŸŽ’', 'math': 'âž•', 'science': 'ðŸ”¬', 'history': 'ðŸ“œ', 'art': 'ðŸŽ¨',
-        'music': 'ðŸŽµ', 'song': 'ðŸŽµ', 'dance': 'ðŸ’ƒ', 'play': 'â–¶ï¸', 'game': 'ðŸŽ®', 'sport': 'âš½', 'ball': 'ðŸ€', 'run': 'ðŸƒ', 'walk': 'ðŸš¶',
+        'video': '📹', 'channel': '📺', 'subscribe': '🔔', 'welcome': '👋', 'hello': '👋', 'hi': '👋', 'bye': '👋', 'friends': '👥', 'people': '👥',
+        'learn': '📚', 'study': '📖', 'book': '📕', 'school': '🏫', 'teacher': '👩‍🏫', 'student': '🎒', 'math': '➕', 'science': '🔬', 'history': '📜', 'art': '🎨',
+        'music': '🎵', 'song': '🎵', 'dance': '💃', 'play': '▶️', 'game': '🎮', 'sport': '⚽', 'ball': '🏀', 'run': '🏃', 'walk': '🚶',
 
         // Objects / Food
-        'world': 'ðŸŒ', 'earth': 'ðŸŒ', 'global': 'ðŸŒ', 'map': 'ðŸ—ºï¸', 'car': 'ðŸš—', 'bus': 'ðŸšŒ', 'train': 'ðŸš‚', 'boat': 'â›µ', 'plane': 'âœˆï¸',
-        'food': 'ðŸ”', 'eat': 'ðŸ½ï¸', 'hungry': 'ðŸ¤¤', 'apple': 'ðŸŽ', 'banana': 'ðŸŒ', 'pizza': 'ðŸ•', 'cake': 'ðŸŽ‚', 'cookie': 'ðŸª', 'water': 'ðŸ’§', 'drink': 'ðŸ¥¤', 'coffee': 'â˜•',
-        'gift': 'ðŸŽ', 'box': 'ðŸ“¦', 'tool': 'ðŸ§°', 'hammer': 'ðŸ”¨', 'sword': 'âš”ï¸', 'shield': 'ðŸ›¡ï¸'
+        'world': '🌍', 'earth': '🌍', 'global': '🌐', 'map': '🗺️', 'car': '🚗', 'bus': '🚌', 'train': '🚂', 'boat': '⛵', 'plane': '✈️',
+        'food': '🍔', 'eat': '🍽️', 'hungry': '🤤', 'apple': '🍎', 'banana': '🍌', 'pizza': '🍕', 'cake': '🎂', 'cookie': '🍪', 'water': '💧', 'drink': '🥤', 'coffee': '☕',
+        'gift': '🎁', 'box': '📦', 'tool': '🧰', 'hammer': '🔨', 'sword': '⚔️', 'shield': '🛡️'
     };
 
     let lastEmojiText = ""; let lastEmojiResult = null;
@@ -345,9 +345,20 @@ function bootCaptionStudio() {
     }
 
     function notifyCaptionStudio(title, body) {
+        const existing = document.getElementById('captionStudioAlertToast');
+        if (existing) existing.remove();
+        const toast = document.createElement('div');
+        toast.id = 'captionStudioAlertToast';
+        toast.setAttribute('role', 'alert');
+        toast.style.cssText = 'position:fixed;right:28px;bottom:28px;z-index:2147483647;max-width:420px;padding:16px 18px;border-radius:14px;border:1px solid rgba(125,211,252,.55);background:#101827;color:#fff;box-shadow:0 18px 60px rgba(0,0,0,.55);font:700 14px/1.45 system-ui,sans-serif;white-space:pre-wrap';
+        toast.textContent = `${title}\n${body}`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 12000);
         try {
             if (window.electronAPI && typeof window.electronAPI.showNotification === 'function') {
-                window.electronAPI.showNotification(title, body);
+                Promise.resolve(window.electronAPI.showNotification(title, body)).catch((error) => {
+                    console.warn('[Caption Studio] System notification failed:', error);
+                });
             }
         } catch (error) {
             console.warn('[Caption Studio] Notification failed:', error);
@@ -430,7 +441,7 @@ function bootCaptionStudio() {
     }
 
     function updatePlayPauseLabel() {
-        playPauseBtn.textContent = sourceVideo.paused ? 'â–¶ï¸ Play' : 'â¸ï¸ Pause';
+        playPauseBtn.textContent = sourceVideo.paused ? '▶️ Play' : '⏸️ Pause';
     }
 
     function clearPreviewFrameHandle() {
@@ -570,8 +581,8 @@ function bootCaptionStudio() {
             
             try {
                 eraseBtn.disabled = true;
-                eraseBtn.textContent = 'ðŸ§¹ Erasing...';
-                if (statusText) statusText.innerHTML = 'ðŸ§¹ Erasing hardcoded captions/logo from video in progress... please wait, do not close the app.';
+                eraseBtn.textContent = '🧹 Erasing...';
+                if (statusText) statusText.innerHTML = '🧹 Erasing hardcoded captions/logo from video in progress... please wait, do not close the app.';
                 
                 const res = await window.electronAPI.eraseCaptions({ filePath: videoPath });
                 
@@ -587,7 +598,7 @@ function bootCaptionStudio() {
                     }
                     
                     if (statusText) {
-                        statusText.innerHTML = `âœ… Caption erasing complete! Saved to Downloads: <strong>${res.outputFileName || 'output.mp4'}</strong>.`;
+                        statusText.innerHTML = `✅ Caption erasing complete! Saved to Downloads: <strong>${res.outputFileName || 'output.mp4'}</strong>.`;
                     }
                     speakCaptionStudio('Caption erasing complete');
                     notifyCaptionStudio('Caption Eraser', `Saved as ${res.outputFileName || 'output.mp4'}`);
@@ -605,11 +616,11 @@ function bootCaptionStudio() {
                     window.updateTaskProgressUi(0, false);
                 }
                 console.error('[Caption Eraser] Error:', err);
-                if (statusText) statusText.innerHTML = `âŒ Erasing failed: ${err.message}`;
+                if (statusText) statusText.innerHTML = `❌ Erasing failed: ${err.message}`;
                 alert(`Erasing failed: ${err.message}`);
             } finally {
                 eraseBtn.disabled = false;
-                eraseBtn.textContent = 'ðŸ§¹ Erase Captions';
+                eraseBtn.textContent = '🧹 Erase Captions';
             }
         });
     }
@@ -692,7 +703,11 @@ function bootCaptionStudio() {
             label.type = 'button';
             const pctLabel = (item.status === 'transcribing' || item.status === 'exporting') ? ` - ${Math.round(item.progress || 0)}%` : '';
             label.textContent = `${index + 1}. ${item.file.name} - ${item.status || 'ready'}${pctLabel}`;
-            label.style.cssText = 'min-width:0;text-align:left;background:transparent;border:0;color:#fff;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer';
+            if (item.status === 'failed' && item.message) {
+                label.textContent += ` — ${item.message}`;
+                label.title = item.message;
+            }
+            label.style.cssText = 'min-width:0;text-align:left;background:transparent;border:0;color:#fff;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:normal;cursor:pointer';
             label.addEventListener('click', () => loadQueuedCaptionVideo(index));
             row.addEventListener('click', () => loadQueuedCaptionVideo(index));
             row.appendChild(label);
@@ -1090,7 +1105,28 @@ function bootCaptionStudio() {
                         statusText.innerHTML = `Active now: generating captions ${index + 1}/${captionVideoQueue.length}...`;
                         const heartbeat = startQueueProgressHeartbeat(index, 'Generating captions', 5, 95);
                         try {
-                            await transcribeActiveCaptionVideo();
+                            const videoPath = item.file.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+                                ? window.electronAPI.getPathForFile(item.file)
+                                : '');
+                            if (!videoPath || !window.electronAPI || typeof window.electronAPI.transcribeVideo !== 'function') {
+                                throw new Error('Electron could not access the local video path for captioning.');
+                            }
+                            const selectedLanguage = String(item.captionLanguage || '').toLowerCase();
+                            const languageHint = selectedLanguage.includes('telugu') ? 'te'
+                                : selectedLanguage.includes('hindi') ? 'hi'
+                                    : selectedLanguage.includes('english') ? 'en' : 'auto';
+                            const transcription = await window.electronAPI.transcribeVideo({ videoPath, languageHint });
+                            if (!transcription || !transcription.ok) {
+                                throw new Error((transcription && transcription.error) || 'Electron transcription failed.');
+                            }
+                            const directCaptions = buildCaptionChunksFromTranscription(transcription, sourceVideo.duration || 60);
+                            if (!directCaptions.length) {
+                                throw new Error('Whisper processed the audio but did not recognize speech. Try selecting English explicitly.');
+                            }
+                            generatedCaptions = JSON.parse(JSON.stringify(directCaptions));
+                            captionVideoQueue[index].captions = JSON.parse(JSON.stringify(directCaptions));
+                            captionVideoQueue[index].status = 'transcribed';
+                            renderCaptionQueue();
                         } finally {
                             clearInterval(heartbeat);
                         }
@@ -1334,12 +1370,12 @@ function bootCaptionStudio() {
         const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
         if (!words.length) return [];
 
-        // â”€â”€ Use ACTUAL narration duration so highlights match the voice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Use ACTUAL narration duration so highlights match the voice ──────────
         // Priority order:
         //  1. state.narration.durationMs  (measured from the real audio blob)
         //  2. Caller-supplied override   (opts.narrationDurationSec)
         //  3. WPM-based estimate         (140 wpm for SC3/pattan)
-        //  4. Caller-supplied videoDuration  (last resort â€“ usually wrong)
+        //  4. Caller-supplied videoDuration  (last resort – usually wrong)
         const opts = options || {};
         const WPM  = 140;  // SC3 / pattan TTS natural speaking rate
         const wpmEstimateSec = (words.length / WPM) * 60;
@@ -1350,7 +1386,7 @@ function bootCaptionStudio() {
         } else if (Number(opts.narrationDurationSec) > 0.5) {
             speechDurationSec = Number(opts.narrationDurationSec);
         } else {
-            // Estimate from speech rate â€” far more accurate than video duration
+            // Estimate from speech rate — far more accurate than video duration
             speechDurationSec = wpmEstimateSec;
         }
 
@@ -1503,7 +1539,7 @@ function bootCaptionStudio() {
             throw new Error('No speech was recognized from the video audio.');
         }
 
-        // â”€â”€ Use REAL word-level timestamps from Whisper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Use REAL word-level timestamps from Whisper ──────────────────────
         const words    = Array.isArray(payload.words)    ? payload.words    : [];
         const segments = Array.isArray(payload.segments) ? payload.segments : [];
         let chunks = [];
@@ -1562,7 +1598,7 @@ function bootCaptionStudio() {
                 </div>
                 <input type="text" class="chunk-editor" style="flex-grow: 1; background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.2); padding: 8px; border-radius: 4px; font-family: inherit; font-size: 0.95rem; color: inherit;" value="${chunk.text.replace(/"/g, '&quot;')}" data-index="${i}">
                 <input type="color" class="chunk-color-picker" data-index="${i}" title="Speaker Color Override" style="height:auto; min-height:40px; cursor:pointer; background:none; border:none; padding:0;" value="${chunk.colorOverride || '#fde047'}">
-                <button class="chunk-remove-btn" title="Remove row" style="background:rgba(255,0,0,0.2); border:1px solid rgba(255,0,0,0.4); color:white; padding:0 8px; border-radius:4px; cursor:pointer;" data-index="${i}">âœ–</button>
+                <button class="chunk-remove-btn" title="Remove row" style="background:rgba(255,0,0,0.2); border:1px solid rgba(255,0,0,0.4); color:white; padding:0 8px; border-radius:4px; cursor:pointer;" data-index="${i}">✖</button>
             `;
             captionList.appendChild(div);
         });
@@ -1570,7 +1606,7 @@ function bootCaptionStudio() {
         const addBtn = document.createElement('button');
         addBtn.className = 'primary-btn';
         addBtn.style.cssText = 'width: 100%; margin-top: 10px; padding: 10px; border-radius: 4px; border: 1px dashed rgba(255,255,255,0.3); background: rgba(255,255,255,0.05); color: white; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 6px;';
-        addBtn.innerHTML = '<span>âž•</span><span>Add Caption Row</span>';
+        addBtn.innerHTML = '<span>+</span><span>Add Caption Row</span>';
         addBtn.onclick = () => {
             const lastChunk = generatedCaptions[generatedCaptions.length - 1];
             let start = lastChunk ? parseFloat(lastChunk.timestamp[1]) : 0;
@@ -1604,16 +1640,16 @@ function bootCaptionStudio() {
         });
     }
 
-    // â”€â”€ Multi-language Caption Translator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Multi-language Caption Translator ───────────────────────────────────
     const TRANSLATE_SERVER = 'http://127.0.0.1:8434';
 
     async function translateCaptionsTo(targetLang) {
         if (!generatedCaptions || !generatedCaptions.length) {
-            statusText.innerHTML = 'âš ï¸ Generate or load captions first, then translate.';
+            statusText.innerHTML = '⚠️ Generate or load captions first, then translate.';
             return;
         }
-        const langLabel = { en: 'English', hi: 'à¤¹à¤¿à¤‚à¤¦à¥€ (Hindi)', te: 'à°¤à±†à°²à±à°—à± (Telugu)' }[targetLang] || targetLang;
-        statusText.innerHTML = `ðŸŒ Translating ${generatedCaptions.length} captions to ${langLabel}...`;
+        const langLabel = { en: 'English', hi: 'हिंदी (Hindi)', te: 'తెలుగు (Telugu)' }[targetLang] || targetLang;
+        statusText.innerHTML = `🌐 Translating ${generatedCaptions.length} captions to ${langLabel}...`;
 
         // Highlight active button
         ['En','Hi','Te'].forEach(l => {
@@ -1629,7 +1665,7 @@ function bootCaptionStudio() {
             const health = await fetch(`${TRANSLATE_SERVER}/health`, { signal: AbortSignal.timeout(3000) });
             if (!health.ok) throw new Error('Server not ready');
         } catch (e) {
-            statusText.innerHTML = `âŒ Translation server not running. Please start <b>Translate-Server.cmd</b> in D:\\voice\\ then try again.`;
+            statusText.innerHTML = `❌ Translation server not running. Please start <b>Translate-Server.cmd</b> in D:\\voice\\ then try again.`;
             return;
         }
 
@@ -1666,9 +1702,9 @@ function bootCaptionStudio() {
             if (pBar) pBar.style.width = '100%';
             editorPanel.style.display = 'block';
             populateEditor();
-            statusText.innerHTML = `âœ… Translated ${results.length} captions to ${langLabel}. Edit if needed, then Export.`;
+            statusText.innerHTML = `✅ Translated ${results.length} captions to ${langLabel}. Edit if needed, then Export.`;
         } catch(e) {
-            statusText.innerHTML = `âŒ Translation failed: ${e.message}`;
+            statusText.innerHTML = `❌ Translation failed: ${e.message}`;
             if (pBar) pBar.style.width = '0%';
         }
     }
@@ -1813,7 +1849,7 @@ function bootCaptionStudio() {
         });
         window.__presentatorPendingAiVideoCaptioning = null;
     }
-    // â”€â”€ "Use Voice Text as Captions" button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── "Use Voice Text as Captions" button ─────────────────────────────────
     const voiceTextBtn = document.getElementById('captionUseVoiceTextBtn');
     if (voiceTextBtn) {
         voiceTextBtn.addEventListener('click', () => {
@@ -1832,7 +1868,7 @@ function bootCaptionStudio() {
             );
 
             if (!narText) {
-                statusText.innerHTML = 'âš ï¸ No voice narration found. Generate narration first, then open caption studio.';
+                statusText.innerHTML = '⚠️ No voice narration found. Generate narration first, then open caption studio.';
                 return;
             }
 
@@ -1843,7 +1879,7 @@ function bootCaptionStudio() {
 
 
             if (!chunks.length) {
-                statusText.innerHTML = 'âš ï¸ Could not build captions from voice text.';
+                statusText.innerHTML = '⚠️ Could not build captions from voice text.';
                 return;
             }
 
@@ -1869,7 +1905,7 @@ function bootCaptionStudio() {
                 'hindi': 'Hindi', 'telugu': 'Telugu', 'edge': 'Edge TTS'
             }[narVoice] || narVoice;
 
-            statusText.innerHTML = `âœ… ${generatedCaptions.length} caption chunks built from ${langLabel} voice text (${narText.length} chars). Edit below if needed.`;
+            statusText.innerHTML = `✅ ${generatedCaptions.length} caption chunks built from ${langLabel} voice text (${narText.length} chars). Edit below if needed.`;
 
             editorPanel.style.display = 'block';
             editorPanel.classList.remove('hidden');
@@ -1953,7 +1989,7 @@ function bootCaptionStudio() {
             box.style.borderRadius = '14px';
             const lbl = document.createElement('div');
             lbl.style.cssText = 'font-size:13px;font-weight:800;color:#fde047;margin-bottom:10px';
-            lbl.innerHTML = 'No speech found â€” type captions below (each line = one card):';
+            lbl.innerHTML = 'No speech found — type captions below (each line = one card):';
             const ta = document.createElement('textarea');
             ta.id = 'manualCaptionText';
             ta.placeholder = 'Welcome!\nLesson starts here.\nThank you.';
@@ -1965,7 +2001,7 @@ function bootCaptionStudio() {
                         // Audio file picker button
                         const audioPickBtn = document.createElement('button');
                         audioPickBtn.textContent = 'Pick Narration Audio File & Auto-Caption';
-                        audioPickBtn.title = 'Pick a WAV/MP3 narration file â€” it will be merged into the video and Whisper will transcribe the real voice';
+                        audioPickBtn.title = 'Pick a WAV/MP3 narration file — it will be merged into the video and Whisper will transcribe the real voice';
                         audioPickBtn.style.cssText = 'margin-top:10px;padding:11px 22px;border:1px solid rgba(99,179,237,0.7);border-radius:10px;background:rgba(49,130,206,0.25);color:#90cdf4;font-size:13px;font-weight:700;cursor:pointer;display:block';
                         const audioFileInput = document.createElement('input');
                         audioFileInput.type = 'file';
@@ -1976,7 +2012,7 @@ function bootCaptionStudio() {
                             const f = audioFileInput.files[0];
                             if (!f) return;
                             const audioPath = window.electronAPI && typeof window.electronAPI.getPathForFile === 'function' ? window.electronAPI.getPathForFile(f) : (f.path || '');
-                            if (!audioPath) { alert('Cannot get file path â€” please use a local file'); return; }
+                            if (!audioPath) { alert('Cannot get file path — please use a local file'); return; }
                             if (!videoPath) { alert('Load a video first'); return; }
                             box.remove();
                             statusText.innerHTML = 'Merging narration audio into video...';
@@ -2006,7 +2042,7 @@ function bootCaptionStudio() {
                                     statusText.innerHTML = generatedCaptions.length + ' captions from narration audio (Whisper)';
                                     finaliseCaptions();
                                 } else {
-                                    statusText.innerHTML = 'Transcription returned no speech â€” type captions manually';
+                                    statusText.innerHTML = 'Transcription returned no speech — type captions manually';
                                     showManualCaptionInput();
                                 }
                             } catch(mergeErr) {
@@ -2036,7 +2072,7 @@ function bootCaptionStudio() {
         }
 
         try {
-            // PATH 1: Electron IPC â€” FFmpeg extracts audio, Whisper returns real word timestamps
+            // PATH 1: Electron IPC — FFmpeg extracts audio, Whisper returns real word timestamps
             const hasIpc = window.electronAPI && typeof window.electronAPI.transcribeVideo === 'function';
             const videoPath = activeFile
                 ? (activeFile.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
@@ -2227,7 +2263,7 @@ function bootCaptionStudio() {
             });
             let cur = null;
             (workerResult.chunks || []).forEach(c => {
-                const txt = c.text.replace(/\[.*?\]|\(.*?\)|â™ª|â™«/g,'').trim();
+                const txt = c.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim();
                 if (!txt) return;
                 let ts = Array.isArray(c.timestamp) ? c.timestamp : [0,0];
                 if (ts[0]===null) ts[0]=cur?cur.timestamp[1]:0;
@@ -2239,7 +2275,7 @@ function bootCaptionStudio() {
             if (cur) generatedCaptions.push(cur);
             if (generatedCaptions.length === 0 && workerResult.text) {
                 const dur = sourceVideo.duration || 60;
-                generatedCaptions = buildLinearCaptionChunks(workerResult.text.replace(/\[.*?\]|\(.*?\)|â™ª|â™«/g,'').trim(), dur, { narrationDurationSec: dur });
+                generatedCaptions = buildLinearCaptionChunks(workerResult.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim(), dur, { narrationDurationSec: dur });
             }
             if (!generatedCaptions.length) {
                 statusText.innerHTML = 'No speech detected in this video audio. Upload a video with speech to auto-burn synced karaoke captions.';
@@ -3310,7 +3346,7 @@ function bootCaptionStudio() {
     });
 
 
-    // stageCaptionExportBtn is handled by script.js â€” do not add a second listener here.
+    // stageCaptionExportBtn is handled by script.js — do not add a second listener here.
 
 
     if (viralShortBtn) {
@@ -3368,14 +3404,14 @@ function bootCaptionStudio() {
                 const blob = new Blob(recordedChunks, { type: options.mimeType.split(';')[0] });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = `viral_short_clip.${ext}`; a.click(); URL.revokeObjectURL(url);
-                isRecording = false; viralShortBtn.textContent = 'âœ‚ï¸ Export 15s Viral Short'; viralShortBtn.disabled = false;
-                statusText.innerHTML = "âœ… Viral Short Export completed!";
+                isRecording = false; viralShortBtn.textContent = '✂️ Export 15s Viral Short'; viralShortBtn.disabled = false;
+                statusText.innerHTML = "✅ Viral Short Export completed!";
                 speakCaptionStudio(`Exporting done. viral_short_clip.${ext}`);
                 notifyCaptionStudio('Exporting done', `viral_short_clip.${ext}`);
-                sourceVideo.pause(); playPauseBtn.textContent = 'â–¶ï¸ Play';
+                sourceVideo.pause(); playPauseBtn.textContent = '▶️ Play';
                 stream.getTracks().forEach(track => track.stop());
             };
-            recorder.start(); sourceVideo.play(); playPauseBtn.textContent = 'â¸ï¸ Pause';
+            recorder.start(); sourceVideo.play(); playPauseBtn.textContent = '⏸️ Pause';
             
             const checkEnd = setInterval(() => {
                 if (sourceVideo.currentTime >= bestEnd) {

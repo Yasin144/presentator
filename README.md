@@ -54,19 +54,19 @@ Double-click `Pattan-Presentator.cmd` to launch as a standalone Electron-like ap
 
 ## 📁 Project Structure
 ```
-├── script.js              # Main app logic (canvas, export, captions)
-├── caption-script.js      # Standalone caption engine
-├── src/
-│   ├── components/
-│   │   ├── InputPanel.jsx # Input/editing UI
-│   │   └── StagePanel.jsx # Stage/preview/export UI
-│   └── index.css          # Styles
-├── anjali-chatterbox-server.py  # AI narration TTS server
-├── video-export-server.ps1      # FFmpeg mux server
-├── main.cjs               # Electron main process
-├── preload.cjs             # Electron preload
-├── vite.config.js          # Vite build config
-└── package.json            # Dependencies
+|-- script.js              # Main app logic (canvas, export, captions)
+|-- caption-script.js      # Standalone caption engine
+|-- src/
+|   |-- components/
+|   |   |-- InputPanel.jsx # Input/editing UI
+|   |   `-- StagePanel.jsx # Stage/preview/export UI
+|   `-- index.css          # Styles
+|-- anjali-chatterbox-server.py  # AI narration TTS server
+|-- video-export-server.ps1      # FFmpeg mux server
+|-- main.cjs               # Electron main process
+|-- preload.cjs            # Electron preload
+|-- vite.config.js         # Vite build config
+`-- package.json           # Dependencies
 ```
 
 ## 🔧 Environment Notes
