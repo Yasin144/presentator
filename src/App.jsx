@@ -1051,15 +1051,18 @@ function App() {
               <button
                 type="button"
                 onClick={async () => {
-                  setCopiedNotice('⚡ Refreshing live mobile connection link...');
+                  setCopiedNotice('⚡ Generating fresh live 4G/5G mobile link & WhatsApp notification...');
+                  if (window.electronAPI?.generateMobileLink) {
+                    await window.electronAPI.generateMobileLink();
+                  }
                   try {
                     const res = await fetch('/api/mobile-link');
                     if (res.ok) {
                       const json = await res.json();
-                      if (json?.mobileUrl || json?.wifiUrl) setMobileLinkData(json);
+                      if (json?.mobileUrl || json?.wifiUrl) updateLinkState(json);
                     }
                   } catch (_) {}
-                  setTimeout(() => setCopiedNotice(''), 2500);
+                  setTimeout(() => setCopiedNotice(''), 3500);
                 }}
                 style={{
                   width: '100%',

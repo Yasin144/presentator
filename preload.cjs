@@ -30,6 +30,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMobileLink: () =>
     ipcRenderer.invoke('get-mobile-link'),
 
+  // Generate / refresh mobile link
+  generateMobileLink: () =>
+    ipcRenderer.invoke('generate-mobile-link'),
+
   // Live mobile link real-time event
   onMobileLinkUpdated: (callback) => {
     const handler = (_, data) => callback(data);

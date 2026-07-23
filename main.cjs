@@ -3968,6 +3968,12 @@ ipcMain.handle('open-file', async (event, filePath) => {
   }
 });
 
+  ipcMain.handle('generate-mobile-link', async () => {
+    console.log('[Mobile Tunnel] Generate/Refresh requested via IPC...');
+    startMobileAppTunnelService(5173);
+    return { status: 'requested' };
+  });
+
   ipcMain.handle('get-mobile-link', async () => {
     const linkFile = path.join(ROOT, 'temp', 'active-mobile-link.json');
     const pubFile = path.join(ROOT, 'public', 'mobile-link.json');
