@@ -1036,7 +1036,7 @@ function App() {
                   </div>
                   <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
                     {mobileLinkData.mobileUrl 
-                      ? '⚡ Auto-sent WhatsApp link to +91 7386726193'
+                      ? '🌐 Live Encrypted 4G/5G Tunnel Active'
                       : '🌐 Starting Cloudflare encrypted tunnel... Please wait'}
                   </div>
                 </div>
