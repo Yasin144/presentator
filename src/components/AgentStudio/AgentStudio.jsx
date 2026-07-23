@@ -26,6 +26,18 @@ const DAILY_ACTIONS = [
   { icon: 'wrench', label: 'Fix My Module', prompt: 'Inspect the current Presentator module, diagnose the real failure, apply the smallest safe repair, and verify it.' },
 ];
 
+const IMAGE_FILTERS = [
+  { name: 'Photorealistic', icon: '📸', suffix: 'photorealistic 8k resolution, hyper-detailed photography, professional studio lighting, uncompressed master' },
+  { name: 'Celebrity Portrait', icon: '🌟', suffix: 'celebrity portrait masterpiece, ultra-detailed 8k face, studio lighting, photorealistic, uncompressed' },
+  { name: 'Anime / Manga', icon: '🎨', suffix: 'anime style, vibrant colors, detailed line art, makoto shinkai aesthetic, high quality illustration' },
+  { name: 'Cyberpunk', icon: '🚀', suffix: 'cyberpunk sci-fi style, glowing neon lights, futuristic city background, volumetric lighting, 8k render' },
+  { name: 'Cinematic 3D', icon: '🏛️', suffix: 'cinematic 3d octanorender, pixar quality lighting, ultra-detailed 3d character render' },
+  { name: 'Oil Painting', icon: '🖼️', suffix: 'fine oil painting texture, rich canvas brush strokes, classic masterpiece artwork' },
+  { name: 'Fantasy Concept', icon: '🧙', suffix: 'epic fantasy concept art, magical atmosphere, intricate details, artstation trending' },
+  { name: 'Vintage Retro', icon: '🎞️', suffix: 'vintage 35mm film grain photo, 1980s retro aesthetics, warm cinematic color grading' },
+  { name: 'Pencil Sketch', icon: '✏️', suffix: 'detailed charcoal pencil sketch, hand drawn crosshatching, artistic monochrome drawing' },
+];
+
 const makeChat = () => ({
   id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   title: 'New chat',
@@ -449,13 +461,17 @@ export default function AgentStudio() {
   };
 
   const addAsset = (asset) => {
+    const assetId = `asset-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     updateActiveChat(chat => ({
       ...chat,
       assets: [...chat.assets, {
-        id: `asset-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: assetId,
         ...asset,
       }],
     }));
+    setTimeout(() => {
+      document.getElementById(`asset-card-${assetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 200);
   };
 
   const beginProgress = (label, estimateMs = 20000) => {
@@ -1171,15 +1187,50 @@ export default function AgentStudio() {
               ))}
 
               {activeChat.assets.map(asset => (
-                <div key={asset.id} className="ml-12 rounded-2xl border border-white/5 bg-[#141622] overflow-hidden max-w-xl shadow-xl">
+                <div
+                  key={asset.id}
+                  id={`asset-card-${asset.id}`}
+                  className="ml-12 rounded-2xl border border-emerald-500/20 bg-[#141622] overflow-hidden max-w-xl shadow-2xl shadow-emerald-500/5 transition-all"
+                >
                   {asset.kind === 'image' ? (
-                    <img src={asset.preview} alt={asset.name} className="w-full max-h-[400px] object-contain bg-black" />
+                    <div className="relative group bg-black flex justify-center items-center">
+                      <img src={asset.preview} alt={asset.name} className="w-full max-h-[420px] object-contain rounded-t-2xl" />
+                      <a
+                        href={asset.preview}
+                        download={asset.name}
+                        className="absolute top-3 right-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-lg flex items-center gap-1.5 transition-all cursor-pointer"
+                        title="Download HD Image"
+                      >
+                        <span>⬇️</span> Download HD
+                      </a>
+                    </div>
                   ) : (
                     <video src={`file:///${asset.path.replace(/\\/g, '/')}`} controls className="w-full bg-black" />
                   )}
-                  <div className="p-3.5 flex items-center justify-between border-t border-white/5">
-                    <div className="text-xs truncate text-white/80 font-medium">{asset.name}</div>
-                    <button onClick={() => window.electronAPI.showItemInFolder(asset.path)} className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold hover:underline">Show in folder</button>
+                  <div className="p-3.5 flex items-center justify-between border-t border-white/5 bg-[#10121b]">
+                    <div className="text-xs truncate text-white/90 font-semibold max-w-[200px]">{asset.name}</div>
+                    <div className="flex items-center gap-2">
+                      {asset.kind === 'image' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInput(`[Reply to image "${asset.name}"]: `);
+                            inputRef.current?.focus();
+                          }}
+                          className="text-[11px] bg-violet-600/30 hover:bg-violet-600/50 border border-violet-500/30 text-violet-200 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <span>💬</span> Reply / Edit
+                        </button>
+                      )}
+                      <a
+                        href={asset.preview}
+                        download={asset.name}
+                        className="text-[11px] bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/30 text-emerald-300 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                      >
+                        <span>⬇️</span> Download
+                      </a>
+                      <button type="button" onClick={() => window.electronAPI?.showItemInFolder?.(asset.path)} className="text-[10px] text-white/40 hover:text-white font-medium">Folder</button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1237,6 +1288,32 @@ export default function AgentStudio() {
                 ))}
               </div>
             )}
+
+            {/* Image Style Filters Bar */}
+            <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-1.5 dark-scrollbar">
+              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider px-1 shrink-0">Filters:</span>
+              {IMAGE_FILTERS.map(filter => (
+                <button
+                  key={filter.name}
+                  type="button"
+                  onClick={() => {
+                    setSelectedFilter(filter.name);
+                    setInput(prev => {
+                      const clean = prev.replace(/\s*,?\s*(photorealistic|celebrity portrait|anime style|cyberpunk|cinematic 3d|oil painting|fantasy art|vintage retro|pencil sketch).*/gi, '').trim();
+                      return clean ? `${clean}, ${filter.suffix}` : `Generate ${filter.name.toLowerCase()} image: `;
+                    });
+                    inputRef.current?.focus();
+                  }}
+                  className={`shrink-0 rounded-lg px-2.5 py-1 text-[10px] font-bold transition-all border cursor-pointer ${
+                    selectedFilter === filter.name
+                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                      : 'bg-[#121422] border-white/10 text-white/60 hover:text-white hover:border-white/20'
+                  }`}
+                >
+                  {filter.icon} {filter.name}
+                </button>
+              ))}
+            </div>
 
             {/* Quick Actions */}
             <div className="mb-3 flex gap-2 overflow-x-auto pb-1.5 dark-scrollbar pr-1" aria-label="Daily quick actions">
