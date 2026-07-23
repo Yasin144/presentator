@@ -728,6 +728,24 @@ function killAll() {
   for (const key of Object.keys(servers)) {
     killServer(key);
   }
+  try {
+    if (mobileTunnelProcess) {
+      mobileTunnelProcess.kill();
+      mobileTunnelProcess = null;
+    }
+  } catch (_) {}
+  try {
+    if (process.platform === 'win32') {
+      const { execSync } = require('child_process');
+      execSync('taskkill /F /IM cloudflared.exe /T', { stdio: 'ignore' });
+    }
+  } catch (_) {}
+  try {
+    const linkFile = path.join(ROOT, 'temp', 'active-mobile-link.json');
+    const pubFile = path.join(ROOT, 'public', 'mobile-link.json');
+    if (fs.existsSync(linkFile)) fs.unlinkSync(linkFile);
+    if (fs.existsSync(pubFile)) fs.unlinkSync(pubFile);
+  } catch (_) {}
 }
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Ping a TCP port to check health Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
