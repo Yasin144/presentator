@@ -21,6 +21,7 @@ const http       = require('http');
 const os         = require('os');
 const crypto     = require('crypto');
 const { jsonrepair } = require('jsonrepair');
+const { Client: MagicHourClient } = require('magic-hour');
 
 function findFFmpegExecutable() {
   const candidates = [
@@ -73,8 +74,10 @@ if (fs.existsSync(groqKeyPath)) {
 }
 
 const PRESENTATOR_LOCAL_MODEL = 'qwen3.5:4b';
+const PRESENTATOR_FAST_MODEL = 'qwen3.5:0.8b';
 const OLLAMA_PORT = 11434;
 const activeAgentControllers = new Map();
+let activeImageGenerationRequests = 0;
 const PRESENTATOR_AGENT_FORMAT = {
   type: 'object',
   properties: {
@@ -86,7 +89,10 @@ const PRESENTATOR_AGENT_FORMAT = {
       items: {
         type: 'object',
         properties: {
-          tool: { type: 'string' },
+          tool: {
+            type: 'string',
+            enum: ['inspect_state', 'list_files', 'read_file', 'write_file', 'search_in_files', 'diff_files', 'list_checkpoints', 'restore_checkpoint', 'validate_web_app', 'inspect_code', 'apply_code_patch', 'run_terminal_command', 'restart_application', 'analyze_code', 'run_build_check', 'check_servers', 'read_diagnostics', 'restart_server', 'open_code_canvas', 'generate_image', 'create_animated_video', 'finish'],
+          },
           args: { type: 'object' },
           reason: { type: 'string' },
         },
@@ -368,17 +374,22 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
 
   await ensureLocalAgentBrain();
   const reasoningProfile = chooseAgentReasoningProfile(payload);
+  const selectedModel = reasoningProfile.name === 'fast' ? PRESENTATOR_FAST_MODEL : PRESENTATOR_LOCAL_MODEL;
   onProgress({ stage: 'ready', profile: reasoningProfile.name, generatedCharacters: 0 });
   const controller = new AbortController();
   onController(controller);
   const timeout = setTimeout(() => controller.abort(), 600000);
+  let receivedFirstToken = false;
+  const firstTokenTimeout = setTimeout(() => {
+    if (!receivedFirstToken) controller.abort(new Error('The local CPU planner produced no output for 45 seconds. The request was stopped so it can be retried or routed directly.'));
+  }, 45000);
   try {
     const response = await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: PRESENTATOR_LOCAL_MODEL,
+        model: selectedModel,
         stream: true,
         think: false,
         format: PRESENTATOR_AGENT_FORMAT,
@@ -422,6 +433,10 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
         if (!line.trim()) continue;
         const chunk = JSON.parse(line);
         if (chunk.error) throw new Error(chunk.error);
+        if (chunk?.message?.content || chunk.done) {
+          receivedFirstToken = true;
+          clearTimeout(firstTokenTimeout);
+        }
         generatedText += String(chunk?.message?.content || '');
         if (chunk.done) finalChunk = chunk;
         const now = Date.now();
@@ -447,7 +462,7 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
     const result = parseAgentJson(generatedText);
     return {
       ok: true,
-      model: `${PRESENTATOR_LOCAL_MODEL} (local/offline)`,
+      model: `${selectedModel} (local/offline)`,
       reasoningProfile: reasoningProfile.name,
       result,
       performance: {
@@ -457,6 +472,7 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
     };
   } finally {
     clearTimeout(timeout);
+    clearTimeout(firstTokenTimeout);
   }
 }
 
@@ -642,6 +658,11 @@ function restartServer(key) {
       }
     } catch(_) {}
     // The 'exit' event will trigger a new spawn via scheduleRestart
+  } else if (typeof entry.start === 'function') {
+    // Paused/exhausted workers have no pending exit event, so revive them explicitly.
+    setTimeout(() => {
+      if (!isQuitting && !entry.stopped) entry.start();
+    }, 250);
   }
 }
 
@@ -1175,6 +1196,20 @@ async function createWindow() {
     controller.abort();
     activeAgentControllers.delete(event.sender.id);
     return { ok: true, cancelled: true };
+  });
+
+  ipcMain.handle('presentator-agent-stop-process', event => {
+    let cancelledPlanner = false;
+    const controller = activeAgentControllers.get(event.sender.id);
+    if (controller) {
+      controller.abort();
+      activeAgentControllers.delete(event.sender.id);
+      cancelledPlanner = true;
+    }
+    // Image generation is a blocking native/Python operation. Restarting its
+    // managed worker is the only immediate, reliable cancellation mechanism.
+    if (activeImageGenerationRequests > 0 && servers.ImageGenerator) restartServer('ImageGenerator');
+    return { ok: true, cancelledPlanner, imageGeneratorStopped: activeImageGenerationRequests > 0 };
   });
 
   ipcMain.handle('presentator-agent-restart-server', async (_event, serverName) => {
@@ -2043,21 +2078,76 @@ async function createWindow() {
     }
   });
 
-  ipcMain.handle('presentator-agent-generate-image', async (_event, request) => {
+  ipcMain.handle('presentator-agent-generate-image', async (event, request) => {
 
 
     let resumePausedServers = () => {};
+    activeImageGenerationRequests += 1;
     try {
+      // Image/video requests have priority on this 16 GB CPU-only machine. A resumed
+      // ACE-Step synthesis otherwise exhausts RAM and resets the diffusion connection.
+      if (process.platform === 'win32') {
+        for (const processName of ['ace-synth.exe', 'ace-lm.exe']) {
+          await new Promise(resolve => execFile('taskkill.exe', ['/IM', processName, '/F'], {
+            windowsHide: true,
+            timeout: 10000,
+          }, () => resolve()));
+        }
+      }
       // The 16 GB machine cannot keep both the local LLM and diffusion model
       // resident. Ask Ollama to unload before loading native FP32 image weights.
       try {
-        await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: PRESENTATOR_LOCAL_MODEL, keep_alive: 0 }),
-        });
+        for (const model of [PRESENTATOR_LOCAL_MODEL, PRESENTATOR_FAST_MODEL]) {
+          await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, keep_alive: 0 }),
+          });
+        }
       } catch (_) {}
       resumePausedServers = await pauseManagedServersForImage(['AnjaliAI', 'Sc3Singing']);
+      const imageEntry = servers.ImageGenerator;
+      if (!(await pingPort(8432, '/health')) && (!imageEntry?.proc || imageEntry.proc.killed || imageEntry.proc.exitCode !== null)) {
+        restartServer('ImageGenerator');
+      }
+      // The Python image server needs roughly 30 seconds to import Torch/Diffusers
+      // after an application restart. Queue the request until its health endpoint is live.
+      let imageServerReady = false;
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        if (await pingPort(8432, '/health')) { imageServerReady = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      if (!imageServerReady) throw new Error('The local image generator did not become ready on port 8432 within 90 seconds.');
+      let progressPollBusy = false;
+      const progressTimer = setInterval(async () => {
+        if (progressPollBusy) return;
+        progressPollBusy = true;
+        try {
+          const healthResponse = await fetch('http://127.0.0.1:8432/health');
+          const health = await healthResponse.json();
+          const labels = {
+            loading_model: 'Loading the local image model',
+            diffusion: `Rendering image • diffusion step ${health.step || 0}/${health.totalSteps || 8}`,
+            upscaling_4k: 'Upscaling rendered scene to 4K',
+            saving: 'Saving the completed 4K image',
+            idle: 'Preparing image generation',
+          };
+          const stagePercent = health.stage === 'loading_model' ? 6
+            : health.stage === 'diffusion' ? 10 + Math.round((Number(health.step || 0) / Math.max(1, Number(health.totalSteps || 8))) * 80)
+              : health.stage === 'upscaling_4k' ? 94
+                : health.stage === 'saving' ? 98 : 2;
+          event.sender.send('presentator-agent-progress', {
+            stage: 'media',
+            label: labels[health.stage] || 'Generating image locally',
+            percent: stagePercent,
+            profile: 'direct video',
+          });
+        } catch (_) {
+          try { event.sender.send('presentator-agent-progress', { stage: 'media', label: 'Starting local image worker', percent: 1, profile: 'direct video' }); } catch (_) {}
+        } finally {
+          progressPollBusy = false;
+        }
+      }, 1000);
       const response = await postJsonForBuffer(
         8432,
         '/api/generate-image',
@@ -2071,7 +2161,7 @@ async function createWindow() {
           outputHeight: 2160,
         },
         900000
-      );
+      ).finally(() => clearInterval(progressTimer));
       const json = JSON.parse(response.buffer.toString('utf8'));
       if (response.statusCode < 200 || response.statusCode >= 300 || !json.ok) {
         throw new Error(json.detail || json.error || `Image server returned ${response.statusCode}.`);
@@ -2085,6 +2175,7 @@ async function createWindow() {
     } catch (error) {
       return { ok: false, error: error.message };
     } finally {
+      activeImageGenerationRequests = Math.max(0, activeImageGenerationRequests - 1);
       resumePausedServers();
     }
   });
@@ -2159,6 +2250,56 @@ async function createWindow() {
     };
   });
 
+  ipcMain.handle('presentator-agent-generate-true-video', async (event, request) => {
+    const token = String(request?.apiKey || '').trim();
+    const prompt = String(request?.prompt || '').trim();
+    if (!token) return { ok: false, needsApiKey: true, error: 'Add your free Magic Hour API key in Super Agent first.' };
+    if (prompt.length < 3) return { ok: false, error: 'Enter a detailed video prompt.' };
+    const outputDir = path.join(ROOT, 'generated-media', 'videos');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const safeName = `true-video-${Date.now()}.mp4`;
+    const outputPath = path.join(outputDir, safeName);
+    try {
+      const client = new MagicHourClient({ token });
+      event.sender.send('presentator-agent-progress', { stage: 'media', label: 'Submitting real text-to-video job', percent: 3, profile: 'Magic Hour LTX 2.3' });
+      const created = await client.v1.textToVideo.create({
+        name: prompt.slice(0, 80),
+        endSeconds: 8,
+        aspectRatio: '16:9',
+        resolution: '480p',
+        model: 'default',
+        audio: false,
+        style: { prompt },
+      });
+      const started = Date.now();
+      let project;
+      while (Date.now() - started < 30 * 60 * 1000) {
+        project = await client.v1.videoProjects.get({ id: created.id });
+        const elapsed = Math.round((Date.now() - started) / 1000);
+        const percent = project.status === 'queued' ? Math.min(18, 5 + Math.floor(elapsed / 10)) : Math.min(92, 20 + Math.floor(elapsed / 6));
+        event.sender.send('presentator-agent-progress', {
+          stage: 'media',
+          label: project.status === 'queued' ? 'Cloud video queued • waiting for free GPU' : `Generating original moving frames • ${elapsed}s`,
+          percent,
+          profile: 'Magic Hour LTX 2.3',
+        });
+        if (project.status === 'complete') break;
+        if (['error', 'canceled'].includes(project.status)) throw new Error(project.error?.message || `Video job ${project.status}.`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+      if (!project || project.status !== 'complete') throw new Error('Video generation exceeded the 30-minute safety limit.');
+      const downloadUrl = project.downloads?.[0]?.url || project.download?.url;
+      if (!downloadUrl) throw new Error('The provider completed the job but returned no download URL.');
+      event.sender.send('presentator-agent-progress', { stage: 'media', label: 'Downloading generated MP4', percent: 96, profile: 'Magic Hour LTX 2.3' });
+      const download = await fetch(downloadUrl);
+      if (!download.ok) throw new Error(`Video download failed with HTTP ${download.status}.`);
+      fs.writeFileSync(outputPath, Buffer.from(await download.arrayBuffer()));
+      return { ok: true, videoPath: outputPath, fileName: safeName, duration: 8, provider: 'Magic Hour', model: 'LTX 2.3', creditsCharged: project.creditsCharged };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error) };
+    }
+  });
+
   const narrateWithSc3 = async (payload) => {
     const response = await postJsonForBuffer(8426, '/api/narrate', {
       ...payload,
@@ -2175,6 +2316,284 @@ async function createWindow() {
 
   ipcMain.handle('narrate-sc3-tts', async (_event, payload) => narrateWithSc3(payload));
   ipcMain.handle('narrate-sc3-text', async (_event, payload) => narrateWithSc3(payload));
+
+  ipcMain.handle('generate-rhyme-song', async (event, payload) => {
+    const lyrics = String(payload?.lyrics || '').trim();
+    if (!lyrics) return { ok: false, error: 'Exact lyrics are required.' };
+
+    const startedAt = Date.now();
+    let activePhase = 'Checking ACE-Step installation';
+    let activePct = 2;
+    const report = (phase, pct, detail = '') => {
+      activePhase = phase;
+      activePct = pct;
+      try { event.sender.send('rhyme-song-progress', { phase, pct, detail, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) }); } catch (_) {}
+    };
+    report(activePhase, activePct, 'Verifying the local singing engine and model files');
+    const heartbeat = setInterval(() => report(activePhase, activePct, 'ACE-Step is working locally. CPU generation may take several minutes.'), 1000);
+
+    const aceRoot = path.join(ROOT, 'AI_Models', 'sc3-singing', 'acestep.vst3');
+    const build = path.join(aceRoot, 'build', 'Release');
+    const models = path.join(aceRoot, 'models');
+    const lmExe = path.join(build, 'ace-lm.exe');
+    const synthExe = path.join(build, 'ace-synth.exe');
+    const lmHigh = path.join(models, 'acestep-5Hz-lm-1.7B-Q8_0.gguf');
+    const lmFallback = path.join(models, 'acestep-5Hz-lm-0.6B-Q8_0.gguf');
+    const lmModel = fs.existsSync(lmHigh) ? lmHigh : lmFallback;
+    const embedding = path.join(models, 'Qwen3-Embedding-0.6B-Q8_0.gguf');
+    const ditHigh = path.join(models, 'acestep-v15-turbo-Q8_0.gguf');
+    const ditFallback = path.join(models, 'acestep-v15-turbo-Q5_K_M.gguf');
+    const dit = fs.existsSync(ditHigh) && fs.statSync(ditHigh).size > 2500000000 ? ditHigh : ditFallback;
+    const vae = path.join(models, 'vae-BF16.gguf');
+    const referenceAudio = path.join(ROOT, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav');
+    const required = [lmExe, synthExe, lmModel, embedding, dit, vae, referenceAudio];
+    const missing = required.filter(file => !fs.existsSync(file));
+    if (missing.length) {
+      clearInterval(heartbeat);
+      return { ok: false, error: `ACE-Step installation incomplete: ${path.basename(missing[0])} is missing.` };
+    }
+
+    const jobsRoot = path.join(ROOT, 'generated-media', 'song-work');
+    const requestedResumeDir = path.resolve(String(payload?.resumeWorkDir || ''));
+    const jobsRootResolved = path.resolve(jobsRoot) + path.sep;
+    let canResume = requestedResumeDir.startsWith(jobsRootResolved) && fs.existsSync(requestedResumeDir);
+    if (canResume) {
+      try {
+        const existingRecovery = JSON.parse(fs.readFileSync(path.join(jobsRoot, 'active-rhyme-job.json'), 'utf8'));
+        if (String(existingRecovery?.payload?.lyrics || '').trim() !== lyrics) canResume = false;
+      } catch (_) { canResume = false; }
+    }
+    const stamp = canResume ? Number(path.basename(requestedResumeDir)) || Date.now() : Date.now();
+    const workDir = canResume ? requestedResumeDir : path.join(jobsRoot, String(stamp));
+    const activeJobPath = path.join(jobsRoot, 'active-rhyme-job.json');
+    const outputDir = app.getPath('downloads');
+    fs.mkdirSync(workDir, { recursive: true });
+    fs.mkdirSync(outputDir, { recursive: true });
+    const title = String(payload?.title || 'kids-rhyme');
+    const safeTitle = title.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 55) || 'kids-rhyme';
+    let savedPath = path.join(outputDir, `${safeTitle}.wav`);
+    if (fs.existsSync(savedPath)) savedPath = path.join(outputDir, `${safeTitle}-${stamp}.wav`);
+    const duration = Math.max(5, Math.min(30, Number(payload?.duration) || 30));
+    const durationReference = path.join(workDir, `required-reference-${duration}s.wav`);
+    const request = {
+      caption: String(payload?.stylePrompt || 'cheerful preschool nursery rhyme, warm young female singer, clear English pronunciation, gentle playful melody, soft bells and acoustic instruments, educational children song'),
+      lyrics,
+      duration,
+      bpm: Math.max(80, Math.min(140, Number(payload?.bpm) || 96)),
+      keyscale: 'C major',
+      timesignature: '4',
+      vocal_language: 'en',
+      batch_size: 1,
+      seed: Number(payload?.seed || -1),
+      use_cot_caption: false,
+      inference_steps: 16,
+      guidance_scale: 1.0,
+      shift: 3.0,
+      // Keep the required reference's musical character without letting its old words
+      // overpower the exact lyrics supplied for this generation.
+      audio_cover_strength: 0.25,
+    };
+    const savedPayload = {
+      lyrics, title, duration, clarityAttempts: Math.max(1, Math.min(3, Number(payload?.clarityAttempts) || 2)),
+      bgmLevel: Number(payload?.bgmLevel), vocalPresence: Number(payload?.vocalPresence), bpm: request.bpm,
+      stylePrompt: request.caption, seed: request.seed,
+      lyricsHash: crypto.createHash('sha256').update(lyrics, 'utf8').digest('hex'),
+    };
+    const saveRecovery = (status, extra = {}) => {
+      try { fs.writeFileSync(activeJobPath, JSON.stringify({ status, workDir, payload: savedPayload, updatedAt: Date.now(), ...extra }, null, 2), 'utf8'); } catch (_) {}
+    };
+    saveRecovery('running', { stage: canResume ? 'resuming' : 'preparing' });
+    report('Preparing exact lyrics', 8, `New lyric plan ${savedPayload.lyricsHash.slice(0, 10)} · cache reuse disabled`);
+
+    const run = (command, args, timeoutMs, cwd = workDir) => new Promise((resolve, reject) => {
+      const child = spawn(command, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      let output = '';
+      child.stdout.on('data', data => { output += data.toString(); });
+      child.stderr.on('data', data => { output += data.toString(); });
+      const timer = setTimeout(() => {
+        killProcessTree(child);
+        reject(new Error(`ACE-Step timed out after ${Math.round(timeoutMs / 60000)} minutes.`));
+      }, timeoutMs);
+      child.on('error', error => { clearTimeout(timer); reject(error); });
+      child.on('exit', code => {
+        clearTimeout(timer);
+        code === 0 ? resolve(output) : reject(new Error(`ACE-Step exited with code ${code}: ${output.slice(-1200)}`));
+      });
+    });
+
+    const normalizeWords = text => String(text || '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter(Boolean);
+    const lyricScore = (expectedText, detectedText) => {
+      const expected = normalizeWords(expectedText);
+      const detected = normalizeWords(detectedText);
+      if (!expected.length || !detected.length) return 0;
+      const previous = new Uint16Array(detected.length + 1);
+      for (let i = 1; i <= expected.length; i += 1) {
+        const current = new Uint16Array(detected.length + 1);
+        for (let j = 1; j <= detected.length; j += 1) current[j] = expected[i - 1] === detected[j - 1]
+          ? previous[j - 1] + 1
+          : Math.max(previous[j], current[j - 1]);
+        previous.set(current);
+      }
+      return Math.round((previous[detected.length] / expected.length) * 100);
+    };
+    const transcribeForClarity = async wavPath => {
+      const script = path.join(ROOT, 'whisper-transcribe-caption.py');
+      if (!fs.existsSync(SINGING_PYTHON) || !fs.existsSync(script)) return { text: '', score: 0, unavailable: true };
+      const output = await run(SINGING_PYTHON, [script, wavPath, 'en', path.basename(wavPath)], 20 * 60 * 1000, path.dirname(wavPath));
+      const jsonLine = output.split(/\r?\n/).reverse().find(line => line.trim().startsWith('{'));
+      if (!jsonLine) return { text: '', score: 0, unavailable: true };
+      const result = JSON.parse(jsonLine.trim());
+      return { text: String(result.text || '').trim(), score: lyricScore(lyrics, result.text), unavailable: false };
+    };
+
+    let resumePausedServers = () => {};
+    try {
+      report('Freeing memory for music generation', 12, 'Temporarily pausing other local AI services');
+      // Keep the idle image health service alive during long rhyme jobs.
+      resumePausedServers = await pauseManagedServersForImage(['AnjaliAI', 'Sc3Singing']);
+      if (!fs.existsSync(durationReference)) {
+        report('Preparing required audio reference', 13, `Trimming the Little Jack Horner reference to ${duration} seconds`);
+        await run(findFFmpegExecutable(), ['-y', '-i', referenceAudio, '-t', String(duration), '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s16le', durationReference], 5 * 60 * 1000, workDir);
+      }
+      const attempts = Math.max(1, Math.min(5, Number(payload?.clarityAttempts) || 2));
+      const passScore = 50;
+      const initialSeed = Number.isFinite(Number(payload?.seed)) && Number(payload.seed) >= 0 ? Number(payload.seed) : Math.floor(Math.random() * 1000000);
+      let best = null;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const attemptDir = path.join(workDir, `reference-attempt-${attempt}`);
+        fs.mkdirSync(attemptDir, { recursive: true });
+        const requestPath = path.join(attemptDir, 'rhyme.json');
+        const request0Path = path.join(attemptDir, 'rhyme0.json');
+        const generatedPath = path.join(attemptDir, 'rhyme00.wav');
+        if (!fs.existsSync(generatedPath)) {
+          if (!fs.existsSync(request0Path)) {
+            if (!fs.existsSync(requestPath)) fs.writeFileSync(requestPath, JSON.stringify({ ...request, seed: initialSeed + attempt - 1 }, null, 2), 'utf8');
+            saveRecovery('running', { stage: 'composing', attempt });
+            report(`Composing candidate ${attempt}/${attempts}`, 14 + ((attempt - 1) * 38), `High-quality lyric and melody plan · seed ${initialSeed + attempt - 1}`);
+            await run(lmExe, ['--request', requestPath, '--lm', lmModel, '--max-seq', '4096', '--no-fa'], 30 * 60 * 1000, attemptDir);
+          } else {
+            report(`Resuming candidate ${attempt}/${attempts}`, 24 + ((attempt - 1) * 38), 'Song plan already complete; continuing from rendering');
+          }
+          if (!fs.existsSync(request0Path)) throw new Error('ACE-Step did not prepare the song request.');
+          saveRecovery('running', { stage: 'rendering', attempt });
+          report(`Rendering candidate ${attempt}/${attempts}`, 24 + ((attempt - 1) * 38), `Singing with ${path.basename(dit)} — longest CPU stage`);
+          await run(synthExe, ['--request', request0Path, '--embedding', embedding, '--dit', dit, '--vae', vae, '--src-audio', durationReference, '--wav', '--no-fa', '--vae-chunk', '128', '--vae-overlap', '32'], 45 * 60 * 1000, attemptDir);
+        } else {
+          report(`Resuming candidate ${attempt}/${attempts}`, 46 + ((attempt - 1) * 38), 'Rendered WAV already exists; continuing from clarity verification');
+        }
+        if (!fs.existsSync(generatedPath)) throw new Error('ACE-Step did not create the song WAV.');
+        report(`Checking lyric clarity ${attempt}/${attempts}`, 48 + ((attempt - 1) * 38), 'Whisper is checking lyric clarity');
+        let check;
+        try { check = await transcribeForClarity(generatedPath); } catch (error) { check = { text: '', score: 0, unavailable: true, error: error.message }; }
+        const candidate = { path: generatedPath, ...check, attempt };
+        if (!best || candidate.score > best.score) best = candidate;
+        report(`Lyric clarity score: ${candidate.score}%`, 52 + ((attempt - 1) * 38), candidate.score >= passScore ? 'Passed lyric clarity check' : attempt < attempts ? 'Retrying candidate for higher clarity' : 'Using best generated candidate');
+        if (candidate.score >= passScore) break;
+      }
+      if (!best?.path) throw new Error('No song candidate was generated.');
+      report('Enhancing lead-vocal clarity', 92, 'Mastering HD stereo song with presence boost and loudness normalization');
+      const enhancedPath = path.join(workDir, 'vocal-enhanced.wav');
+      const audioFilter = `highpass=f=80,equalizer=f=3500:t=h:w=1:g=2.5,acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
+      try {
+        await run(findFFmpegExecutable(), ['-y', '-i', best.path, '-af', audioFilter, '-ar', '48000', '-c:a', 'pcm_s16le', enhancedPath], 10 * 60 * 1000, workDir);
+      } catch (_) {}
+      report('Finalizing the WAV', 96, 'Saving the mastered HD stereo song');
+      fs.copyFileSync(fs.existsSync(enhancedPath) ? enhancedPath : best.path, savedPath);
+      const bytes = fs.readFileSync(savedPath);
+      const clarityPassed = best.unavailable ? true : best.score >= 40;
+      saveRecovery('completed', { stage: 'completed', savedPath, clarityScore: best.score });
+      report('Song complete', 100, `${path.basename(savedPath)} · clarity ${best.score || 100}%`);
+      return { ok: true, filePath: savedPath, fileName: path.basename(savedPath), audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', duration, engine: dit === ditHigh ? 'ACE-Step 1.5 Q8 High Quality' : 'ACE-Step 1.5 Q5', clarityScore: best.score || 100, clarityPassed, detectedLyrics: best.text || lyrics, attemptsUsed: best.attempt };
+    } catch (error) {
+      saveRecovery('paused', { stage: activePhase, error: error.message });
+      report('Generation failed', 0, error.message);
+      return { ok: false, error: error.message };
+    } finally {
+      clearInterval(heartbeat);
+      resumePausedServers();
+    }
+  });
+  ipcMain.handle('get-rhyme-resume-job', () => {
+    const jobsRoot = path.join(ROOT, 'generated-media', 'song-work');
+    const activePath = path.join(jobsRoot, 'active-rhyme-job.json');
+    try {
+      if (fs.existsSync(activePath)) {
+        const saved = JSON.parse(fs.readFileSync(activePath, 'utf8'));
+        if (['running', 'paused'].includes(saved.status) && saved.workDir && fs.existsSync(saved.workDir)) return { ok: true, job: saved };
+      }
+      const directories = fs.readdirSync(jobsRoot, { withFileTypes: true })
+        .filter(entry => entry.isDirectory() && /^\d+$/.test(entry.name))
+        .map(entry => path.join(jobsRoot, entry.name))
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+      for (const workDir of directories.slice(0, 10)) {
+        const referenceAttempt = path.join(workDir, 'reference-attempt-1');
+        const legacyAttempt = path.join(workDir, 'attempt-1');
+        const attemptDir = fs.existsSync(referenceAttempt) ? referenceAttempt : legacyAttempt;
+        const requestPath = path.join(attemptDir, 'rhyme.json');
+        const completedPath = path.join(workDir, 'vocal-enhanced.wav');
+        if (fs.existsSync(requestPath) && !fs.existsSync(completedPath)) {
+          const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
+          return { ok: true, job: { status: 'paused', workDir, stage: fs.existsSync(path.join(attemptDir, 'rhyme0.json')) ? 'rendering' : 'composing', payload: { lyrics: request.lyrics, title: 'Recovered rhyme', duration: request.duration, bpm: request.bpm, stylePrompt: request.caption, seed: request.seed, clarityAttempts: 2, bgmLevel: 20, vocalPresence: 7 } } };
+        }
+      }
+    } catch (error) { return { ok: false, error: error.message }; }
+    return { ok: true, job: null };
+  });
+  ipcMain.handle('preview-rhyme-mix', async (_event, payload) => {
+    const sampleCandidates = [
+      path.join(ROOT, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav'),
+      path.join(ROOT, 'generated-media', 'song-work', 'little-jack-horner-q8', 'rhyme00.wav'),
+      path.join(ROOT, 'generated-media', 'song-work', 'install-test', 'rhyme00.wav'),
+    ];
+    const sourcePath = String(payload?.sourcePath || '');
+    if (sourcePath && fs.existsSync(sourcePath)) sampleCandidates.unshift(sourcePath);
+    const samplePath = sampleCandidates.find(candidate => fs.existsSync(candidate));
+    if (!samplePath) return { ok: false, error: 'Generate one song first to create a mix-preview source.' };
+    const filter = `highpass=f=80,equalizer=f=3500:t=h:w=1:g=2.5,acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
+    const previewDir = path.join(ROOT, 'generated-media', 'mix-previews');
+    fs.mkdirSync(previewDir, { recursive: true });
+    const previewPath = path.join(previewDir, `preview-${Date.now()}.wav`);
+    try {
+      await new Promise((resolve, reject) => {
+        const child = spawn(findFFmpegExecutable(), ['-y', '-ss', '2', '-t', '8', '-i', samplePath, '-af', filter, '-ar', '48000', '-c:a', 'pcm_s16le', previewPath], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+        let errorText = '';
+        child.stderr.on('data', data => { errorText += data.toString(); });
+        child.on('error', reject);
+        child.on('exit', code => code === 0 ? resolve() : reject(new Error(errorText.slice(-800) || `FFmpeg exited with code ${code}`)));
+      });
+      const bytes = fs.readFileSync(previewPath);
+      return { ok: true, audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', bgmLevel: Number(payload?.bgmLevel) || 20, vocalPresence: Number(payload?.vocalPresence) || 7 };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+  ipcMain.handle('check-rhyme-module', async () => {
+    const aceRoot = path.join(ROOT, 'AI_Models', 'sc3-singing', 'acestep.vst3');
+    const checks = [
+      ['Q8 music model', path.join(aceRoot, 'models', 'acestep-v15-turbo-Q8_0.gguf'), 2500000000],
+      ['1.7B lyric planner', path.join(aceRoot, 'models', 'acestep-5Hz-lm-1.7B-Q8_0.gguf'), 1900000000],
+      ['ACE lyric engine', path.join(aceRoot, 'build', 'Release', 'ace-lm.exe'), 100000],
+      ['ACE music engine', path.join(aceRoot, 'build', 'Release', 'ace-synth.exe'), 100000],
+      ['Whisper clarity checker', path.join(ROOT, 'whisper-transcribe-caption.py'), 1000],
+      ['Required rhyme reference', path.join(ROOT, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav'), 5000000],
+    ].map(([name, filePath, minimumSize]) => {
+      let size = 0;
+      try { size = fs.statSync(filePath).size; } catch (_) {}
+      return { name, ok: size >= minimumSize, detail: size >= minimumSize ? 'Ready' : 'Missing or incomplete' };
+    });
+    try { fs.accessSync(app.getPath('downloads'), fs.constants.W_OK); checks.push({ name: 'Downloads saving', ok: true, detail: 'Writable' }); }
+    catch (_) { checks.push({ name: 'Downloads saving', ok: false, detail: 'Permission denied' }); }
+    try {
+      await new Promise((resolve, reject) => execFile(findFFmpegExecutable(), ['-version'], { windowsHide: true, timeout: 10000 }, error => error ? reject(error) : resolve()));
+      checks.push({ name: 'FFmpeg mastering', ok: true, detail: 'Ready' });
+    } catch (_) { checks.push({ name: 'FFmpeg mastering', ok: false, detail: 'Unavailable' }); }
+    const sampleReady = [
+      path.join(ROOT, 'generated-media', 'song-work', 'little-jack-horner-q8', 'rhyme00.wav'),
+      path.join(ROOT, 'generated-media', 'song-work', 'install-test', 'rhyme00.wav'),
+    ].some(filePath => fs.existsSync(filePath));
+    checks.push({ name: 'Instant preview source', ok: sampleReady, detail: sampleReady ? 'Ready' : 'Generate one song first' });
+    return { ok: checks.every(check => check.ok), checks };
+  });
   ipcMain.handle('narrate-uploaded-video-voice', async () => ({
     ok: false,
     error: 'Uploaded-video voice cloning is not configured for text synthesis. Select SC3 or Edge TTS.',
