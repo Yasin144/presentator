@@ -48,6 +48,31 @@ if (!window.electronAPI) {
     },
 
     // Autonomous Super Agent & Presentation
+    presentatorAgentGenerateImage: async (args) => {
+      try {
+        const prompt = String(args?.prompt || args?.caption || 'cute kittens').trim();
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
+        const res = await fetch(imageUrl);
+        const blob = await res.blob();
+        const reader = new FileReader();
+        const base64 = await new Promise((resolve, reject) => {
+          reader.onloadend = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        return {
+          ok: true,
+          fileName: `${prompt.replace(/[^a-z0-9]+/gi, '-').slice(0, 30)}.png`,
+          imagePath: imageUrl,
+          imageBase64: base64,
+          mimeType: blob.type || 'image/png',
+          seed: 42,
+          elapsedSeconds: 2
+        };
+      } catch (err) {
+        return { ok: false, error: err.message || 'Image generation failed.' };
+      }
+    },
     presentatorAgentThink: async () => ({ ok: true, response: 'Mobile Agent Active' }),
     presentatorAgentCancel: async () => ({ ok: true }),
     presentatorAgentStopProcess: async () => ({ ok: true }),

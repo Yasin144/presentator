@@ -2,6 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'pattan-agent-studio-v1';
 const MAX_ROUNDS = 20;
+const AVAILABLE_AGENT_TOOLS = new Set(['inspect_state', 'list_files', 'read_file', 'write_file', 'search_in_files', 'diff_files', 'list_checkpoints', 'restore_checkpoint', 'validate_web_app', 'inspect_code', 'apply_code_patch', 'run_terminal_command', 'restart_application', 'analyze_code', 'run_build_check', 'check_servers', 'read_diagnostics', 'restart_server', 'open_code_canvas', 'generate_image', 'create_animated_video', 'finish']);
+const AGENT_TOOL_ALIASES = {
+  create_image: 'generate_image',
+  image_generation: 'generate_image',
+  generate_picture: 'generate_image',
+  make_image: 'generate_image',
+  animate_image: 'create_animated_video',
+  create_video: 'create_animated_video',
+  code_canvas: 'open_code_canvas',
+  open_canvas: 'open_code_canvas',
+  terminal: 'run_terminal_command',
+  shell: 'run_terminal_command',
+  build: 'run_build_check',
+};
 
 const DAILY_ACTIONS = [
   { icon: 'wrench', label: 'Health Check', prompt: 'Check every Presentator server and important workflow. Report only failures, risks, and the exact next action.' },
@@ -214,7 +228,7 @@ function CodeCanvas({ canvas, onChange, onClose }) {
   );
 }
 
-function MissionDashboard({ mission, onClose, liveStatus, liveElapsed }) {
+function MissionDashboard({ mission, onClose, onStop, liveStatus, liveElapsed, liveProgress }) {
   if (!mission) return null;
   const elapsed = mission.finishedAt && mission.startedAt
     ? Math.max(0, Math.round((mission.finishedAt - mission.startedAt) / 1000))
@@ -226,7 +240,10 @@ function MissionDashboard({ mission, onClose, liveStatus, liveElapsed }) {
       <div className="w-full max-w-4xl max-h-[85vh] overflow-hidden rounded-2xl border border-white/10 bg-[#0d1018] shadow-2xl flex flex-col">
         <header className="h-16 shrink-0 px-5 flex items-center justify-between border-b border-white/10 bg-[#121622]">
           <div><div className="text-sm font-black">Mission Control</div><div className="text-[10px] text-emerald-400 uppercase tracking-widest">Super Agent execution telemetry</div></div>
-          <button onClick={onClose} className="w-9 h-9 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center"><Icon name="close" size={15} /></button>
+          <div className="flex items-center gap-2">
+            {!mission.finishedAt && <button onClick={onStop} className="h-9 px-4 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-black flex items-center gap-2 shadow-lg shadow-red-900/30"><Icon name="stop" size={14}/> STOP PROCESS</button>}
+            <button onClick={onClose} className="w-9 h-9 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center"><Icon name="close" size={15} /></button>
+          </div>
         </header>
         <div className="p-5 overflow-y-auto dark-scrollbar space-y-5">
           <div className="rounded-xl border border-white/5 bg-white/[0.025] p-4">
@@ -235,8 +252,8 @@ function MissionDashboard({ mission, onClose, liveStatus, liveElapsed }) {
           </div>
           {!mission.finishedAt && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-start justify-between gap-4">
-              <div><div className="text-[10px] uppercase tracking-widest text-blue-300/60">Working now</div><div className="mt-1.5 text-sm text-blue-100">{liveStatus || mission.status}</div><div className="mt-1 text-[11px] text-white/40">The local model returns its plan as one complete response, so token-by-token progress is unavailable. Completed tools appear below immediately.</div></div>
-              <span className="shrink-0 font-mono text-sm text-blue-300">{liveElapsed}s</span>
+              <div className="flex-1"><div className="text-[10px] uppercase tracking-widest text-blue-300/60">Working now</div><div className="mt-1.5 text-sm text-blue-100">{liveStatus || mission.status}</div><div className="mt-3 h-2 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500 transition-all duration-500" style={{ width: `${Math.max(2, Number(liveProgress || 0))}%` }} /></div></div>
+              <span className="shrink-0 font-mono text-sm text-blue-300">{Math.round(liveProgress || 0)}% • {liveElapsed}s</span>
             </div>
           )}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -252,7 +269,7 @@ function MissionDashboard({ mission, onClose, liveStatus, liveElapsed }) {
             <div className="rounded-xl border border-white/5 bg-[#111520] p-4">
               <div className="flex justify-between text-[11px] font-bold"><span>Execution log</span><span className="text-white/40">{successfulTools} passed • {failedTools} failed</span></div>
               <div className="mt-3 space-y-2 max-h-72 overflow-y-auto dark-scrollbar">
-                {mission.tools.length ? mission.tools.map((item, index) => <div key={`${item.tool}-${index}`} className="flex items-start gap-2 rounded-lg bg-black/20 px-3 py-2 text-[11px]"><span className={item.ok ? 'text-emerald-400' : 'text-red-400'}>{item.ok ? '✓' : '!'}</span><div className="min-w-0"><div className="font-mono text-white/80 truncate">{item.tool}</div>{item.error && <div className="text-red-300/80 mt-1 break-words">{item.error}</div>}</div></div>) : <div className="text-[11px] text-white/30">Waiting for tool execution…</div>}
+                {mission.tools.length ? mission.tools.map((item, index) => <div key={`${item.tool}-${index}`} className="flex items-start gap-2 rounded-lg bg-black/20 px-3 py-2 text-[11px]"><span className={item.ok ? 'text-emerald-400' : 'text-red-400'}>{item.ok ? '✓' : '!'}</span><div className="min-w-0"><div className="font-mono text-white/80 truncate">{item.tool}</div>{item.error && <div className="text-red-300/80 mt-1 break-words">{item.error}</div>}</div></div>) : mission.activeTool ? <div className="flex items-center gap-2 rounded-lg bg-blue-500/10 px-3 py-2 text-[11px] text-blue-200"><span className="animate-spin">◌</span><span className="font-mono">{mission.activeTool}</span><span className="text-white/40">running now</span></div> : <div className="text-[11px] text-white/30">Waiting for tool execution…</div>}
               </div>
             </div>
             <div className="rounded-xl border border-white/5 bg-[#111520] p-4 space-y-3">
@@ -289,6 +306,7 @@ export default function AgentStudio() {
   const [missionOpen, setMissionOpen] = useState(false);
   const [operationStartedAt, setOperationStartedAt] = useState(0);
   const [operationElapsed, setOperationElapsed] = useState(0);
+  const [videoApiKey, setVideoApiKey] = useState(() => window.localStorage.getItem('presentator.magicHourApiKey') || '');
   const cancelledRef = useRef(false);
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
@@ -299,6 +317,18 @@ export default function AgentStudio() {
     () => chats.find(chat => chat.id === activeId) || chats[0],
     [chats, activeId]
   );
+
+  const stopCurrentMission = async () => {
+    cancelledRef.current = true;
+    setStatus('Stopping all active Super Agent work…');
+    setMission(current => current ? { ...current, status: 'Stopping now' } : current);
+    try { await window.electronAPI?.presentatorAgentStopProcess?.(); }
+    catch (_) { await window.electronAPI?.presentatorAgentCancel?.(); }
+    setBusy(false);
+    setOperationStartedAt(0);
+    setMission(current => current ? { ...current, status: 'Stopped safely', finishedAt: Date.now() } : current);
+    setStatus('Stopped safely');
+  };
 
   useEffect(() => {
     if (!activeId && chats[0]) setActiveId(chats[0].id);
@@ -364,6 +394,14 @@ export default function AgentStudio() {
     const api = window.electronAPI;
     if (!api?.onPresentatorAgentProgress) return undefined;
     const handleBrainProgress = progressEvent => {
+      if (progressEvent?.stage === 'media') {
+        const nextStatus = String(progressEvent?.label || 'Generating media locally');
+        const exactProgress = Math.max(1, Math.min(99, Number(progressEvent?.percent || 1)));
+        setStatus(nextStatus);
+        setProgress(exactProgress);
+        setMission(current => current ? { ...current, status: nextStatus, reasoningProfile: String(progressEvent?.profile || current.reasoningProfile) } : current);
+        return;
+      }
       const characters = Number(progressEvent?.generatedCharacters || 0);
       const profile = String(progressEvent?.profile || 'fast');
       const nextStatus = progressEvent?.stage === 'parsing'
@@ -587,26 +625,45 @@ export default function AgentStudio() {
       };
     }
     if (tool === 'generate_image') {
-      const generated = await withProgress('Generating high-quality local image', 150000, () =>
-        window.electronAPI.presentatorAgentGenerateImage(args)
-      );
-      if (generated?.ok) {
-        addAsset({
-          kind: 'image',
-          name: generated.fileName,
-          path: generated.imagePath,
-          preview: `data:${generated.mimeType};base64,${generated.imageBase64}`,
-        });
-        return {
-          tool,
-          ok: true,
-          imagePath: generated.imagePath,
-          fileName: generated.fileName,
-          seed: generated.seed,
-          elapsedSeconds: generated.elapsedSeconds,
-        };
+      try {
+        const fn = window.electronAPI?.presentatorAgentGenerateImage;
+        const generated = fn
+          ? await withProgress('Generating high-quality image', 150000, () => fn(args))
+          : await withProgress('Generating AI image', 15000, async () => {
+              const prompt = String(args?.prompt || args?.caption || 'cute kittens').trim();
+              const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
+              const res = await fetch(imageUrl);
+              const blob = await res.blob();
+              const reader = new FileReader();
+              const base64 = await new Promise((res, rej) => {
+                reader.onloadend = () => res(reader.result.split(',')[1]);
+                reader.onerror = rej;
+                reader.readAsDataURL(blob);
+              });
+              return { ok: true, fileName: 'generated-image.png', imagePath: imageUrl, imageBase64: base64, mimeType: 'image/png' };
+            });
+        if (generated?.ok) {
+          addAsset({
+            kind: 'image',
+            name: generated.fileName,
+            path: generated.imagePath,
+            preview: `data:${generated.mimeType || 'image/png'};base64,${generated.imageBase64}`,
+          });
+          return {
+            tool,
+            ok: true,
+            imagePath: generated.imagePath,
+            fileName: generated.fileName,
+            seed: generated.seed,
+            elapsedSeconds: generated.elapsedSeconds,
+          };
+        }
+        const errText = typeof generated?.error === 'object' ? JSON.stringify(generated.error) : String(generated?.error || 'Image generation failed.');
+        return { tool, ok: false, error: errText };
+      } catch (err) {
+        const errMsg = typeof err === 'object' ? (err.message || JSON.stringify(err)) : String(err);
+        return { tool, ok: false, error: errMsg };
       }
-      return { tool, ok: false, error: generated?.error || 'Image generation failed.' };
     }
     if (tool === 'create_animated_video') {
       const video = await withProgress('Creating eight-second video', 8000, () =>
@@ -647,11 +704,15 @@ export default function AgentStudio() {
     let videoCreated = false;
     let codeCanvasOpened = false;
     const validationImages = [];
-    const isCodeRequest = /\b(code|coding|app|application|website|webpage|component|game|dashboard|calculator|script|program|html|css|javascript|typescript|python|react|software|developer|develop)\b/i.test(request);
-    const isVisualCodeRequest = /\b(app|application|website|webpage|component|game|dashboard|calculator|html|css|javascript|react)\b/i.test(request);
-    const isDirectImageRequest = /\b(create|generate|make|draw|design|produce)\b[\s\S]{0,80}\b(image|picture|photo|illustration|artwork|poster|wallpaper)\b/i.test(request)
-      && !/\b(video|animate|animation|mp4|website|webpage|app|application|code)\b/i.test(request);
     const wantsVideo = /\b(video|animate|animation|mp4|8[- ]?second)\b/i.test(request);
+    const explicitImageRequest = /\b(create|generate|make|draw|design|produce)\b[\s\S]{0,100}\b(image|picture|photo|illustration|artwork|poster|wallpaper|scene|render)\b/i.test(request);
+    // Explicit image generation always wins over incidental words such as
+    // "app", "website", or "canvas" that may merely describe image usage.
+    const isCodeRequest = !explicitImageRequest && !wantsVideo && /\b(code|coding|app|application|website|webpage|component|game|dashboard|calculator|script|program|html|css|javascript|typescript|python|react|software|developer|develop)\b/i.test(request);
+    const isVisualCodeRequest = !explicitImageRequest && !wantsVideo && /\b(app|application|website|webpage|component|game|dashboard|calculator|html|css|javascript|react)\b/i.test(request);
+    const visualSubjectRequest = /\b(moon|stars?|sun|sky|space|planet|galaxy|landscape|mountain|ocean|forest|animal|kitten|cat|dog|flower|portrait|character|castle|house|car|background|wallpaper|poster|logo|illustration|artwork|picture|photo|image)\b/i.test(request)
+      && !/\b(explain|describe|define|what is|why|how|question|code|website|webpage|app|application)\b/i.test(request);
+    const isDirectImageRequest = (explicitImageRequest || visualSubjectRequest) && !wantsVideo;
     const uploadedImagePath = activeChat.references.find(reference => reference.kind === 'image')?.filePath || '';
     const conversation = conversationOverride || [
       ...activeChat.messages,
@@ -666,7 +727,89 @@ export default function AgentStudio() {
     setMission({ objective: request, status: instantCanvas ? 'Starter canvas ready; AI is refining' : 'Running', reasoningProfile: isVisualCodeRequest ? 'fast' : '', round: 0, tools: instantCanvas ? [{ tool: 'instant_code_canvas', ok: true, error: '' }] : [], canvasOpened: Boolean(instantCanvas), browserValidated: false, buildValidated: false, startedAt: Date.now(), finishedAt: 0 });
 
     try {
+      if (wantsVideo) {
+        setCodeCanvas(null);
+        codeCanvasOpened = false;
+        if (!videoApiKey.trim()) {
+          const unavailableMessage = 'Paste your free Magic Hour API key in the Video API field below, then submit this prompt again.';
+          setMission(current => current ? {
+            ...current, round: 1, status: 'Free video API key required', reasoningProfile: 'true text-to-video', activeTool: '',
+            tools: [{ tool: 'generate_video', ok: false, error: unavailableMessage }], finishedAt: Date.now(),
+          } : current);
+          addMessage('assistant', unavailableMessage);
+          setStatus('Free video API key required');
+          return;
+        }
+        setMission(current => current ? { ...current, round: 1, status: 'Submitting original video generation', reasoningProfile: 'Magic Hour LTX 2.3', activeTool: 'generate_video' } : current);
+        const videoOutcome = await withProgress('Generating original 8-second AI video', 600000, () =>
+          window.electronAPI.presentatorAgentGenerateTrueVideo({ prompt: request, apiKey: videoApiKey.trim(), duration: 8 })
+        );
+        setMission(current => current ? {
+          ...current,
+          status: videoOutcome?.ok ? 'Original 8-second video created' : 'Video generation failed',
+          reasoningProfile: 'Magic Hour LTX 2.3',
+          activeTool: '',
+          tools: [{ tool: 'generate_video', ok: Boolean(videoOutcome?.ok), error: videoOutcome?.ok ? '' : String(videoOutcome?.error || 'Video generation failed') }],
+          finishedAt: Date.now(),
+        } : current);
+        if (!videoOutcome?.ok) throw new Error(videoOutcome?.error || 'True video generation failed.');
+        addAsset({ kind: 'video', name: videoOutcome.fileName, path: videoOutcome.videoPath });
+        addMessage('assistant', `Original 8-second AI video created: ${videoOutcome.fileName}.`, {
+          model: 'Magic Hour LTX 2.3',
+          thinking: 'Generated new moving frames directly from the exact prompt.',
+          plan: ['Submit exact prompt', 'Generate moving frames', 'Download MP4 and show preview'],
+          actions: [{ tool: 'generate_video', args: { prompt: request, duration: 8 } }],
+        });
+        setStatus('Ready');
+        return;
+        /* Disabled legacy still-image animation pipeline. Retained temporarily for migration.
+        const imageAction = {
+          tool: 'generate_image',
+          args: {
+            prompt: `${request}. Cinematic motion-ready keyframe, clear subject, dynamic composition, premium 3D presentation quality`,
+            negativePrompt: 'blurry, pixelated, distorted, malformed, low quality, watermark, text, logo, static composition',
+            seed: 0,
+          },
+          reason: 'Create the exact visual scene requested as the source for the eight-second video.',
+        };
+        const imageOutcome = await executeAction(imageAction);
+        setMission(current => current ? {
+          ...current,
+          status: imageOutcome?.ok ? 'Animating scene into 8-second video' : 'Video scene generation failed', activeTool: imageOutcome?.ok ? 'create_animated_video' : '',
+          tools: [...current.tools, { tool: imageAction.tool, ok: Boolean(imageOutcome?.ok), error: imageOutcome?.ok ? '' : String(imageOutcome?.error || 'Tool failed') }],
+        } : current);
+        if (!imageOutcome?.ok) throw new Error(imageOutcome?.error || 'Video scene generation failed.');
+
+        const videoAction = {
+          tool: 'create_animated_video',
+          args: {
+            imagePath: imageOutcome.imagePath,
+            fileName: `prompt-video-${Date.now()}.mp4`,
+            prompt: request,
+          },
+          reason: 'Render the generated scene as an eight-second cinematic MP4.',
+        };
+        const videoOutcome = await executeAction(videoAction);
+        setMission(current => current ? {
+          ...current,
+          status: videoOutcome?.ok ? '8-second video created' : 'Video rendering failed',
+          tools: [...current.tools, { tool: videoAction.tool, ok: Boolean(videoOutcome?.ok), error: videoOutcome?.ok ? '' : String(videoOutcome?.error || 'Tool failed') }],
+          finishedAt: Date.now(), activeTool: '',
+        } : current);
+        if (!videoOutcome?.ok) throw new Error(videoOutcome?.error || 'Video rendering failed.');
+        addMessage('assistant', `8-second video created successfully: ${videoOutcome.fileName}.`, {
+          model: 'Local cinematic video generator',
+          thinking: 'The video request was routed directly from the exact prompt without opening Code Canvas.',
+          plan: ['Generate the requested scene', 'Animate it into an 8-second MP4', 'Save and display the result'],
+          actions: [imageAction, videoAction],
+        });
+        setStatus('Ready');
+        return;
+        */
+      }
       if (isDirectImageRequest) {
+        setCodeCanvas(null);
+        codeCanvasOpened = false;
         setMission(current => current ? { ...current, round: 1, status: 'Starting image generator', reasoningProfile: 'direct' } : current);
         const imageAction = {
           tool: 'generate_image',
@@ -742,17 +885,28 @@ export default function AgentStudio() {
         }
 
         toolResults = [];
+        let invalidToolReturned = false;
         for (const action of actions.slice(0, 5)) {
           if (cancelledRef.current) break;
-          const normalizedAction = action?.tool === 'create_animated_video'
+          const rawTool = String(action?.tool || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+          const resolvedTool = AGENT_TOOL_ALIASES[rawTool] || rawTool;
+          if (!AVAILABLE_AGENT_TOOLS.has(resolvedTool)) {
+            invalidToolReturned = true;
+            const invalidAction = { tool: rawTool || 'missing_tool', args: action?.args || {}, reason: action?.reason || 'Planner returned an invalid tool name.' };
+            toolResults.push({ action: invalidAction, outcome: { ok: false, error: `Invalid tool "${rawTool || 'blank'}". Return a corrected action using an exact available tool name.` } });
+            setMission(current => current ? { ...current, status: 'Repairing invalid action plan' } : current);
+            continue;
+          }
+          const resolvedAction = { ...action, tool: resolvedTool, args: action?.args || {}, reason: action?.reason || '' };
+          const normalizedAction = resolvedAction.tool === 'create_animated_video'
             ? {
-                ...action,
+                ...resolvedAction,
                 args: {
-                  ...(action.args || {}),
-                  imagePath: action.args?.imagePath || latestGeneratedImagePath,
+                  ...(resolvedAction.args || {}),
+                  imagePath: resolvedAction.args?.imagePath || latestGeneratedImagePath,
                 },
               }
-            : action;
+            : resolvedAction;
           if (normalizedAction?.tool === 'create_animated_video' && videoCreated) {
             toolResults.push({
               action: normalizedAction,
@@ -784,6 +938,7 @@ export default function AgentStudio() {
           }
           toolResults.push({ action: normalizedAction, outcome });
         }
+        if (invalidToolReturned && !cancelledRef.current) continue;
         const videoSourcePath = latestGeneratedImagePath || uploadedImagePath;
         if (wantsVideo && videoSourcePath && !videoCreated && !cancelledRef.current) {
           const videoAction = {
@@ -867,7 +1022,7 @@ export default function AgentStudio() {
         importFiles(event.dataTransfer.files);
       }}
     >
-      <MissionDashboard mission={missionOpen ? mission : null} liveStatus={status} liveElapsed={operationElapsed} onClose={() => setMissionOpen(false)} />
+      <MissionDashboard mission={missionOpen ? mission : null} liveStatus={status} liveElapsed={operationElapsed} liveProgress={progress} onStop={stopCurrentMission} onClose={() => setMissionOpen(false)} />
       <CodeCanvas
         canvas={codeCanvas}
         onChange={code => setCodeCanvas(current => current ? { ...current, code } : current)}
@@ -1028,6 +1183,11 @@ export default function AgentStudio() {
         {/* Bottom Input Area */}
         <div className="shrink-0 px-6 pb-6 pt-2 bg-gradient-to-t from-[#0a0b10] via-[#0a0b10]/95 to-transparent">
           <div className="max-w-3xl mx-auto">
+            <div className="mb-2 flex items-center gap-2 rounded-xl border border-violet-500/15 bg-violet-500/5 px-3 py-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-violet-300">Video API</span>
+              <input type="password" value={videoApiKey} onChange={event => { const value = event.target.value; setVideoApiKey(value); window.localStorage.setItem('presentator.magicHourApiKey', value); }} placeholder="Paste free Magic Hour API key" className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-white/25" />
+              <a href="https://magichour.ai/developer" target="_blank" rel="noreferrer" className="text-[10px] font-bold text-cyan-300 hover:underline">Get free key</a>
+            </div>
             {progress > 0 && (
               <div className="mb-4 rounded-2xl border border-white/5 bg-[#121420]/90 backdrop-blur px-4.5 py-3.5 shadow-2xl shadow-emerald-500/5">
                 <div className="flex items-center gap-3.5">
@@ -1122,7 +1282,7 @@ export default function AgentStudio() {
                   <span className="text-[10px] text-white/30 font-medium">Add references (PDF, text, images, MP4)</span>
                 </div>
                 {busy ? (
-                  <button onClick={async () => { cancelledRef.current = true; setStatus('Stopping now'); await window.electronAPI?.presentatorAgentCancel?.(); }} className="w-9 h-9 rounded-full bg-emerald-500 text-black hover:bg-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 transition-all" title="Stop now">
+                  <button onClick={stopCurrentMission} className="w-9 h-9 rounded-full bg-red-600 text-white hover:bg-red-500 flex items-center justify-center shadow-lg shadow-red-900/30 transition-all" title="Stop process now">
                     <Icon name="stop" size={15} />
                   </button>
                 ) : (
