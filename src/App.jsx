@@ -118,6 +118,19 @@ function App() {
     updatedAt: ''
   });
   const [copiedNotice, setCopiedNotice] = useState('');
+  const [tunnelSecs, setTunnelSecs] = useState(0);
+
+  useEffect(() => {
+    let timer;
+    if (!mobileLinkData.mobileUrl) {
+      timer = setInterval(() => {
+        setTunnelSecs(prev => (prev < 10 ? prev + 1 : prev));
+      }, 1000);
+    } else {
+      setTunnelSecs(0);
+    }
+    return () => clearInterval(timer);
+  }, [mobileLinkData.mobileUrl]);
 
   useEffect(() => {
     const fetchMobileLink = async () => {
@@ -132,7 +145,7 @@ function App() {
       } catch (_) {}
     };
     fetchMobileLink();
-    const interval = setInterval(fetchMobileLink, 3000);
+    const interval = setInterval(fetchMobileLink, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -953,9 +966,22 @@ function App() {
                 <span style={{ fontSize: '11px', fontWeight: 900, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🌐 4G / 5G Mobile Data Link (Anywhere)</span>
                 <span style={{ fontSize: '10px', background: '#38bdf822', color: '#38bdf8', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>LIVE ENCRYPTED</span>
               </div>
-              <div style={{ fontSize: '13px', fontFamily: 'monospace', background: '#0a0d18', padding: '10px 12px', borderRadius: '10px', color: '#e2e8f0', wordBreak: 'break-all', marginBottom: '8px' }}>
-                {mobileLinkData.mobileUrl || 'Starting Cloudflare tunnel...'}
-              </div>
+              {mobileLinkData.mobileUrl ? (
+                <div style={{ fontSize: '13px', fontFamily: 'monospace', background: '#0a0d18', padding: '10px 12px', borderRadius: '10px', color: '#e2e8f0', wordBreak: 'break-all', marginBottom: '8px' }}>
+                  {mobileLinkData.mobileUrl}
+                </div>
+              ) : (
+                <div style={{ background: '#0a0d18', padding: '12px', borderRadius: '12px', marginBottom: '8px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 800, color: '#38bdf8', marginBottom: '6px' }}>
+                    <span>⏳ Starting Secure Cloudflare Tunnel...</span>
+                    <span>{tunnelSecs}s / Est. 3-5s</span>
+                  </div>
+                  <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min(95, Math.max(15, (tunnelSecs / 5) * 100))}%`, background: 'linear-gradient(90deg, #38bdf8, #818cf8)', transition: 'width 0.4s ease' }} />
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: '10px', color: '#94a3b8', textAlign: 'center' }}>Connecting encrypted 4G/5G mobile tunnel in background...</p>
+                </div>
+              )}
               <button
                 type="button"
                 disabled={!mobileLinkData.mobileUrl}
