@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemInfo: () =>
     ipcRenderer.invoke('get-system-info'),
 
+  // Get live mobile link
+  getMobileLink: () =>
+    ipcRenderer.invoke('get-mobile-link'),
+
   // ── Autonomous Super Agent ──────────────────────────────────────────────────
   // Model credentials stay in the main process.
 

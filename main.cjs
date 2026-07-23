@@ -3950,6 +3950,27 @@ ipcMain.handle('open-file', async (event, filePath) => {
   }
 });
 
+  ipcMain.handle('get-mobile-link', async () => {
+    const linkFile = path.join(ROOT, 'temp', 'active-mobile-link.json');
+    const pubFile = path.join(ROOT, 'public', 'mobile-link.json');
+    const getWifiIp = () => {
+      const ifaces = os.networkInterfaces();
+      for (const k of Object.keys(ifaces)) {
+        for (const f of ifaces[k]) {
+          if (f.family === 'IPv4' && !f.internal) return f.address;
+        }
+      }
+      return '192.168.29.161';
+    };
+    let data = { wifiUrl: `http://${getWifiIp()}:8433`, mobileUrl: ``, updatedAt: new Date().toISOString() };
+    if (fs.existsSync(linkFile)) {
+      try { data = JSON.parse(fs.readFileSync(linkFile, 'utf8')); } catch (_) {}
+    } else if (fs.existsSync(pubFile)) {
+      try { data = JSON.parse(fs.readFileSync(pubFile, 'utf8')); } catch (_) {}
+    }
+    return data;
+  });
+
   // ————————————— IPC: Get server health status ———————————————————————————————————
   ipcMain.handle('get-server-health', async () => {
     const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, sc3SingingAlive, imageGeneratorAlive, viteAlive] = await Promise.all([
@@ -4008,6 +4029,29 @@ app.whenReady().then(async () => {
   // This fixes absolute-path script loading (/script.js Ã¢â€ â€™ D:\voice\script.js)
   protocol.handle('app', (request) => {
     const url = new URL(request.url);
+    if (url.pathname.includes('/api/mobile-link') || url.pathname.includes('/mobile-link.json')) {
+      const linkFile = path.join(ROOT, 'temp', 'active-mobile-link.json');
+      const pubFile = path.join(ROOT, 'public', 'mobile-link.json');
+      const getWifiIp = () => {
+        const ifaces = os.networkInterfaces();
+        for (const k of Object.keys(ifaces)) {
+          for (const f of ifaces[k]) {
+            if (f.family === 'IPv4' && !f.internal) return f.address;
+          }
+        }
+        return '192.168.29.161';
+      };
+      let data = { wifiUrl: `http://${getWifiIp()}:8433`, mobileUrl: ``, updatedAt: new Date().toISOString() };
+      if (fs.existsSync(linkFile)) {
+        try { data = JSON.parse(fs.readFileSync(linkFile, 'utf8')); } catch (_) {}
+      } else if (fs.existsSync(pubFile)) {
+        try { data = JSON.parse(fs.readFileSync(pubFile, 'utf8')); } catch (_) {}
+      }
+      return new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
     const relativePath = url.pathname.replace(/^\/+/, '');
     const filePath = path.join(ROOT, relativePath);
     const MIME = {

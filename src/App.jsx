@@ -135,8 +135,21 @@ function App() {
   useEffect(() => {
     const fetchMobileLink = async () => {
       try {
-        const res = await fetch('/api/mobile-link');
-        if (res.ok) {
+        if (window.electronAPI?.getMobileLink) {
+          const ipcData = await window.electronAPI.getMobileLink();
+          if (ipcData?.mobileUrl || ipcData?.wifiUrl) {
+            setMobileLinkData(ipcData);
+            return;
+          }
+        }
+        let res = await fetch('/api/mobile-link').catch(() => null);
+        if (!res || !res.ok) {
+          res = await fetch('http://127.0.0.1:8433/api/mobile-link').catch(() => null);
+        }
+        if (!res || !res.ok) {
+          res = await fetch('/mobile-link.json').catch(() => null);
+        }
+        if (res && res.ok) {
           const json = await res.json();
           if (json?.mobileUrl || json?.wifiUrl) {
             setMobileLinkData(json);

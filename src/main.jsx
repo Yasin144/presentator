@@ -14,6 +14,15 @@ if (!window.electronAPI) {
     showItemInFolder: async () => {},
     getSystemInfo: async () => ({ platform: 'mobile-web', cpus: 8, memory: 16 }),
     getServerHealth: async () => ({ ok: true, status: 'online', cpu: '10%', ram: '3.8GB', disk: '75%' }),
+    getMobileLink: async () => {
+      try {
+        let res = await fetch('/api/mobile-link').catch(() => null);
+        if (!res || !res.ok) res = await fetch('http://127.0.0.1:8433/api/mobile-link').catch(() => null);
+        if (!res || !res.ok) res = await fetch('/mobile-link.json').catch(() => null);
+        if (res && res.ok) return await res.json();
+      } catch (_) {}
+      return { wifiUrl: 'http://192.168.29.161:5173', mobileUrl: '' };
+    },
     showNotification: (title, body) => console.log('[Mobile Notice]', title, body),
 
     // Rhyme Generator Web Bridge
