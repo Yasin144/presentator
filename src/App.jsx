@@ -960,15 +960,74 @@ function App() {
               </div>
             )}
 
-            {/* 4G / 5G Mobile Data Link */}
+            {/* Action Bar: Generate / Refresh Button */}
+            <div style={{ marginBottom: '14px' }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  setCopiedNotice('⚡ Refreshing live mobile connection link...');
+                  try {
+                    const res = await fetch('/api/mobile-link');
+                    if (res.ok) {
+                      const json = await res.json();
+                      if (json?.mobileUrl || json?.wifiUrl) setMobileLinkData(json);
+                    }
+                  } catch (_) {}
+                  setTimeout(() => setCopiedNotice(''), 2500);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '14px',
+                  border: '1px solid rgba(103, 232, 249, 0.4)',
+                  background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+                  color: '#fff',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 20px rgba(14, 165, 233, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                <span>⚡</span> Generate / Refresh Link & QR Code
+              </button>
+            </div>
+
+            {/* 4G / 5G Mobile Data Link & QR Code (Simultaneous) */}
             <div style={{ background: '#141a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '14px', marginBottom: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 900, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🌐 4G / 5G Mobile Data Link (Anywhere)</span>
                 <span style={{ fontSize: '10px', background: '#38bdf822', color: '#38bdf8', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>LIVE ENCRYPTED</span>
               </div>
               {mobileLinkData.mobileUrl ? (
-                <div style={{ fontSize: '13px', fontFamily: 'monospace', background: '#0a0d18', padding: '10px 12px', borderRadius: '10px', color: '#e2e8f0', wordBreak: 'break-all', marginBottom: '8px' }}>
-                  {mobileLinkData.mobileUrl}
+                <div>
+                  <div style={{ fontSize: '13px', fontFamily: 'monospace', background: '#0a0d18', padding: '10px 12px', borderRadius: '10px', color: '#e2e8f0', wordBreak: 'break-all', marginBottom: '8px' }}>
+                    {mobileLinkData.mobileUrl}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(mobileLinkData.mobileUrl);
+                      setCopiedNotice('✅ 4G/5G Mobile Link Copied! Paste on your phone.');
+                      setTimeout(() => setCopiedNotice(''), 3000);
+                    }}
+                    style={{ width: '100%', padding: '10px', borderRadius: '10px', border: 0, background: 'linear-gradient(135deg, #0284c7, #2563eb)', color: '#fff', fontWeight: 900, cursor: 'pointer', fontSize: '13px', marginBottom: '12px' }}
+                  >
+                    📋 Copy 4G/5G Mobile Link
+                  </button>
+
+                  {/* QR Code Displayed Simultaneously */}
+                  <div style={{ textAlign: 'center', background: '#0a0d18', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', marginBottom: '6px' }}>📷 Scan with Phone Camera to Open Instantly:</div>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(mobileLinkData.mobileUrl)}`}
+                      alt="Mobile Access QR Code"
+                      style={{ width: '140px', height: '140px', borderRadius: '12px', background: '#fff', padding: '6px', margin: 'auto', display: 'block' }}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div style={{ background: '#0a0d18', padding: '12px', borderRadius: '12px', marginBottom: '8px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
@@ -982,18 +1041,6 @@ function App() {
                   <p style={{ margin: '6px 0 0', fontSize: '10px', color: '#94a3b8', textAlign: 'center' }}>Connecting encrypted 4G/5G mobile tunnel in background...</p>
                 </div>
               )}
-              <button
-                type="button"
-                disabled={!mobileLinkData.mobileUrl}
-                onClick={() => {
-                  navigator.clipboard.writeText(mobileLinkData.mobileUrl);
-                  setCopiedNotice('✅ 4G/5G Mobile Link Copied! Paste on your phone.');
-                  setTimeout(() => setCopiedNotice(''), 3000);
-                }}
-                style={{ width: '100%', padding: '10px', borderRadius: '10px', border: 0, background: 'linear-gradient(135deg, #0284c7, #2563eb)', color: '#fff', fontWeight: 900, cursor: 'pointer', fontSize: '13px' }}
-              >
-                📋 Copy 4G/5G Mobile Link
-              </button>
             </div>
 
             {/* Home Wi-Fi Link */}
@@ -1017,18 +1064,6 @@ function App() {
                 📋 Copy Home Wi-Fi Link
               </button>
             </div>
-
-            {/* QR Code Section */}
-            {mobileLinkData.mobileUrl && (
-              <div style={{ textAlign: 'center', background: '#0a0d18', padding: '14px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', marginBottom: '8px' }}>📷 Scan with phone camera to open app:</div>
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(mobileLinkData.mobileUrl)}`}
-                  alt="Mobile Access QR Code"
-                  style={{ width: '150px', height: '150px', borderRadius: '12px', background: '#fff', padding: '6px', margin: 'auto' }}
-                />
-              </div>
-            )}
 
             <div style={{ marginTop: '14px', textAlign: 'center', fontSize: '10px', color: '#64748b' }}>
               Auto-syncs live Cloudflare session links every 3 seconds.
