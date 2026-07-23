@@ -214,17 +214,33 @@ export default function RhymeGenerator() {
           stylePrompt: overrides.stylePrompt || `premium studio-quality preschool nursery rhyme, ${singerStyle}, extremely clear English diction, every lyric pronounced distinctly, slow simple phrasing, dry lead vocals loud and centered far above the accompaniment, minimal gentle instruments, no choir, no backing vocals, no vocal effects`,
         });
         if (generated?.ok && generated.audioBase64) {
-          const blob = base64ToBlob(generated.audioBase64, generated.mimeType || 'audio/wav');
+          const blob = base64ToBlob(generated.audioBase64, generated.mimeType || 'audio/mp3');
           if (musicUrl) URL.revokeObjectURL(musicUrl);
           setMusicBlob(blob);
-          setMusicUrl(URL.createObjectURL(blob));
+          const newUrl = URL.createObjectURL(blob);
+          setMusicUrl(newUrl);
+          const firstLine = (songLyrics.trim().split(/\r?\n/)[0] || 'kids-rhyme').replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 40);
+          const activeFileName = generated.fileName || generated.filename || `${firstLine}-${targetDuration}sec.mp3`;
           const clarityLabel = generated.clarityPassed === true
             ? `clarity passed ${generated.clarityScore}%`
             : `clarity score ${generated.clarityScore || 100}%`;
-          setStatus(`Complete · ${generated.engine} · ${clarityLabel} · saved to Downloads as ${generated.fileName}`);
+          setStatus(`Complete · ${generated.engine || '4K Mobile Engine'} · ${clarityLabel} · saved as ${activeFileName}`);
           setSelectedDuration(targetDuration);
+
+          // On mobile web browser, trigger automatic download of the generated MP3
+          if (!window.electronAPI?.showSaveDialog) {
+            try {
+              const a = document.createElement('a');
+              a.href = newUrl;
+              a.download = activeFileName;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+            } catch (_) {}
+          }
+
           try {
-            window.electronAPI?.showNotification?.('Rhyme Song Complete', `${generated.fileName} · ${clarityLabel}`);
+            window.electronAPI?.showNotification?.('Rhyme Song Complete', `${activeFileName} · ${clarityLabel}`);
             window.speechSynthesis?.cancel();
             window.speechSynthesis?.speak(new SpeechSynthesisUtterance('Complete'));
           } catch (_) {}

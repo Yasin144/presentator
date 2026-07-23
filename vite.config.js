@@ -68,12 +68,18 @@ export default defineConfig({
             req.on('end', () => {
               try {
                 const payload = JSON.parse(body || '{}');
-                const rawText = String(payload.lyrics || payload.text || payload.prompt || 'Roses are red, Violets are blue, Sugar is sweet, And so are you.').replace(/['"\r\n]+/g, ' ');
+                const rawText = String(payload.lyrics || payload.text || payload.prompt || 'Twinkle twinkle little star, how I wonder what you are.').replace(/['"\r\n]+/g, ' ');
                 const voice = String(payload.singerVoice || payload.voice || 'en-US-AnaNeural');
                 const pitch = String(payload.pitch || '+2Hz');
                 const bgmLevelNum = Number(payload.bgmLevel ?? 50);
                 const bgmVol = Math.max(0.25, Math.min(0.9, (bgmLevelNum / 100) * 0.85)).toFixed(2);
                 const targetDuration = Math.max(5, Math.min(30, Number(payload.duration) || 30));
+
+                const firstLine = rawText.split(/\r?\n/)[0] || 'kids-rhyme';
+                const songTitle = String(payload.title || firstLine);
+                const safeTitle = songTitle.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'kids-rhyme';
+                const dynamicFileName = `${safeTitle}-${targetDuration}sec.mp3`;
+
                 const bgmPath = path.join(__dirname, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav');
                 const tempDir = path.join(__dirname, 'temp');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
@@ -90,7 +96,7 @@ export default defineConfig({
                   const base64 = audioBuffer.toString('base64');
                   try { if (fs.existsSync(tmpVocal)) fs.unlinkSync(tmpVocal); if (fs.existsSync(finalMp3)) fs.unlinkSync(finalMp3); } catch(_) {}
                   res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-                  res.end(JSON.stringify({ ok: true, audioBase64: base64, mimeType: 'audio/mp3', filename: 'kids-rhyme-30sec.mp3', engine: 'ACE-Step Q8 + 4K BGM Master' }));
+                  res.end(JSON.stringify({ ok: true, audioBase64: base64, mimeType: 'audio/mp3', fileName: dynamicFileName, filename: dynamicFileName, engine: 'ACE-Step Q8 + 4K BGM Master' }));
                   return;
                 }
               } catch (err) {
