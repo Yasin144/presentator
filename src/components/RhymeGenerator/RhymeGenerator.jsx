@@ -173,16 +173,22 @@ export default function RhymeGenerator() {
 
   const previewAdvancedMix = async () => {
     setPreviewBusy(true);
-    setStatus(`Preparing 8-second preview · BGM ${bgmLevel}% · vocal presence ${vocalPresence}/10…`);
+    setStatus(`Preparing 8-second preview · BGM ${bgmLevel}% · vocal presence ${vocalPresence}/10 · Singer: ${singerStyle} · ${tempo} BPM…`);
     try {
-      const result = await window.electronAPI?.previewRhymeMix?.({ bgmLevel, vocalPresence });
+      const result = await window.electronAPI?.previewRhymeMix?.({ bgmLevel, vocalPresence, singerStyle, bpm: tempo });
       if (!result?.ok || !result.audioBase64) throw new Error(result?.error || 'Preview service unavailable.');
       const blob = base64ToBlob(result.audioBase64, result.mimeType || 'audio/wav');
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       const url = URL.createObjectURL(blob);
       setPreviewUrl(url);
-      setStatus(`New mix preview ready · BGM ${bgmLevel}% · vocal presence ${vocalPresence}/10. Singer and tempo apply only during full generation.`);
-      setTimeout(() => document.getElementById('rhyme-mix-preview')?.play().catch(() => {}), 50);
+      setStatus(`New mix preview ready · BGM ${bgmLevel}% · Vocal presence ${vocalPresence}/10 · ${singerStyle} · ${tempo} BPM.`);
+      setTimeout(() => {
+        const player = document.getElementById('rhyme-mix-preview');
+        if (player) {
+          player.currentTime = 0;
+          player.play().catch(() => {});
+        }
+      }, 50);
     } catch (error) {
       setStatus(`Preview failed: ${error.message}`);
     } finally { setPreviewBusy(false); }

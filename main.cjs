@@ -2560,10 +2560,27 @@ async function createWindow() {
     const requestedPresence = Number(payload?.vocalPresence);
     const bgmLevel = Math.max(0, Math.min(100, Number.isFinite(requestedBgm) ? requestedBgm : 20));
     const presence = Math.max(0, Math.min(10, Number.isFinite(requestedPresence) ? requestedPresence : 7));
-    const eqGain = (-1.0 + (presence * 0.6)).toFixed(1);
-    const bgmEq = (-6.0 + (bgmLevel / 100) * 8.0).toFixed(1);
-    const overallVol = (0.75 + (presence * 0.04) + (bgmLevel / 100) * 0.25).toFixed(2);
-    const filter = `highpass=f=80,equalizer=f=400:t=q:w=1:g=${bgmEq},equalizer=f=3500:t=h:w=1:g=${eqGain},volume=${overallVol},acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
+    const singerStyle = String(payload?.singerStyle || '').toLowerCase();
+    const bpm = Math.max(80, Math.min(140, Number(payload?.bpm) || 96));
+
+    let pitchFilter = '';
+    if (singerStyle.includes('male')) {
+      pitchFilter = 'asetrate=48000*0.815,atempo=1.227,';
+    } else if (singerStyle.includes('child')) {
+      pitchFilter = 'asetrate=48000*1.189,atempo=0.841,';
+    }
+
+    let tempoFilter = '';
+    const speedRatio = bpm / 96.0;
+    if (Math.abs(speedRatio - 1.0) > 0.03) {
+      tempoFilter = `atempo=${speedRatio.toFixed(2)},`;
+    }
+
+    const presenceEq = (-4.0 + (presence * 1.2)).toFixed(1);
+    const bgmEq = (-12.0 + (bgmLevel / 100) * 18.0).toFixed(1);
+    const overallVol = (0.65 + (presence * 0.05) + (bgmLevel / 100) * 0.45).toFixed(2);
+
+    const filter = `${pitchFilter}${tempoFilter}highpass=f=80,equalizer=f=350:t=q:w=1:g=${bgmEq},equalizer=f=3500:t=h:w=1:g=${presenceEq},volume=${overallVol},acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
     const previewDir = path.join(ROOT, 'generated-media', 'mix-previews');
     fs.mkdirSync(previewDir, { recursive: true });
     const previewPath = path.join(previewDir, `preview-${Date.now()}.wav`);
@@ -2576,7 +2593,7 @@ async function createWindow() {
         child.on('exit', code => code === 0 ? resolve() : reject(new Error(errorText.slice(-800) || `FFmpeg exited with code ${code}`)));
       });
       const bytes = fs.readFileSync(previewPath);
-      return { ok: true, audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', bgmLevel, vocalPresence: presence };
+      return { ok: true, audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', bgmLevel, vocalPresence: presence, singerStyle, bpm };
     } catch (error) {
       return { ok: false, error: error.message };
     }
