@@ -6,6 +6,7 @@ import PresentationApp from './components/Presentation/PresentationApp';
 import AgentStudio from './components/AgentStudio/AgentStudio';
 import DirectorStudio from './components/Director/DirectorStudio';
 import MyExporter from './components/MyExporter/MyExporter';
+import RhymeGenerator from './components/RhymeGenerator/RhymeGenerator';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
@@ -105,7 +106,7 @@ function App() {
   const [captionOpen, setCaptionOpen]   = useState(false);
   const [captionResetKey, setCaptionResetKey] = useState(0);
   const [style, setStyle]               = useState(loadStyle);
-  const [currentModule, setCurrentModule] = useState('presentator'); // presentator | errorChecker | presentation | agent | director | exporter
+  const [currentModule, setCurrentModule] = useState('presentator'); // presentator | errorChecker | presentation | agent | rhyme | director | exporter
   const [hideHeader, setHideHeader]     = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -117,6 +118,7 @@ function App() {
     { id: 'nav-checker', category: '🧭 Navigation', title: 'Go to Checker', desc: 'Perform AI script consistency & error check', action: () => { setCaptionOpen(false); setCurrentModule('errorChecker'); } },
     { id: 'nav-presentation', category: '🧭 Navigation', title: 'Go to Presentation Mode', desc: 'Run presenter view with slide transitions', action: () => { setCaptionOpen(false); setCurrentModule('presentation'); } },
     { id: 'nav-agent', category: '🧭 Navigation', title: 'Go to Super Agent Studio', desc: 'Interact with AI agent tools & diagnostics', action: () => { setCaptionOpen(false); setCurrentModule('agent'); } },
+    { id: 'nav-rhyme', category: '🧭 Navigation', title: 'Go to Rhyme Generator', desc: 'Create 30-second preschool lyrics and music', action: () => { setCaptionOpen(false); setCurrentModule('rhyme'); } },
     { id: 'nav-director', category: '🧭 Navigation', title: 'Go to AI Director', desc: 'Assemble projects & timeline templates', action: () => { setCaptionOpen(false); setCurrentModule('director'); } },
     { id: 'nav-exporter', category: '🧭 Navigation', title: 'Go to My Exporter', desc: 'Compile final video with voice, logo & captions', action: () => { window.dispatchEvent(new Event('pp:close-translate-audio')); setCaptionOpen(false); setCurrentModule('exporter'); } },
     
@@ -310,13 +312,16 @@ function App() {
           padding: '0 12px',
           background: '#090d16',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
-          height: '50px',
+          minHeight: '50px',
           boxSizing: 'border-box',
           position: 'fixed',
           top: 0,
           left: 0,
           right: 0,
-          zIndex: 9999
+          zIndex: 9999,
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          maxWidth: '100vw'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 800, color: '#f97316', letterSpacing: '0.3px', fontFamily: "system-ui" }}>🎤 PATTAN</span>
@@ -414,6 +419,19 @@ function App() {
                 fontFamily: "system-ui"
               }}
             >Super Agent</button>
+            <button
+              className="app-nav-button"
+              data-active={currentModule === 'rhyme'}
+              onClick={() => { setCaptionOpen(false); setCurrentModule('rhyme'); }}
+              style={{
+                padding: '6px 14px', borderRadius: '20px', border: 'none',
+                background: currentModule === 'rhyme' ? 'linear-gradient(135deg,#f472b6,#fbbf24)' : 'transparent',
+                color: currentModule === 'rhyme' ? '#241006' : 'rgba(255,255,255,0.5)',
+                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: currentModule === 'rhyme' ? '0 4px 12px rgba(244,114,182,0.28)' : 'none',
+                fontFamily: 'system-ui'
+              }}
+            >Rhyme Maker</button>
             <button
               className="app-nav-button"
               data-active={currentModule === 'director'}
@@ -616,6 +634,13 @@ function App() {
         <div style={{ display: (!captionOpen && currentModule === 'agent') ? 'block' : 'none', height: '100%', paddingTop: '50px', boxSizing: 'border-box' }}>
           <ModuleErrorBoundary moduleName="Super Agent">
             <AgentStudio />
+          </ModuleErrorBoundary>
+        </div>
+
+        {/* ── 30-second Kids Rhyme Generator ── */}
+        <div style={{ display: (!captionOpen && currentModule === 'rhyme') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
+          <ModuleErrorBoundary moduleName="Rhyme Generator">
+            <RhymeGenerator />
           </ModuleErrorBoundary>
         </div>
 
