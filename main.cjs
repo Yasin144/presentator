@@ -2317,6 +2317,15 @@ async function createWindow() {
   ipcMain.handle('narrate-sc3-tts', async (_event, payload) => narrateWithSc3(payload));
   ipcMain.handle('narrate-sc3-text', async (_event, payload) => narrateWithSc3(payload));
 
+  let activeRhymeChild = null;
+  ipcMain.handle('cancel-rhyme-song', () => {
+    if (activeRhymeChild) {
+      try { killProcessTree(activeRhymeChild); } catch (_) {}
+      activeRhymeChild = null;
+    }
+    return { ok: true, cancelled: true };
+  });
+
   ipcMain.handle('generate-rhyme-song', async (event, payload) => {
     const lyrics = String(payload?.lyrics || '').trim();
     if (!lyrics) return { ok: false, error: 'Exact lyrics are required.' };
@@ -2407,16 +2416,19 @@ async function createWindow() {
 
     const run = (command, args, timeoutMs, cwd = workDir) => new Promise((resolve, reject) => {
       const child = spawn(command, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      activeRhymeChild = child;
       let output = '';
       child.stdout.on('data', data => { output += data.toString(); });
       child.stderr.on('data', data => { output += data.toString(); });
       const timer = setTimeout(() => {
         killProcessTree(child);
+        activeRhymeChild = null;
         reject(new Error(`ACE-Step timed out after ${Math.round(timeoutMs / 60000)} minutes.`));
       }, timeoutMs);
-      child.on('error', error => { clearTimeout(timer); reject(error); });
+      child.on('error', error => { clearTimeout(timer); activeRhymeChild = null; reject(error); });
       child.on('exit', code => {
         clearTimeout(timer);
+        activeRhymeChild = null;
         code === 0 ? resolve(output) : reject(new Error(`ACE-Step exited with code ${code}: ${output.slice(-1200)}`));
       });
     });

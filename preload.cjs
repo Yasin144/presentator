@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   presentatorAgentCancel: () =>
     ipcRenderer.invoke('presentator-agent-cancel'),
+  presentatorAgentStopProcess: () =>
+    ipcRenderer.invoke('presentator-agent-stop-process'),
 
   onPresentatorAgentProgress: (callback) => {
     const handler = (_, data) => callback(data);
@@ -84,6 +86,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   presentatorAgentCreateVideo: (request) =>
     ipcRenderer.invoke('presentator-agent-create-video', request),
+
+  presentatorAgentGenerateTrueVideo: (request) =>
+    ipcRenderer.invoke('presentator-agent-generate-true-video', request),
 
   presentatorAgentImportReference: (request) =>
     ipcRenderer.invoke('presentator-agent-import-reference', request),
@@ -146,6 +151,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   narrateSc3Tts: (payload) =>
     ipcRenderer.invoke('narrate-sc3-tts', payload),
+
+  // Genuine ACE-Step text-to-song generation. Supplied lyrics are preserved.
+  generateRhymeSong: (payload) =>
+    ipcRenderer.invoke('generate-rhyme-song', payload),
+
+  cancelRhymeSong: () =>
+    ipcRenderer.invoke('cancel-rhyme-song'),
+
+  previewRhymeMix: (payload) =>
+    ipcRenderer.invoke('preview-rhyme-mix', payload),
+
+  checkRhymeModule: () =>
+    ipcRenderer.invoke('check-rhyme-module'),
+  getRhymeResumeJob: () =>
+    ipcRenderer.invoke('get-rhyme-resume-job'),
+
+  onRhymeSongProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on('rhyme-song-progress', handler);
+    return () => ipcRenderer.removeListener('rhyme-song-progress', handler);
+  },
 
   narrateUploadedVideoVoice: (payload) =>
     ipcRenderer.invoke('narrate-uploaded-video-voice', payload),
