@@ -2467,7 +2467,7 @@ async function createWindow() {
         report('Preparing required audio reference', 13, `Trimming the Little Jack Horner reference to ${duration} seconds`);
         await run(findFFmpegExecutable(), ['-y', '-i', referenceAudio, '-t', String(duration), '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s16le', durationReference], 5 * 60 * 1000, workDir);
       }
-      const attempts = Math.max(1, Math.min(5, Number(payload?.clarityAttempts) || 2));
+      const attempts = Math.max(1, Math.min(5, Number(payload?.clarityAttempts) || 1));
       const passScore = 50;
       const initialSeed = Number.isFinite(Number(payload?.seed)) && Number(payload.seed) >= 0 ? Number(payload.seed) : Math.floor(Math.random() * 1000000);
       let best = null;
