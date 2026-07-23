@@ -68,35 +68,44 @@ export default defineConfig({
             req.on('end', () => {
               try {
                 const payload = JSON.parse(body || '{}');
-                const rawText = String(payload.lyrics || payload.text || payload.prompt || 'Twinkle twinkle little star, how I wonder what you are.').replace(/['"\r\n]+/g, ' ');
-                const voice = String(payload.singerVoice || payload.voice || 'en-US-AnaNeural');
-                const pitch = String(payload.pitch || '+2Hz');
-                const bgmLevelNum = Number(payload.bgmLevel ?? 50);
-                const bgmVol = Math.max(0.25, Math.min(0.9, (bgmLevelNum / 100) * 0.85)).toFixed(2);
-                const targetDuration = Math.max(5, Math.min(30, Number(payload.duration) || 30));
-
-                const firstLine = rawText.split(/\r?\n/)[0] || 'kids-rhyme';
-                const songTitle = String(payload.title || firstLine);
-                const safeTitle = songTitle.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'kids-rhyme';
-                const dynamicFileName = `${safeTitle}-${targetDuration}sec.mp3`;
-
-                const bgmPath = path.join(__dirname, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav');
+                const stamp = Date.now();
+                payload.stamp = stamp;
+                
                 const tempDir = path.join(__dirname, 'temp');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-                const tmpVocal = path.join(tempDir, `_vocal_${Date.now()}.wav`);
-                const finalMp3 = path.join(tempDir, `_song_${Date.now()}.mp3`);
+                const reqFile = path.join(tempDir, `_req_${stamp}.json`);
+                fs.writeFileSync(reqFile, JSON.stringify(payload, null, 2), 'utf8');
 
-                const pyCode = `import os, sys, asyncio, subprocess, edge_tts; bgm = r'${bgmPath}'; final_mp3 = r'${finalMp3}'; tmp_vocal = r'${tmpVocal}'; text = '''${rawText}'''; asyncio.run(edge_tts.Communicate(text, '${voice}', rate='-5%', pitch='${pitch}').save(tmp_vocal)); complex_filter = '[0:a]highpass=f=100,equalizer=f=320:t=q:w=1.5:g=-5.0,equalizer=f=3800:t=h:w=1:g=6.5,equalizer=f=8000:t=h:w=1:g=4.0,acompressor=threshold=-15dB:ratio=3:attack=8:release=120,volume=1.2,apad=pad_len=48000*30[vocal];[1:a]volume=${bgmVol},equalizer=f=3000:t=q:w=1:g=-2.0[bgm];[vocal][bgm]amix=inputs=2:duration=longest:dropout_transition=0.5,atrim=0:${targetDuration},afade=t=out:st=${targetDuration - 1}:d=1,loudnorm=I=-14:TP=-0.5:LRA=7[out]'; cmd = ['ffmpeg', '-y', '-i', tmp_vocal, '-i', bgm, '-filter_complex', complex_filter, '-map', '[out]', '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', final_mp3]; subprocess.run(cmd, capture_output=True)`;
-                
+                const scriptPath = path.join(__dirname, 'scripts', 'generate_mobile_rhyme.py');
                 const { execSync } = require('child_process');
-                execSync(`python -c "${pyCode.replace(/"/g, '\\"')}"`, { stdio: 'ignore' });
+                const pyOut = execSync(`python "${scriptPath}" "${reqFile}"`, { encoding: 'utf8', timeout: 30000 });
+                const result = JSON.parse(pyOut.trim() || '{}');
 
-                if (fs.existsSync(finalMp3)) {
-                  const audioBuffer = fs.readFileSync(finalMp3);
+                if (result.ok && result.finalMp3 && fs.existsSync(result.finalMp3)) {
+                  const rawText = String(payload.lyrics || payload.text || payload.prompt || 'kids-rhyme').trim();
+                  const firstLine = rawText.split(/\r?\n/)[0] || 'kids-rhyme';
+                  const songTitle = String(payload.title || firstLine);
+                  const safeTitle = songTitle.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'kids-rhyme';
+                  const targetDuration = Math.max(5, Math.min(30, Number(payload.duration) || 30));
+                  const dynamicFileName = `${safeTitle}-${targetDuration}sec.mp3`;
+
+                  const audioBuffer = fs.readFileSync(result.finalMp3);
                   const base64 = audioBuffer.toString('base64');
-                  try { if (fs.existsSync(tmpVocal)) fs.unlinkSync(tmpVocal); if (fs.existsSync(finalMp3)) fs.unlinkSync(finalMp3); } catch(_) {}
+                  try {
+                    if (fs.existsSync(reqFile)) fs.unlinkSync(reqFile);
+                    if (result.tmpVocal && fs.existsSync(result.tmpVocal)) fs.unlinkSync(result.tmpVocal);
+                    if (fs.existsSync(result.finalMp3)) fs.unlinkSync(result.finalMp3);
+                  } catch(_) {}
+
                   res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-                  res.end(JSON.stringify({ ok: true, audioBase64: base64, mimeType: 'audio/mp3', fileName: dynamicFileName, filename: dynamicFileName, engine: 'ACE-Step Q8 + 4K BGM Master' }));
+                  res.end(JSON.stringify({
+                    ok: true,
+                    audioBase64: base64,
+                    mimeType: 'audio/mp3',
+                    fileName: dynamicFileName,
+                    filename: dynamicFileName,
+                    engine: 'ACE-Step Q8 + 4K BGM Master'
+                  }));
                   return;
                 }
               } catch (err) {
@@ -114,25 +123,29 @@ export default defineConfig({
             req.on('end', () => {
               try {
                 const payload = JSON.parse(body || '{}');
-                const rawText = 'Welcome to preschool rhyme studio! Testing vocals with background music rhythm.';
-                const voice = String(payload.singerStyle || 'en-US-AnaNeural');
-                const bgmLevelNum = Number(payload.bgmLevel ?? 50);
-                const bgmVol = Math.max(0.25, Math.min(0.9, (bgmLevelNum / 100) * 0.85)).toFixed(2);
-                const bgmPath = path.join(__dirname, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav');
+                const stamp = Date.now();
+                payload.stamp = stamp;
+                payload.lyrics = 'Welcome to preschool rhyme studio! Testing vocals with background music rhythm.';
+                payload.duration = 8;
+
                 const tempDir = path.join(__dirname, 'temp');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-                const tmpVocal = path.join(tempDir, `_prev_vocal_${Date.now()}.wav`);
-                const finalMp3 = path.join(tempDir, `_prev_song_${Date.now()}.mp3`);
+                const reqFile = path.join(tempDir, `_req_prev_${stamp}.json`);
+                fs.writeFileSync(reqFile, JSON.stringify(payload, null, 2), 'utf8');
 
-                const pyCode = `import os, sys, asyncio, subprocess, edge_tts; bgm = r'${bgmPath}'; final_mp3 = r'${finalMp3}'; tmp_vocal = r'${tmpVocal}'; text = '''${rawText}'''; asyncio.run(edge_tts.Communicate(text, '${voice}', rate='-5%', pitch='+2Hz').save(tmp_vocal)); complex_filter = '[0:a]highpass=f=100,equalizer=f=320:t=q:w=1.5:g=-5.0,equalizer=f=3800:t=h:w=1:g=6.5,equalizer=f=8000:t=h:w=1:g=4.0,acompressor=threshold=-15dB:ratio=3:attack=8:release=120,volume=1.2,apad=pad_len=48000*10[vocal];[1:a]volume=${bgmVol},equalizer=f=3000:t=q:w=1:g=-2.0[bgm];[vocal][bgm]amix=inputs=2:duration=longest:dropout_transition=0.5,atrim=0:8,afade=t=out:st=7:d=1,loudnorm=I=-14:TP=-0.5:LRA=7[out]'; cmd = ['ffmpeg', '-y', '-i', tmp_vocal, '-i', bgm, '-filter_complex', complex_filter, '-map', '[out]', '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', final_mp3]; subprocess.run(cmd, capture_output=True)`;
-                
+                const scriptPath = path.join(__dirname, 'scripts', 'generate_mobile_rhyme.py');
                 const { execSync } = require('child_process');
-                execSync(`python -c "${pyCode.replace(/"/g, '\\"')}"`, { stdio: 'ignore' });
+                const pyOut = execSync(`python "${scriptPath}" "${reqFile}"`, { encoding: 'utf8', timeout: 30000 });
+                const result = JSON.parse(pyOut.trim() || '{}');
 
-                if (fs.existsSync(finalMp3)) {
-                  const audioBuffer = fs.readFileSync(finalMp3);
+                if (result.ok && result.finalMp3 && fs.existsSync(result.finalMp3)) {
+                  const audioBuffer = fs.readFileSync(result.finalMp3);
                   const base64 = audioBuffer.toString('base64');
-                  try { if (fs.existsSync(tmpVocal)) fs.unlinkSync(tmpVocal); if (fs.existsSync(finalMp3)) fs.unlinkSync(finalMp3); } catch(_) {}
+                  try {
+                    if (fs.existsSync(reqFile)) fs.unlinkSync(reqFile);
+                    if (result.tmpVocal && fs.existsSync(result.tmpVocal)) fs.unlinkSync(result.tmpVocal);
+                    if (fs.existsSync(result.finalMp3)) fs.unlinkSync(result.finalMp3);
+                  } catch(_) {}
                   res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
                   res.end(JSON.stringify({ ok: true, audioBase64: base64, mimeType: 'audio/mp3' }));
                   return;
