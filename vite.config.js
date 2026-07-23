@@ -24,6 +24,9 @@ const MIME_TYPES = {
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
+  server: {
+    allowedHosts: true,
+  },
   build: {
     outDir: 'renderer-dist',
   },
