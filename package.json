@@ -7,6 +7,7 @@
         "start": "electron .",
         "build": "electron-builder --windows",
         "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+        "dev:mobile": "vite --host 0.0.0.0 --port 5173",
         "build:react": "vite build",
         "preview": "vite preview"
     },
@@ -44,6 +45,7 @@
         "jspdf": "^4.2.1",
         "jspdf-autotable": "^5.0.7",
         "jszip": "^3.10.1",
+        "magic-hour": "^0.70.0",
         "pdfjs-dist": "^5.4.149",
         "react": "^19.2.5",
         "react-dom": "^19.2.5",
