@@ -1,7 +1,13 @@
 'use strict';
 
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
+
+try {
+  if (process.platform === 'win32') {
+    execSync('taskkill /F /IM cloudflared.exe /T', { stdio: 'ignore' });
+  }
+} catch (_) {}
 
 function getLocalIp() {
   const interfaces = os.networkInterfaces();

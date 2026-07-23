@@ -114,7 +114,7 @@ function App() {
   const [mobileModalOpen, setMobileModalOpen] = useState(false);
   const [mobileLinkData, setMobileLinkData] = useState({
     wifiUrl: 'http://192.168.29.161:5173',
-    mobileUrl: 'https://diagram-wesley-baker-perspectives.trycloudflare.com',
+    mobileUrl: '',
     updatedAt: ''
   });
   const [copiedNotice, setCopiedNotice] = useState('');
