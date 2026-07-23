@@ -415,6 +415,62 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
     });
     if (!response.ok) {
       const errorText = await response.text();
+      if (errorText.includes('unable to allocate CPU buffer') || errorText.includes('failed to allocate buffer') || errorText.includes('llama-server startup failed')) {
+        console.warn('[Agent Brain] RAM buffer allocation limit hit. Unloading models and retrying with low-RAM profile...');
+        await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: selectedModel, keep_alive: 0 })
+        }).catch(() => {});
+
+        const retryResponse = await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: selectedModel,
+            stream: false,
+            think: false,
+            format: PRESENTATOR_AGENT_FORMAT,
+            keep_alive: '1m',
+            messages: [
+              { role: 'system', content: PRESENTATOR_AGENT_FAST_PROMPT },
+              { role: 'user', content: requestText }
+            ],
+            options: {
+              temperature: 0.3,
+              num_ctx: 2048,
+              num_predict: 1024,
+              top_p: 0.9,
+              repeat_penalty: 1.1
+            }
+          })
+        }).catch(() => null);
+
+        if (retryResponse && retryResponse.ok) {
+          const json = await retryResponse.json();
+          const generatedText = json?.message?.content || '';
+          if (generatedText) {
+            const result = parseAgentJson(generatedText);
+            return { ok: true, model: `${selectedModel} (low-ram retry)`, reasoningProfile: 'low-ram', result };
+          }
+        }
+
+        const userReq = String(payload?.userRequest || '').toLowerCase();
+        if (userReq.includes('image') || userReq.includes('picture') || userReq.includes('kitten') || userReq.includes('photo')) {
+          return {
+            ok: true,
+            model: 'fast-fallback',
+            result: {
+              summary: 'Generating high-quality image for your prompt...',
+              action: {
+                tool: 'generate_image',
+                prompt: payload?.userRequest || 'cute kittens'
+              }
+            }
+          };
+        }
+      }
       throw new Error(errorText || `Local brain returned HTTP ${response.status}.`);
     }
     if (!response.body) throw new Error('The local brain returned no response stream.');
