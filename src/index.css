@@ -5004,3 +5004,96 @@ button:focus-visible,
     font-size: 10px !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   📱 UNIVERSAL MOBILE RESPONSIVENESS SYSTEM (ALL MODULES)
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 850px) {
+  html, body {
+    overflow-x: hidden !important;
+    width: 100vw !important;
+  }
+
+  /* Topbar Navigation Header */
+  .app-topbar {
+    height: auto !important;
+    min-height: 48px !important;
+    padding: 4px 8px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .app-topbar button, .app-nav-button {
+    white-space: nowrap !important;
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Main Shell & Container Padding */
+  .app-shell, .main-layout, .container, .workspace-layout, .app-container {
+    padding-top: 54px !important;
+    flex-direction: column !important;
+    grid-template-columns: 1fr !important;
+    height: auto !important;
+    min-height: calc(100vh - 54px) !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Presentator & Input/Stage Panels */
+  .presentator-grid, .editor-grid, .panel-grid, .stage-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+  }
+  .panel-left, .panel-right, .editor-panel, .stage-panel {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* ErrorChecker Module */
+  .error-checker-grid, .checker-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* AgentStudio Module */
+  .agent-grid, .cards, .card-grid, .agent-features {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* DirectorStudio Module */
+  .director-grid, .director-timeline, .director-layout {
+    grid-template-columns: 1fr !important;
+    flex-direction: column !important;
+  }
+
+  /* MyExporter Module */
+  .mx-grid, .mx-layout, .mx-workspace, .mx-panels {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+  }
+  .mx-sidebar, .mx-preview-panel, .mx-inspector {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* CaptionBurner Module */
+  .caption-burner-container, .caption-grid, .caption-layout {
+    flex-direction: column !important;
+    padding: 12px !important;
+    padding-top: 54px !important;
+  }
+  .caption-preview, .caption-sidebar, .caption-editor {
+    width: 100% !important;
+  }
+
+  /* Inputs, Buttons, Textareas & Selects */
+  textarea, input[type="text"], select, .rg-input, .rg-lyrics, .rg-select {
+    font-size: 16px !important;
+    box-sizing: border-box !important;
+  }
+  .btn, .button, .rg-btn, .ghost-btn {
+    touch-action: manipulation;
+    min-height: 42px;
+  }
+}
