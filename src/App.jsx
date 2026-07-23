@@ -133,12 +133,27 @@ function App() {
   }, [mobileLinkData.mobileUrl]);
 
   useEffect(() => {
+    const updateLinkState = (newData) => {
+      if (!newData) return;
+      setMobileLinkData(prev => {
+        if (prev.mobileUrl === (newData.mobileUrl || '') && prev.wifiUrl === (newData.wifiUrl || '')) {
+          return prev;
+        }
+        return {
+          wifiUrl: newData.wifiUrl || prev.wifiUrl,
+          mobileUrl: newData.mobileUrl || '',
+          updatedAt: newData.updatedAt || new Date().toISOString()
+        };
+      });
+    };
+
     const fetchMobileLink = async () => {
       try {
         if (window.electronAPI?.getMobileLink) {
           const ipcData = await window.electronAPI.getMobileLink();
           if (ipcData?.mobileUrl || ipcData?.wifiUrl) {
-            setMobileLinkData(ipcData);
+            updateLinkState(ipcData);
+            return;
           }
         }
         let res = await fetch('/api/mobile-link').catch(() => null);
@@ -151,7 +166,7 @@ function App() {
         if (res && res.ok) {
           const json = await res.json();
           if (json?.mobileUrl || json?.wifiUrl) {
-            setMobileLinkData(json);
+            updateLinkState(json);
           }
         }
       } catch (_) {}
@@ -163,12 +178,12 @@ function App() {
     if (window.electronAPI?.onMobileLinkUpdated) {
       unhook = window.electronAPI.onMobileLinkUpdated((data) => {
         if (data?.mobileUrl || data?.wifiUrl) {
-          setMobileLinkData(data);
+          updateLinkState(data);
         }
       });
     }
 
-    const interval = setInterval(fetchMobileLink, 2000);
+    const interval = setInterval(fetchMobileLink, 3000);
     return () => {
       if (unhook) unhook();
       clearInterval(interval);
