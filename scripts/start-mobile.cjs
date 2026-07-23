@@ -68,18 +68,12 @@ const handleOutput = data => {
   if (match && match[0] !== lastSentLink) {
     lastSentLink = match[0];
     saveMobileInfo(match[0]);
-    const waText = encodeURIComponent(`📱 Presentator 4G/5G Mobile Link:\n${match[0]}\n\n🏠 Home Wi-Fi Link:\n${localUrl}`);
-    const waUrl = `https://api.whatsapp.com/send?phone=917386726193&text=${waText}`;
-
     console.log(`\n🔒 YOUR SECURE ENCRYPTED MOBILE LINK (4G/5G Anywhere):`);
     console.log(`👉 ${match[0]}`);
-    console.log(`💬 WHATSAPP DIRECT SEND LINK (+91 7386726193):`);
-    console.log(`👉 ${waUrl}\n`);
+    console.log(`⚡ AUTO-SENDING LINK TO PHONE 7386726193 VIA WHATSAPP & NTFY PUSH...`);
 
     try {
-      if (process.platform === 'win32') {
-        execSync(`start "" "${waUrl.replace(/&/g, '^&')}"`, { stdio: 'ignore' });
-      }
+      spawn('python', [path.join(__dirname, 'auto_send_whatsapp.py'), match[0]], { stdio: 'inherit' });
     } catch (_) {}
   }
 };
