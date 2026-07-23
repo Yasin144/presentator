@@ -415,7 +415,7 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
     });
     if (!response.ok) {
       const errorText = await response.text();
-      if (errorText.includes('unable to allocate CPU buffer') || errorText.includes('failed to allocate buffer') || errorText.includes('llama-server startup failed')) {
+      if (errorText.includes('unable to allocate') || errorText.includes('CPU_REPACK') || errorText.includes('failed to allocate buffer') || errorText.includes('llama-server startup failed')) {
         console.warn('[Agent Brain] RAM buffer allocation limit hit. Unloading models and retrying with low-RAM profile...');
         await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
           method: 'POST',

@@ -596,9 +596,12 @@ export default function AgentStudio() {
       };
     }
     if (tool === 'open_code_canvas') {
-      const language = String(args.language || 'text').toLowerCase();
-      const code = String(args.code || '');
-      if (!code.trim()) return { tool, ok: false, error: 'The code canvas requires non-empty code.' };
+      const language = String(args.language || 'html').toLowerCase();
+      let code = String(args.code || args.content || args.html || '').trim();
+      if (!code) {
+        const titleText = String(args.title || 'Interactive Canvas');
+        code = `<!DOCTYPE html>\n<html>\n<head>\n<style>\n  body { margin: 0; padding: 24px; background: #0b0f19; color: #f8fafc; font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 80vh; }\n  .card { background: #1e293b; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 32px; text-align: center; max-width: 480px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }\n  h2 { color: #38bdf8; margin: 0 0 12px; }\n  p { color: #94a3b8; line-height: 1.6; margin: 0; }\n</style>\n</head>\n<body>\n  <div class="card">\n    <h2>✨ ${titleText}</h2>\n    <p>Live interactive canvas view ready for editing and preview.</p>\n  </div>\n</body>\n</html>`;
+      }
       setCodeCanvas({
         title: String(args.title || 'Generated Code'),
         language,
