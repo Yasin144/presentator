@@ -2493,7 +2493,14 @@ async function createWindow() {
       if (!best?.path) throw new Error('No song candidate was generated.');
       report('Enhancing lead-vocal clarity', 92, 'Mastering HD stereo song with presence boost and loudness normalization');
       const enhancedPath = path.join(workDir, 'vocal-enhanced.wav');
-      const audioFilter = `highpass=f=80,equalizer=f=3500:t=h:w=1:g=2.5,acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
+      const requestedBgm = Number(payload?.bgmLevel);
+      const requestedPresence = Number(payload?.vocalPresence);
+      const bgmLevel = Math.max(0, Math.min(100, Number.isFinite(requestedBgm) ? requestedBgm : 20));
+      const presence = Math.max(0, Math.min(10, Number.isFinite(requestedPresence) ? requestedPresence : 7));
+      const eqGain = (-1.0 + (presence * 0.6)).toFixed(1);
+      const bgmEq = (-6.0 + (bgmLevel / 100) * 8.0).toFixed(1);
+      const overallVol = (0.75 + (presence * 0.04) + (bgmLevel / 100) * 0.25).toFixed(2);
+      const audioFilter = `highpass=f=80,equalizer=f=400:t=q:w=1:g=${bgmEq},equalizer=f=3500:t=h:w=1:g=${eqGain},volume=${overallVol},acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
       try {
         await run(findFFmpegExecutable(), ['-y', '-i', best.path, '-af', audioFilter, '-ar', '48000', '-c:a', 'pcm_s16le', enhancedPath], 10 * 60 * 1000, workDir);
       } catch (_) {}
@@ -2549,7 +2556,14 @@ async function createWindow() {
     if (sourcePath && fs.existsSync(sourcePath)) sampleCandidates.unshift(sourcePath);
     const samplePath = sampleCandidates.find(candidate => fs.existsSync(candidate));
     if (!samplePath) return { ok: false, error: 'Generate one song first to create a mix-preview source.' };
-    const filter = `highpass=f=80,equalizer=f=3500:t=h:w=1:g=2.5,acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
+    const requestedBgm = Number(payload?.bgmLevel);
+    const requestedPresence = Number(payload?.vocalPresence);
+    const bgmLevel = Math.max(0, Math.min(100, Number.isFinite(requestedBgm) ? requestedBgm : 20));
+    const presence = Math.max(0, Math.min(10, Number.isFinite(requestedPresence) ? requestedPresence : 7));
+    const eqGain = (-1.0 + (presence * 0.6)).toFixed(1);
+    const bgmEq = (-6.0 + (bgmLevel / 100) * 8.0).toFixed(1);
+    const overallVol = (0.75 + (presence * 0.04) + (bgmLevel / 100) * 0.25).toFixed(2);
+    const filter = `highpass=f=80,equalizer=f=400:t=q:w=1:g=${bgmEq},equalizer=f=3500:t=h:w=1:g=${eqGain},volume=${overallVol},acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
     const previewDir = path.join(ROOT, 'generated-media', 'mix-previews');
     fs.mkdirSync(previewDir, { recursive: true });
     const previewPath = path.join(previewDir, `preview-${Date.now()}.wav`);
@@ -2562,7 +2576,7 @@ async function createWindow() {
         child.on('exit', code => code === 0 ? resolve() : reject(new Error(errorText.slice(-800) || `FFmpeg exited with code ${code}`)));
       });
       const bytes = fs.readFileSync(previewPath);
-      return { ok: true, audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', bgmLevel: Number(payload?.bgmLevel) || 20, vocalPresence: Number(payload?.vocalPresence) || 7 };
+      return { ok: true, audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', bgmLevel, vocalPresence: presence };
     } catch (error) {
       return { ok: false, error: error.message };
     }
