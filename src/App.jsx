@@ -407,22 +407,32 @@ function App() {
               type="button"
               onClick={() => setMobileModalOpen(true)}
               style={{
-                background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(99, 102, 241, 0.25))',
-                border: '1px solid rgba(56, 189, 248, 0.4)',
+                background: mobileLinkData.mobileUrl 
+                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(14, 165, 233, 0.25))'
+                  : 'linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(245, 158, 11, 0.25))',
+                border: mobileLinkData.mobileUrl ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid rgba(248, 113, 113, 0.5)',
                 borderRadius: '8px',
                 padding: '4px 10px',
-                color: '#38bdf8',
+                color: mobileLinkData.mobileUrl ? '#6ee7b7' : '#fca5a5',
                 fontSize: '11px',
                 fontWeight: 800,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '5px',
-                boxShadow: '0 0 12px rgba(56, 189, 248, 0.2)'
+                gap: '6px',
+                boxShadow: mobileLinkData.mobileUrl ? '0 0 12px rgba(16, 185, 129, 0.3)' : '0 0 12px rgba(239, 68, 68, 0.3)'
               }}
               title="View & Copy Mobile Link (4G/5G & Wi-Fi)"
             >
-              <span>📱</span> Mobile Link
+              <span>📱</span> Mobile Link: {mobileLinkData.mobileUrl ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#34d399', fontWeight: 900 }}>
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></span> ACTIVE
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#f87171', fontWeight: 900 }}>
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 8px #ef4444' }}></span> INACTIVE ({tunnelSecs}s)
+                </span>
+              )}
             </button>
             <button 
               onClick={() => setCommandPaletteOpen(true)}
@@ -1000,6 +1010,41 @@ function App() {
                 {copiedNotice}
               </div>
             )}
+
+            {/* LIVE SERVER STATUS CARD */}
+            <div style={{
+              background: mobileLinkData.mobileUrl ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+              border: mobileLinkData.mobileUrl ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(239, 68, 68, 0.35)',
+              borderRadius: '14px',
+              padding: '12px 14px',
+              marginBottom: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  background: mobileLinkData.mobileUrl ? '#10b981' : '#ef4444',
+                  boxShadow: mobileLinkData.mobileUrl ? '0 0 12px #10b981' : '0 0 12px #ef4444'
+                }}></span>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 900, color: mobileLinkData.mobileUrl ? '#34d399' : '#f87171' }}>
+                    SERVER STATUS: {mobileLinkData.mobileUrl ? '🟢 ACTIVE (4G/5G ONLINE)' : `🔴 INACTIVE (${tunnelSecs}s)`}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                    {mobileLinkData.mobileUrl 
+                      ? '⚡ Auto-sent WhatsApp link to +91 7386726193'
+                      : '🌐 Starting Cloudflare encrypted tunnel... Please wait'}
+                  </div>
+                </div>
+              </div>
+              <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.08)', color: '#cbd5e1', padding: '3px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                {mobileLinkData.updatedAt ? new Date(mobileLinkData.updatedAt).toLocaleTimeString() : 'LIVE'}
+              </span>
+            </div>
 
             {/* Action Bar: Generate / Refresh Button */}
             <div style={{ marginBottom: '14px' }}>
