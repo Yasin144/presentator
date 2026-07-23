@@ -71,13 +71,14 @@ export default defineConfig({
                 const rawText = String(payload.text || 'Roses are red, Violets are blue, Sugar is sweet, And so are you.').replace(/['"\r\n]+/g, ' ');
                 const voice = String(payload.singerVoice || 'en-US-AnaNeural');
                 const pitch = String(payload.pitch || '+2Hz');
+                const targetDuration = Math.max(5, Math.min(30, Number(payload.duration) || 30));
                 const bgmPath = path.join(__dirname, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav');
                 const tempDir = path.join(__dirname, 'temp');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
                 const tmpVocal = path.join(tempDir, `_vocal_${Date.now()}.wav`);
                 const finalMp3 = path.join(tempDir, `_song_${Date.now()}.mp3`);
 
-                const pyCode = `import os, sys, asyncio, subprocess, edge_tts; bgm = r'${bgmPath}'; final_mp3 = r'${finalMp3}'; tmp_vocal = r'${tmpVocal}'; text = '''${rawText}'''; asyncio.run(edge_tts.Communicate(text, '${voice}', rate='-5%', pitch='${pitch}').save(tmp_vocal)); complex_filter = '[0:a]highpass=f=100,equalizer=f=320:t=q:w=1.5:g=-5.0,equalizer=f=3800:t=h:w=1:g=6.5,equalizer=f=8000:t=h:w=1:g=4.0,acompressor=threshold=-15dB:ratio=3:attack=8:release=120,volume=1.3[vocal];[1:a]volume=0.22,equalizer=f=3000:t=q:w=1:g=-4.0[bgm];[vocal][bgm]amix=inputs=2:duration=first:dropout_transition=0.5,loudnorm=I=-14:TP=-0.5:LRA=7[out]'; cmd = ['ffmpeg', '-y', '-i', tmp_vocal, '-i', bgm, '-filter_complex', complex_filter, '-map', '[out]', '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', final_mp3]; subprocess.run(cmd, capture_output=True)`;
+                const pyCode = `import os, sys, asyncio, subprocess, edge_tts; bgm = r'${bgmPath}'; final_mp3 = r'${finalMp3}'; tmp_vocal = r'${tmpVocal}'; text = '''${rawText}'''; asyncio.run(edge_tts.Communicate(text, '${voice}', rate='-5%', pitch='${pitch}').save(tmp_vocal)); complex_filter = '[0:a]highpass=f=100,equalizer=f=320:t=q:w=1.5:g=-5.0,equalizer=f=3800:t=h:w=1:g=6.5,equalizer=f=8000:t=h:w=1:g=4.0,acompressor=threshold=-15dB:ratio=3:attack=8:release=120,volume=1.3,apad=pad_len=48000*30[vocal];[1:a]volume=0.22,equalizer=f=3000:t=q:w=1:g=-4.0[bgm];[vocal][bgm]amix=inputs=2:duration=longest:dropout_transition=0.5,atrim=0:${targetDuration},afade=t=out:st=${targetDuration - 1}:d=1,loudnorm=I=-14:TP=-0.5:LRA=7[out]'; cmd = ['ffmpeg', '-y', '-i', tmp_vocal, '-i', bgm, '-filter_complex', complex_filter, '-map', '[out]', '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', final_mp3]; subprocess.run(cmd, capture_output=True)`;
                 
                 const { execSync } = require('child_process');
                 execSync(`python -c "${pyCode.replace(/"/g, '\\"')}"`, { stdio: 'ignore' });
