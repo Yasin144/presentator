@@ -6,6 +6,7 @@ import urllib.request
 import urllib.parse
 import subprocess
 import pyautogui
+import pygetwindow as gw
 
 def main():
     if len(sys.argv) < 2:
@@ -24,7 +25,7 @@ def main():
     except Exception as e:
         print("[Auto-Send] Push error:", e)
 
-    # 2. Native WhatsApp URI + PyAutoGUI Auto-Send (Zero Click)
+    # 2. Native WhatsApp URI + pygetwindow Auto Focus + PyAutoGUI Auto Send
     try:
         encoded_text = urllib.parse.quote(message)
         wa_app_url = f"whatsapp://send?phone=917386726193&text={encoded_text}"
@@ -32,18 +33,41 @@ def main():
 
         if sys.platform == 'win32':
             os.system(f'start "" "{wa_app_url}"')
+            os.system(f'start "" "{wa_web_url}"')
+            
             time.sleep(3.5)
 
-            # PyAutoGUI auto-send sequence (Enter -> Ctrl+Enter -> Tab+Enter)
-            pyautogui.press('enter')
-            pyautogui.hotkey('ctrl', 'enter')
-            time.sleep(0.5)
-            pyautogui.press('enter')
-            time.sleep(0.5)
-            pyautogui.press('tab')
-            pyautogui.press('enter')
+            # Find matching window and bring to foreground
+            matching_wins = [w for w in gw.getAllWindows() if any(k in w.title.lower() for k in ['whatsapp', 'chrome', 'edge'])]
+            for win in matching_wins:
+                try:
+                    win.activate()
+                    time.sleep(0.3)
+                    pyautogui.press('enter')
+                    pyautogui.hotkey('ctrl', 'enter')
+                    pyautogui.press('enter')
+                except Exception:
+                    pass
 
-            print("[Auto-Send] WhatsApp pyautogui auto-send completed for 7386726193")
+            # Fallback SendKeys
+            vbs_code = '''
+Set w = CreateObject("WScript.Shell")
+w.AppActivate "WhatsApp"
+w.AppActivate "Chrome"
+w.AppActivate "Edge"
+WScript.Sleep 500
+w.SendKeys "~"
+w.SendKeys "^{ENTER}"
+w.SendKeys "~"
+'''
+            temp_dir = os.path.join(os.path.dirname(__file__), '..', 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
+            vbs_file = os.path.join(temp_dir, '_send_wa_focused.vbs')
+            with open(vbs_file, 'w') as f:
+                f.write(vbs_code)
+            subprocess.run(['cscript', '//nologo', vbs_file], capture_output=True)
+
+            print("[Auto-Send] WhatsApp pygetwindow auto-send completed for 7386726193")
     except Exception as e:
         print("[Auto-Send] WhatsApp error:", e)
 
