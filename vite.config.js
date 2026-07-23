@@ -26,6 +26,17 @@ export default defineConfig({
   base: './',
   server: {
     allowedHosts: true,
+    watch: {
+      ignored: [
+        '**/.voiceclone-venv/**',
+        '**/.singing-venv/**',
+        '**/.venv/**',
+        '**/AI_Models/**',
+        '**/generated-media/**',
+        '**/temp/**',
+        '**/node_modules/**',
+      ],
+    },
   },
   build: {
     outDir: 'renderer-dist',
