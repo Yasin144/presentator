@@ -139,7 +139,6 @@ function App() {
           const ipcData = await window.electronAPI.getMobileLink();
           if (ipcData?.mobileUrl || ipcData?.wifiUrl) {
             setMobileLinkData(ipcData);
-            return;
           }
         }
         let res = await fetch('/api/mobile-link').catch(() => null);
@@ -157,9 +156,23 @@ function App() {
         }
       } catch (_) {}
     };
+
     fetchMobileLink();
+
+    let unhook;
+    if (window.electronAPI?.onMobileLinkUpdated) {
+      unhook = window.electronAPI.onMobileLinkUpdated((data) => {
+        if (data?.mobileUrl || data?.wifiUrl) {
+          setMobileLinkData(data);
+        }
+      });
+    }
+
     const interval = setInterval(fetchMobileLink, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      if (unhook) unhook();
+      clearInterval(interval);
+    };
   }, []);
 
   const commands = useMemo(() => [

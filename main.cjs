@@ -4002,6 +4002,16 @@ ipcMain.handle('open-file', async (event, filePath) => {
     };
   });
 
+  win.webContents.on('did-finish-load', () => {
+    const linkFile = path.join(ROOT, 'temp', 'active-mobile-link.json');
+    if (fs.existsSync(linkFile)) {
+      try {
+        const linkData = JSON.parse(fs.readFileSync(linkFile, 'utf8'));
+        win.webContents.send('mobile-link-updated', linkData);
+      } catch (_) {}
+    }
+  });
+
   win.on('closed', () => killAll());
 
   // Block any navigation away from the app:// origin

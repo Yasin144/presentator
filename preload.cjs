@@ -30,6 +30,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMobileLink: () =>
     ipcRenderer.invoke('get-mobile-link'),
 
+  // Live mobile link real-time event
+  onMobileLinkUpdated: (callback) => {
+    const handler = (_, data) => callback(data);
+    ipcRenderer.on('mobile-link-updated', handler);
+    return () => ipcRenderer.removeListener('mobile-link-updated', handler);
+  },
+
   // ── Autonomous Super Agent ──────────────────────────────────────────────────
   // Model credentials stay in the main process.
 
