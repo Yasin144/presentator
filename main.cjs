@@ -3811,8 +3811,8 @@ ipcMain.handle('burn-captions', async (event, opts) => {
         }
         if (typeof c.end === 'number' || (typeof c.end === 'string' && c.end !== '')) {
           end = Number(c.end);
-        } else if (Array.isArray(c.timestamp)) {
-          end = Number(c.timestamp[1]) || (start + 2);
+        } else {
+          end = Number(c.end) || 0;
         }
         start = Math.max(0, start || 0);
         end   = Math.max(start + 0.1, end || start + 2);
