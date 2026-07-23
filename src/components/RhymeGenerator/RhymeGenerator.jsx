@@ -280,8 +280,8 @@ export default function RhymeGenerator() {
   const downloadMusic = async () => {
     if (!musicBlob) return;
     const base64 = await blobToBase64(musicBlob);
-    await Flow.download({ base64, mimeType: 'audio/wav', filename: `${safeName || 'kids-rhyme'}-30sec-complete-song.wav` });
-    setStatus('Complete rhyme song saved to Downloads');
+    await Flow.download({ base64, mimeType: 'audio/mp3', filename: `${safeName || 'kids-rhyme'}-30sec-complete-song.mp3` });
+    setStatus('Complete rhyme song saved to Downloads as 320kbps MP3');
   };
 
   const downloadLyrics = () => {
@@ -324,7 +324,7 @@ export default function RhymeGenerator() {
             <div className="rg-detail">{progress.detail || 'Working locally…'} Click STOP to cancel at any time.</div>
           </div>}
           <div className="rg-status">{status}</div>
-          {musicUrl && <><audio ref={audioRef} className="rg-player" src={musicUrl} controls preload="metadata"/><div className="rg-downloads"><button className="rg-btn secondary" onClick={downloadMusic}>Download Complete Song WAV</button><button className="rg-btn stop-btn" onClick={stopAll}>🛑 STOP Audio</button></div></>}
+          {musicUrl && <><audio ref={audioRef} className="rg-player" src={musicUrl} controls preload="metadata"/><div className="rg-downloads"><button className="rg-btn secondary" onClick={downloadMusic}>Download Complete Song MP3</button><button className="rg-btn stop-btn" onClick={stopAll}>🛑 STOP Audio</button></div></>}
           <div className="rg-note">Q8 singer only: robotic Edge-TTS song fallback is permanently disabled. Keep BGM around 10–25% and Vocal Presence around 7–9.</div>
         </section>
         <section className="rg-card">

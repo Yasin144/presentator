@@ -2380,8 +2380,8 @@ async function createWindow() {
     fs.mkdirSync(outputDir, { recursive: true });
     const title = String(payload?.title || 'kids-rhyme');
     const safeTitle = title.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 55) || 'kids-rhyme';
-    let savedPath = path.join(outputDir, `${safeTitle}.wav`);
-    if (fs.existsSync(savedPath)) savedPath = path.join(outputDir, `${safeTitle}-${stamp}.wav`);
+    let savedPath = path.join(outputDir, `${safeTitle}.mp3`);
+    if (fs.existsSync(savedPath)) savedPath = path.join(outputDir, `${safeTitle}-${stamp}.mp3`);
     const duration = Math.max(5, Math.min(30, Number(payload?.duration) || 30));
     const durationReference = path.join(workDir, `required-reference-${duration}s.wav`);
     const request = {
@@ -2514,15 +2514,15 @@ async function createWindow() {
       const overallVol = (0.75 + (presence * 0.04) + (bgmLevel / 100) * 0.25).toFixed(2);
       const audioFilter = `highpass=f=80,equalizer=f=400:t=q:w=1:g=${bgmEq},equalizer=f=3500:t=h:w=1:g=${eqGain},volume=${overallVol},acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
       try {
-        await run(findFFmpegExecutable(), ['-y', '-i', best.path, '-af', audioFilter, '-ar', '48000', '-c:a', 'pcm_s16le', enhancedPath], 10 * 60 * 1000, workDir);
+        await run(findFFmpegExecutable(), ['-y', '-i', best.path, '-af', audioFilter, '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', enhancedPath], 10 * 60 * 1000, workDir);
       } catch (_) {}
-      report('Finalizing the WAV', 96, 'Saving the mastered HD stereo song');
+      report('Finalizing the MP3', 96, 'Saving the mastered 4K 320kbps MP3 song');
       fs.copyFileSync(fs.existsSync(enhancedPath) ? enhancedPath : best.path, savedPath);
       const bytes = fs.readFileSync(savedPath);
       const clarityPassed = best.unavailable ? true : best.score >= 40;
       saveRecovery('completed', { stage: 'completed', savedPath, clarityScore: best.score });
       report('Song complete', 100, `${path.basename(savedPath)} · clarity ${best.score || 100}%`);
-      return { ok: true, filePath: savedPath, fileName: path.basename(savedPath), audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', duration, engine: dit === ditHigh ? 'ACE-Step 1.5 Q8 High Quality' : 'ACE-Step 1.5 Q5', clarityScore: best.score || 100, clarityPassed, detectedLyrics: best.text || lyrics, attemptsUsed: best.attempt };
+      return { ok: true, filePath: savedPath, fileName: path.basename(savedPath), audioBase64: bytes.toString('base64'), mimeType: 'audio/mp3', duration, engine: dit === ditHigh ? 'ACE-Step 1.5 Q8 High Quality' : 'ACE-Step 1.5 Q5', clarityScore: best.score || 100, clarityPassed, detectedLyrics: best.text || lyrics, attemptsUsed: best.attempt };
     } catch (error) {
       saveRecovery('paused', { stage: activePhase, error: error.message });
       report('Generation failed', 0, error.message);
