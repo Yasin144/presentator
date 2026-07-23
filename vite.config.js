@@ -52,6 +52,16 @@ export default defineConfig({
       name: 'serve-root-files',
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
+          if (req.url === '/api/mobile-link') {
+            const linkFile = path.join(__dirname, 'temp', 'active-mobile-link.json');
+            let data = { wifiUrl: `http://192.168.29.161:5173`, mobileUrl: ``, updatedAt: new Date().toISOString() };
+            if (fs.existsSync(linkFile)) {
+              try { data = JSON.parse(fs.readFileSync(linkFile, 'utf8')); } catch (_) {}
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify(data));
+            return;
+          }
           if (req.url === '/' || req.url.startsWith('/src') || req.url.startsWith('/@') || req.url.startsWith('/node_modules')) {
             return next()
           }

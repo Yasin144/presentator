@@ -36,10 +36,30 @@ const tunnel = spawn('npx.cmd', ['-y', 'cloudflared', 'tunnel', '--url', 'http:/
   shell: true,
 });
 
+const fs = require('fs');
+const path = require('path');
+
+const saveMobileInfo = (mobileUrl) => {
+  const data = {
+    wifiUrl: localUrl,
+    mobileUrl: mobileUrl,
+    updatedAt: new Date().toISOString()
+  };
+  try {
+    const tempDir = path.join(__dirname, '..', 'temp');
+    const pubDir = path.join(__dirname, '..', 'public');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'active-mobile-link.json'), JSON.stringify(data, null, 2));
+    fs.writeFileSync(path.join(pubDir, 'mobile-link.json'), JSON.stringify(data, null, 2));
+  } catch (_) {}
+};
+
 tunnel.stderr.on('data', data => {
   const text = data.toString();
   const match = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
   if (match) {
+    saveMobileInfo(match[0]);
     console.log(`\n🔒 YOUR SECURE ENCRYPTED MOBILE LINK (4G/5G Anywhere):`);
     console.log(`👉 ${match[0]}`);
     console.log(`(Open this link in Chrome/Safari on your phone!)\n`);

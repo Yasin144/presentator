@@ -111,6 +111,30 @@ function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [mobileModalOpen, setMobileModalOpen] = useState(false);
+  const [mobileLinkData, setMobileLinkData] = useState({
+    wifiUrl: 'http://192.168.29.161:5173',
+    mobileUrl: 'https://diagram-wesley-baker-perspectives.trycloudflare.com',
+    updatedAt: ''
+  });
+  const [copiedNotice, setCopiedNotice] = useState('');
+
+  useEffect(() => {
+    const fetchMobileLink = async () => {
+      try {
+        const res = await fetch('/api/mobile-link');
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.mobileUrl || json?.wifiUrl) {
+            setMobileLinkData(json);
+          }
+        }
+      } catch (_) {}
+    };
+    fetchMobileLink();
+    const interval = setInterval(fetchMobileLink, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   const commands = useMemo(() => [
     // NAVIGATION
@@ -325,6 +349,27 @@ function App() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 800, color: '#f97316', letterSpacing: '0.3px', fontFamily: "system-ui" }}>🎤 PATTAN</span>
+            <button
+              type="button"
+              onClick={() => setMobileModalOpen(true)}
+              style={{
+                background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(99, 102, 241, 0.25))',
+                border: '1px solid rgba(56, 189, 248, 0.4)',
+                borderRadius: '8px',
+                padding: '4px 10px',
+                color: '#38bdf8',
+                fontSize: '11px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                boxShadow: '0 0 12px rgba(56, 189, 248, 0.2)'
+              }}
+              title="View & Copy Mobile Link (4G/5G & Wi-Fi)"
+            >
+              <span>📱</span> Mobile Link
+            </button>
             <button 
               onClick={() => setCommandPaletteOpen(true)}
               style={{
@@ -858,6 +903,110 @@ function App() {
               <div>Press <kbd style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 5px', borderRadius: '3px' }}>Ctrl + K</kbd> anywhere</div>
             </div>
 
+          </div>
+        </div>
+      )}
+      {/* ── Mobile Link Popup Modal ────────────────────────────────────── */}
+      {mobileModalOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px'
+        }} onClick={() => setMobileModalOpen(false)}>
+          <div style={{
+            background: '#0d111d',
+            border: '1px solid rgba(103, 232, 249, 0.3)',
+            borderRadius: '24px',
+            padding: '24px',
+            maxWidth: '480px',
+            width: '100%',
+            boxShadow: '0 25px 80px rgba(0,0,0,0.8)',
+            color: '#fff',
+            fontFamily: 'system-ui, sans-serif'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '24px' }}>📱</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#67e8f9' }}>Mobile Connect Center</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#94a3b8' }}>Live 24/7 Mobile Data & Wi-Fi Links</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setMobileModalOpen(false)} style={{ background: 'rgba(255,255,255,0.08)', border: 0, color: '#fff', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+            </div>
+
+            {copiedNotice && (
+              <div style={{ background: '#10b98122', border: '1px solid #10b98155', color: '#6ee7b7', padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 'bold', marginBottom: '14px', textAlign: 'center' }}>
+                {copiedNotice}
+              </div>
+            )}
+
+            {/* 4G / 5G Mobile Data Link */}
+            <div style={{ background: '#141a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '14px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 900, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🌐 4G / 5G Mobile Data Link (Anywhere)</span>
+                <span style={{ fontSize: '10px', background: '#38bdf822', color: '#38bdf8', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>LIVE ENCRYPTED</span>
+              </div>
+              <div style={{ fontSize: '13px', fontFamily: 'monospace', background: '#0a0d18', padding: '10px 12px', borderRadius: '10px', color: '#e2e8f0', wordBreak: 'break-all', marginBottom: '8px' }}>
+                {mobileLinkData.mobileUrl || 'Starting Cloudflare tunnel...'}
+              </div>
+              <button
+                type="button"
+                disabled={!mobileLinkData.mobileUrl}
+                onClick={() => {
+                  navigator.clipboard.writeText(mobileLinkData.mobileUrl);
+                  setCopiedNotice('✅ 4G/5G Mobile Link Copied! Paste on your phone.');
+                  setTimeout(() => setCopiedNotice(''), 3000);
+                }}
+                style={{ width: '100%', padding: '10px', borderRadius: '10px', border: 0, background: 'linear-gradient(135deg, #0284c7, #2563eb)', color: '#fff', fontWeight: 900, cursor: 'pointer', fontSize: '13px' }}
+              >
+                📋 Copy 4G/5G Mobile Link
+              </button>
+            </div>
+
+            {/* Home Wi-Fi Link */}
+            <div style={{ background: '#141a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '14px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 900, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🏠 Home Wi-Fi Link</span>
+                <span style={{ fontSize: '10px', background: '#a78bfa22', color: '#a78bfa', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>LOCAL IP</span>
+              </div>
+              <div style={{ fontSize: '13px', fontFamily: 'monospace', background: '#0a0d18', padding: '10px 12px', borderRadius: '10px', color: '#e2e8f0', wordBreak: 'break-all', marginBottom: '8px' }}>
+                {mobileLinkData.wifiUrl}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(mobileLinkData.wifiUrl);
+                  setCopiedNotice('✅ Home Wi-Fi Link Copied!');
+                  setTimeout(() => setCopiedNotice(''), 3000);
+                }}
+                style={{ width: '100%', padding: '9px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: '12px' }}
+              >
+                📋 Copy Home Wi-Fi Link
+              </button>
+            </div>
+
+            {/* QR Code Section */}
+            {mobileLinkData.mobileUrl && (
+              <div style={{ textAlign: 'center', background: '#0a0d18', padding: '14px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', marginBottom: '8px' }}>📷 Scan with phone camera to open app:</div>
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(mobileLinkData.mobileUrl)}`}
+                  alt="Mobile Access QR Code"
+                  style={{ width: '150px', height: '150px', borderRadius: '12px', background: '#fff', padding: '6px', margin: 'auto' }}
+                />
+              </div>
+            )}
+
+            <div style={{ marginTop: '14px', textAlign: 'center', fontSize: '10px', color: '#64748b' }}>
+              Auto-syncs live Cloudflare session links every 3 seconds.
+            </div>
           </div>
         </div>
       )}
