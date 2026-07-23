@@ -634,8 +634,12 @@ export default function AgentStudio() {
           ? await withProgress('Generating high-quality image', 150000, () => fn(args))
           : await withProgress('Generating AI image', 15000, async () => {
               const prompt = String(args?.prompt || args?.caption || 'cute kittens').trim();
-              const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
-              const res = await fetch(imageUrl);
+              const seed = Math.floor(Math.random() * 100000000);
+              const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${seed}&model=flux`;
+              let res = await fetch(imageUrl).catch(() => null);
+              if (!res || !res.ok) {
+                res = await fetch(`https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${seed}`);
+              }
               const blob = await res.blob();
               const reader = new FileReader();
               const base64 = await new Promise((res, rej) => {
@@ -643,7 +647,7 @@ export default function AgentStudio() {
                 reader.onerror = rej;
                 reader.readAsDataURL(blob);
               });
-              return { ok: true, fileName: 'generated-image.png', imagePath: imageUrl, imageBase64: base64, mimeType: 'image/png' };
+              return { ok: true, fileName: `${prompt.replace(/[^a-z0-9]+/gi, '-').slice(0, 30)}-${seed}.png`, imagePath: imageUrl, imageBase64: base64, mimeType: blob.type || 'image/png' };
             });
         if (generated?.ok) {
           addAsset({

@@ -51,8 +51,12 @@ if (!window.electronAPI) {
     presentatorAgentGenerateImage: async (args) => {
       try {
         const prompt = String(args?.prompt || args?.caption || 'cute kittens').trim();
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
-        const res = await fetch(imageUrl);
+        const seed = Math.floor(Math.random() * 100000000);
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${seed}&model=flux`;
+        let res = await fetch(imageUrl).catch(() => null);
+        if (!res || !res.ok) {
+          res = await fetch(`https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${seed}`);
+        }
         const blob = await res.blob();
         const reader = new FileReader();
         const base64 = await new Promise((resolve, reject) => {
@@ -62,11 +66,11 @@ if (!window.electronAPI) {
         });
         return {
           ok: true,
-          fileName: `${prompt.replace(/[^a-z0-9]+/gi, '-').slice(0, 30)}.png`,
+          fileName: `${prompt.replace(/[^a-z0-9]+/gi, '-').slice(0, 30)}-${seed}.png`,
           imagePath: imageUrl,
           imageBase64: base64,
           mimeType: blob.type || 'image/png',
-          seed: 42,
+          seed,
           elapsedSeconds: 2
         };
       } catch (err) {
