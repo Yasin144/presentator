@@ -1040,9 +1040,38 @@ function App() {
                       setCopiedNotice('✅ 4G/5G Mobile Link Copied! Paste on your phone.');
                       setTimeout(() => setCopiedNotice(''), 3000);
                     }}
-                    style={{ width: '100%', padding: '10px', borderRadius: '10px', border: 0, background: 'linear-gradient(135deg, #0284c7, #2563eb)', color: '#fff', fontWeight: 900, cursor: 'pointer', fontSize: '13px', marginBottom: '12px' }}
+                    style={{ width: '100%', padding: '10px', borderRadius: '10px', border: 0, background: 'linear-gradient(135deg, #0284c7, #2563eb)', color: '#fff', fontWeight: 900, cursor: 'pointer', fontSize: '13px', marginBottom: '8px' }}
                   >
                     📋 Copy 4G/5G Mobile Link
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const waText = encodeURIComponent(`📱 Presentator 4G/5G Mobile Link:\n${mobileLinkData.mobileUrl}\n\n🏠 Home Wi-Fi Link:\n${mobileLinkData.wifiUrl}`);
+                      window.open(`https://api.whatsapp.com/send?phone=917386726193&text=${waText}`, '_blank');
+                      setCopiedNotice('💬 Opening WhatsApp to send link to 7386726193!');
+                      setTimeout(() => setCopiedNotice(''), 3000);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: '10px',
+                      border: 0,
+                      background: 'linear-gradient(135deg, #25D366, #128C7E)',
+                      color: '#fff',
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      marginBottom: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      boxShadow: '0 4px 15px rgba(37, 211, 102, 0.35)'
+                    }}
+                  >
+                    <span>💬</span> Send Link to My WhatsApp (+91 7386726193)
                   </button>
 
                   {/* QR Code Displayed Simultaneously */}

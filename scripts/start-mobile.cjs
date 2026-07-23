@@ -61,16 +61,31 @@ const saveMobileInfo = (mobileUrl) => {
   } catch (_) {}
 };
 
-tunnel.stderr.on('data', data => {
+let lastSentLink = '';
+const handleOutput = data => {
   const text = data.toString();
   const match = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
-  if (match) {
+  if (match && match[0] !== lastSentLink) {
+    lastSentLink = match[0];
     saveMobileInfo(match[0]);
+    const waText = encodeURIComponent(`📱 Presentator 4G/5G Mobile Link:\n${match[0]}\n\n🏠 Home Wi-Fi Link:\n${localUrl}`);
+    const waUrl = `https://api.whatsapp.com/send?phone=917386726193&text=${waText}`;
+
     console.log(`\n🔒 YOUR SECURE ENCRYPTED MOBILE LINK (4G/5G Anywhere):`);
     console.log(`👉 ${match[0]}`);
-    console.log(`(Open this link in Chrome/Safari on your phone!)\n`);
+    console.log(`💬 WHATSAPP DIRECT SEND LINK (+91 7386726193):`);
+    console.log(`👉 ${waUrl}\n`);
+
+    try {
+      if (process.platform === 'win32') {
+        execSync(`start "" "${waUrl.replace(/&/g, '^&')}"`, { stdio: 'ignore' });
+      }
+    } catch (_) {}
   }
-});
+};
+
+if (tunnel.stdout) tunnel.stdout.on('data', handleOutput);
+if (tunnel.stderr) tunnel.stderr.on('data', handleOutput);
 
 process.on('SIGINT', () => {
   vite.kill();
