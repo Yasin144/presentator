@@ -153,6 +153,9 @@ function App() {
           const ipcData = await window.electronAPI.getMobileLink();
           if (ipcData?.mobileUrl || ipcData?.wifiUrl) {
             updateLinkState(ipcData);
+            if (!ipcData.mobileUrl && window.electronAPI?.generateMobileLink) {
+              window.electronAPI.generateMobileLink().catch(() => {});
+            }
             return;
           }
         }
@@ -167,6 +170,9 @@ function App() {
           const json = await res.json();
           if (json?.mobileUrl || json?.wifiUrl) {
             updateLinkState(json);
+            if (!json.mobileUrl && window.electronAPI?.generateMobileLink) {
+              window.electronAPI.generateMobileLink().catch(() => {});
+            }
           }
         }
       } catch (_) {}
