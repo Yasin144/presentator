@@ -13,6 +13,7 @@ export const HOME_MODULES = [
   { id: 'exporter', label: 'My Exporter', description: 'Edit your media and export a finished video.', icon: 'exporter', kind: 'workspace', target: 'exporter' },
   { id: 'resizer', label: 'Video Resizer', description: 'Fit a video to vertical, square, or wide formats.', icon: 'resizer', kind: 'workspace', target: 'resizer' },
   { id: 'translator', label: 'Translate Audio', description: 'Translate spoken audio into another language.', icon: 'audio', kind: 'translator', target: 'translator' },
+  { id: 'kitten-shorts', label: 'Kitten Shorts Voiceover', description: 'Turn a silent kitten clip and timed SRT into a funny narrated Short.', icon: 'music', kind: 'workspace', target: 'kitten-shorts' },
   { id: 'transcription', label: 'Audio to Text', description: 'Turn a recording into editable text.', icon: 'audio', kind: 'section', target: 'audioToTextSection' },
 ];
 

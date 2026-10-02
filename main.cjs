@@ -53,7 +53,7 @@ for (const channel of ['whatsapp-session-status', 'whatsapp-session-enable', 'wh
 desktopOnlyIpcChannels.add('whatsapp-session-retry');
 const observeWhatsAppJob = createWhatsAppJobObserver(reportWhatsAppJob);
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
-const revealExportChannels = new Set(['burn-captions', 'sc3-replace-video-audio', 'erase-captions', 'merge-audio-into-video', 'export-translated-video', 'export-synced-translated-video', 'video-resizer-export', 'my-exporter-export', 'my-exporter-crop-save', 'quote-export-finish', 'finish-download-file', 'write-file']);
+const revealExportChannels = new Set(['burn-captions', 'sc3-replace-video-audio', 'erase-captions', 'merge-audio-into-video', 'export-translated-video', 'export-synced-translated-video', 'video-resizer-export', 'my-exporter-export', 'my-exporter-crop-save', 'quote-export-finish', 'kitten-shorts-export', 'finish-download-file', 'write-file']);
 ipcMain.handle = (channel, listener) => {
   const observed = observeWhatsAppJob(channel, listener);
   if (!desktopOnlyIpcChannels.has(channel)) mobileIpcHandlers.set(channel, observed);
@@ -6072,6 +6072,248 @@ function myExporterProbePath(filePath) {
     colorPrimaries: String(video.color_primaries || ''),
   };
 }
+
+function kittenShortsFilterPath(filePath) {
+  return String(filePath).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+}
+
+function writeKittenShortsSoundEffect(filePath, kind) {
+  const sampleRate = 44100;
+  const duration = kind === 'pop' ? 0.16 : kind === 'rimshot' ? 0.38 : 0.46;
+  const sampleCount = Math.floor(sampleRate * duration);
+  const data = Buffer.alloc(sampleCount * 2);
+  let phase = 0;
+  for (let i = 0; i < sampleCount; i += 1) {
+    const t = i / sampleRate;
+    let sample = 0;
+    if (kind === 'boing') {
+      const frequency = 150 + 430 * Math.exp(-5.2 * t);
+      phase += (2 * Math.PI * frequency) / sampleRate;
+      sample = (Math.sin(phase) + 0.28 * Math.sin(phase * 2)) * Math.exp(-4.5 * t);
+    } else if (kind === 'pop') {
+      const noise = Math.sin(i * 12.9898) * 43758.5453;
+      const fraction = noise - Math.floor(noise);
+      sample = (Math.sin(2 * Math.PI * 145 * t) * 0.65 + (fraction * 2 - 1) * 0.35) * Math.exp(-32 * t);
+    } else {
+      const noise = Math.sin(i * 78.233) * 12515.873;
+      const fraction = noise - Math.floor(noise);
+      const drum = Math.sin(2 * Math.PI * 105 * t) * Math.exp(-12 * t);
+      const cymbal = (fraction * 2 - 1) * Math.exp(-8 * Math.max(0, t - 0.09));
+      sample = drum * 0.75 + (t > 0.09 ? cymbal * 0.2 : 0);
+    }
+    const attack = Math.min(1, t / 0.008);
+    const release = Math.min(1, (duration - t) / 0.025);
+    const value = Math.max(-0.9, Math.min(0.9, sample * attack * release * 0.65));
+    data.writeInt16LE(Math.round(value * 32767), i * 2);
+  }
+
+  const wav = Buffer.alloc(44 + data.length);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + data.length, 4);
+  wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(data.length, 40);
+  data.copy(wav, 44);
+  fs.writeFileSync(filePath, wav);
+}
+
+ipcMain.handle('kitten-shorts-pick-srt', async (event) => {
+  try {
+    const preferencePath = path.join(app.getPath('userData'), 'kitten-shorts-srt-location.json');
+    let rememberedFile = '';
+    let rememberedDirectory = '';
+    try {
+      const saved = JSON.parse(fs.readFileSync(preferencePath, 'utf8'));
+      rememberedFile = typeof saved?.filePath === 'string' ? saved.filePath : '';
+      rememberedDirectory = typeof saved?.directory === 'string' ? saved.directory : '';
+    } catch (_) {}
+
+    const generatedSrt = path.join(ROOT, 'KITTENS-comedy-te.srt');
+    const defaultPath = rememberedFile && fs.existsSync(rememberedFile)
+      ? rememberedFile
+      : rememberedDirectory && fs.existsSync(rememberedDirectory) ? rememberedDirectory
+        : fs.existsSync(generatedSrt) ? generatedSrt : app.getPath('downloads');
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(owner || undefined, {
+      title: 'Choose timed subtitle file',
+      defaultPath,
+      properties: ['openFile'],
+      filters: [{ name: 'SubRip subtitles', extensions: ['srt'] }],
+    });
+    if (result.canceled || !result.filePaths?.[0]) return { ok: false, canceled: true };
+
+    const filePath = path.resolve(result.filePaths[0]);
+    if (path.extname(filePath).toLowerCase() !== '.srt') throw new Error('Choose a SubRip .srt subtitle file.');
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size > 5 * 1024 * 1024) throw new Error('The SRT file must be a regular file smaller than 5 MB.');
+    const text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+    fs.mkdirSync(path.dirname(preferencePath), { recursive: true });
+    fs.writeFileSync(preferencePath, JSON.stringify({ filePath, directory: path.dirname(filePath) }, null, 2), 'utf8');
+    return { ok: true, filePath, name: path.basename(filePath), text };
+  } catch (error) {
+    return { ok: false, error: error?.message || 'Could not open the selected SRT file.' };
+  }
+});
+
+ipcMain.handle('kitten-shorts-export', async (event, opts = {}) => {
+  let workDir = '';
+  let outputPath = '';
+  let exportCompleted = false;
+  try {
+    const videoPath = path.resolve(String(opts.videoPath || ''));
+    if (!fs.existsSync(videoPath) || !fs.statSync(videoPath).isFile()) throw new Error('The selected kitten video could not be found.');
+    const moodTable = {
+      playful: { rate: '+2%', malePitch: '+1Hz', femalePitch: '+1Hz' },
+      dramatic: { rate: '-4%', malePitch: '+0Hz', femalePitch: '+0Hz' },
+      silly: { rate: '+6%', malePitch: '+2Hz', femalePitch: '+2Hz' },
+    };
+    const mood = moodTable[String(opts.mood || 'playful')] || moodTable.playful;
+    const voiceMode = ['male', 'female', 'both'].includes(String(opts.voiceMode)) ? String(opts.voiceMode) : 'both';
+    const language = ['te', 'hi', 'en'].includes(String(opts.language)) ? String(opts.language) : 'te';
+    const languageVoices = {
+      te: { female: 'te-IN-ShrutiNeural', male: 'te-IN-MohanNeural' },
+      hi: { female: 'hi-IN-SwaraNeural', male: 'hi-IN-MadhurNeural' },
+      en: { female: 'en-IN-NeerjaExpressiveNeural', male: 'en-IN-PrabhatNeural' },
+    };
+    const segments = Array.isArray(opts.segments) ? opts.segments : [];
+    if (!segments.length || segments.length > 100) throw new Error('Provide between 1 and 100 timed SRT lines for one Short.');
+    const meta = myExporterProbePath(videoPath);
+    if (!meta.hasVideo || meta.duration <= 0) throw new Error('The selected file does not contain a readable video track.');
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index];
+      const start = Number(segment?.start);
+      const end = Number(segment?.end);
+      const text = String(segment?.text || '').trim();
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > meta.duration + 0.08 || !text || text.length > 1000) {
+        throw new Error(`SRT line ${index + 1} has invalid text or timing, or extends past the video.`);
+      }
+      if (index && start < Number(segments[index - 1].end) - 0.03) throw new Error(`SRT lines ${index} and ${index + 1} overlap; adjust their timings for clean alternating narration.`);
+    }
+    const srtText = String(opts.srtText || '');
+    if (Buffer.byteLength(srtText, 'utf8') > 5 * 1024 * 1024) throw new Error('The SRT file is unusually large.');
+
+    workDir = path.join(app.getPath('temp'), `pattan-kitten-shorts-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
+    fs.mkdirSync(workDir, { recursive: true });
+    const outputDir = app.getPath('downloads');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const baseName = path.basename(videoPath, path.extname(videoPath)).replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim() || 'Kitten-Video';
+    outputPath = path.join(outputDir, `${baseName}-Kitten-Shorts.mp4`);
+    if (fs.existsSync(outputPath)) outputPath = path.join(outputDir, `${baseName}-Kitten-Shorts-${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`);
+    const sendProgress = (value) => { try { if (!event.sender.isDestroyed()) event.sender.send('kitten-shorts-progress', value); } catch (_) {} };
+    const clipPaths = [];
+
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index];
+      const targetSeconds = Number(segment.end) - Number(segment.start);
+      const speaker = voiceMode === 'both' ? (index % 2 === 0 ? 'female' : 'male') : voiceMode;
+      const voice = languageVoices[language][speaker];
+      const response = await postJsonForBufferWithRecovery(8427, '/api/preview-mp3', {
+        text: String(segment.text), voice, rate: mood.rate,
+        pitch: speaker === 'male' ? mood.malePitch : mood.femalePitch, volume: '+0%',
+      }, 180000, 2);
+      if (response.statusCode < 200 || response.statusCode >= 300 || !response.buffer?.length) {
+        let detail = `Voice generation failed on SRT line ${index + 1}.`;
+        try { detail = JSON.parse(response.buffer.toString('utf8'))?.error || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      const clipPath = path.join(workDir, `line-${String(index + 1).padStart(3, '0')}.mp3`);
+      fs.writeFileSync(clipPath, response.buffer);
+      const speechDuration = myExporterProbePath(clipPath).duration;
+      if (!speechDuration || speechDuration > targetSeconds + 0.12) {
+        throw new Error(`Voice line ${index + 1} needs about ${speechDuration.toFixed(1)}s but its SRT slot is ${targetSeconds.toFixed(1)}s. Extend that subtitle’s end time so the funny voice is not rushed or cut off.`);
+      }
+      clipPaths.push(clipPath);
+      sendProgress({ running: true, percent: Math.min(82, 7 + Math.round((index + 1) / segments.length * 75)), phase: `Generating ${speaker} ${language.toUpperCase()} funny voice`, line: index + 1, total: segments.length });
+    }
+
+    const ffmpeg = findMyExporterFFmpeg();
+    const args = ['-y', '-hide_banner', '-i', videoPath, '-f', 'lavfi', '-t', String(meta.duration), '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000'];
+    for (const clipPath of clipPaths) args.push('-i', clipPath);
+    const effectClips = [];
+    if (opts.soundEffects !== false) {
+      const effectPlan = [
+        { cue: 0, kind: 'boing' }, { cue: 2, kind: 'pop' }, { cue: 4, kind: 'rimshot' },
+        { cue: 6, kind: 'boing' }, { cue: 8, kind: 'pop' }, { cue: 10, kind: 'rimshot' },
+        { cue: 12, kind: 'boing' },
+      ].filter(effect => effect.cue < segments.length);
+      for (let index = 0; index < effectPlan.length; index += 1) {
+        const effect = effectPlan[index];
+        const effectPath = path.join(workDir, `sfx-${String(index + 1).padStart(2, '0')}-${effect.kind}.wav`);
+        writeKittenShortsSoundEffect(effectPath, effect.kind);
+        effectClips.push({ ...effect, filePath: effectPath });
+        args.push('-i', effectPath);
+      }
+    }
+    const filters = ['[1:a]aformat=sample_rates=48000:channel_layouts=stereo[silence]'];
+    clipPaths.forEach((_, index) => {
+      const segment = segments[index];
+      const delay = Math.max(0, Math.round(Number(segment.start) * 1000));
+      filters.push(`[${index + 2}:a]aformat=sample_rates=48000:channel_layouts=stereo,adelay=${delay}|${delay},apad,atrim=duration=${meta.duration.toFixed(3)}[voice${index}]`);
+    });
+    effectClips.forEach((effect, index) => {
+      const segment = segments[effect.cue];
+      const offsetSeconds = Math.min(0.32, Math.max(0.08, (Number(segment.end) - Number(segment.start)) * 0.12));
+      const delay = Math.max(0, Math.round((Number(segment.start) + offsetSeconds) * 1000));
+      const inputIndex = clipPaths.length + 2 + index;
+      filters.push(`[${inputIndex}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=0.16,adelay=${delay}|${delay},atrim=duration=${meta.duration.toFixed(3)}[sfx${index}]`);
+    });
+    const mixInputs = ['[silence]', ...clipPaths.map((_, index) => `[voice${index}]`), ...effectClips.map((_, index) => `[sfx${index}]`)].join('');
+    filters.push(`${mixInputs}amix=inputs=${clipPaths.length + effectClips.length + 1}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.94[aout]`);
+    const crop = 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,format=yuv420p';
+    let videoFilter = crop;
+    if (opts.showCaptions && srtText.trim()) {
+      const srtPath = path.join(workDir, 'captions.srt');
+      fs.writeFileSync(srtPath, srtText.replace(/^\uFEFF/, ''), 'utf8');
+      videoFilter += `,subtitles='${kittenShortsFilterPath(srtPath)}':force_style='FontName=Arial,FontSize=22,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=190'`;
+    }
+    args.push('-filter_complex', filters.join(';'), '-map', '0:v:0', '-map', '[aout]', '-vf', videoFilter,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
+      '-t', String(meta.duration), '-movflags', '+faststart', '-shortest', '-progress', 'pipe:2', '-nostats', outputPath);
+    sendProgress({ running: true, percent: 84, phase: 'Rendering vertical 1080 × 1920 video with original sound muted', line: segments.length, total: segments.length });
+    await new Promise((resolve, reject) => {
+      const proc = spawn(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+      let stderr = '';
+      let progressBuffer = '';
+      proc.stderr.on('data', chunk => {
+        const text = chunk.toString();
+        stderr = (stderr + text).slice(-5000);
+        progressBuffer += text;
+        const match = progressBuffer.match(/out_time_ms=(\d+)/);
+        if (match) {
+          const pct = Math.min(99, 84 + Math.floor(Number(match[1]) / 1000000 / meta.duration * 15));
+          sendProgress({ running: true, percent: pct, phase: 'Rendering vertical YouTube Short', line: segments.length, total: segments.length });
+          progressBuffer = progressBuffer.slice(-1000);
+        }
+      });
+      proc.once('error', reject);
+      proc.once('exit', code => code === 0 ? resolve() : reject(new Error(`Video render failed${code === null ? ' or was cancelled' : ''}: ${stderr.slice(-1200)}`)));
+    });
+    const finalMeta = myExporterProbePath(outputPath);
+    if (!finalMeta.hasVideo || !finalMeta.hasAudio || finalMeta.width !== 1080 || finalMeta.height !== 1920 || fs.statSync(outputPath).size < 10000) {
+      throw new Error('The rendered file did not pass its video/audio validation.');
+    }
+    sendProgress({ running: false, percent: 100, phase: 'Short ready', line: segments.length, total: segments.length });
+    exportCompleted = true;
+    return { ok: true, outputPath, fileName: path.basename(outputPath), duration: finalMeta.duration, width: finalMeta.width, height: finalMeta.height, voiceLines: segments.length, captionsBurned: Boolean(opts.showCaptions) };
+  } catch (error) {
+    try { if (!event.sender.isDestroyed()) event.sender.send('kitten-shorts-progress', { running: false, percent: 0, phase: 'Export stopped', error: String(error?.message || error) }); } catch (_) {}
+    return { ok: false, error: String(error?.message || error) };
+  } finally {
+    if (!exportCompleted && outputPath && fs.existsSync(outputPath)) {
+      try { fs.unlinkSync(outputPath); } catch (error) { console.warn('[Kitten Shorts] Partial output could not be removed:', error.message); }
+    }
+    if (workDir && fs.existsSync(workDir)) {
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (error) { console.warn('[Kitten Shorts] Temporary files could not be cleaned:', error.message); }
+    }
+  }
+});
 
 
 function findMyExporterFFmpeg() {

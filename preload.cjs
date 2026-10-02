@@ -236,6 +236,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  pickKittenShortsSrt: () => ipcRenderer.invoke('kitten-shorts-pick-srt'),
+  exportKittenShort: (payload) => ipcRenderer.invoke('kitten-shorts-export', payload),
+  onKittenShortsProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on('kitten-shorts-progress', handler);
+    return () => ipcRenderer.removeListener('kitten-shorts-progress', handler);
+  },
+
   narrateSc3Text: (payload) =>
     ipcRenderer.invoke('narrate-sc3-text', payload),
 

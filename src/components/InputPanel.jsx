@@ -661,6 +661,25 @@ plz open ur books!"></textarea>
               </label>
             </div>
 
+            <label className="style-field" htmlFor="numberTableDisplaySelect" style={{marginTop:'8px'}}>
+              <span className="style-label">Display type</span>
+              <select id="numberTableDisplaySelect" className="theme-select text-style-select" defaultValue="grid">
+                <option value="grid">Number grid</option>
+                <option value="names">Number names — 71 · Seventy-one</option>
+              </select>
+              <span className="upload-copy">Number names use textbook-style columns of ten. Up to 30 numbers fit on one screen.</span>
+            </label>
+            <label className="style-field" htmlFor="numberTableStepSelect" style={{marginTop:'8px'}}>
+              <span className="style-label">Count by</span>
+              <select id="numberTableStepSelect" className="theme-select text-style-select" defaultValue="1">
+                <option value="1">1 — Every number</option>
+                <option value="2">2 — 2, 4, 6, 8…</option>
+                <option value="5">5 — 5, 10, 15, 20…</option>
+                <option value="10">10 — 10, 20, 30, 40…</option>
+              </select>
+              <span className="upload-copy">Only multiples of your selection are narrated and highlighted.</span>
+            </label>
+
             {/* ── Number Table Theme Selector ── */}
             <div className="display-style-grid" style={{marginTop:'8px'}}>
               <label className="style-field" htmlFor="numberTableThemeSelect">
@@ -1966,7 +1985,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <p className="upload-copy">Enable or disable the advanced dynamic rendering features applied to your exported
               videos.</p>
             <label className="toggle-check" htmlFor="proCaptionsEnabled">
-              <input id="proCaptionsEnabled" type="checkbox" defaultChecked />
+              <input id="proCaptionsEnabled" type="checkbox" />
               <span>Enable TikTok-Style Animated Captions</span>
             </label>
             <label className="toggle-check" htmlFor="proAnimationsEnabled">
