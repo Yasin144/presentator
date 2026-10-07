@@ -166,6 +166,29 @@ function bootCaptionStudio() {
     const watermarkCheck = document.getElementById('captionWatermarkCheck');
     const bgMusicCheck = document.getElementById('captionBgMusicCheck');
     let sharedWatermarkImage = null;
+    let captionFontReady = null;
+    const captionEmojiCache = new Map();
+
+    function getCaptionFontFamily() {
+        const selected = fontSelect ? fontSelect.value : 'Nunito, sans-serif';
+        return selected.startsWith('Nunito') ? '"Pattan Caption Nunito", sans-serif' : selected;
+    }
+
+    async function ensureCaptionFontReady() {
+        if (!String(fontSelect?.value || 'Nunito').startsWith('Nunito')) return;
+        if (!captionFontReady) {
+            const root = window.location.protocol === 'app:' ? 'app://voice/public/' : '/';
+            captionFontReady = Promise.all([['Regular', '400'], ['Black', '900']].map(async ([name, weight]) => {
+                const face = new FontFace('Pattan Caption Nunito', `url("${root}caption-fonts/Nunito-${name}.ttf")`, { weight });
+                document.fonts.add(await face.load());
+            })).catch(error => { captionFontReady = null; throw error; });
+        }
+        await captionFontReady;
+    }
+
+    ensureCaptionFontReady().then(() => {
+        if (sourceVideo.src && sourceVideo.paused) renderPreviewNow(sourceVideo.currentTime || 0);
+    }).catch(error => console.warn('[Caption] Could not load caption font:', error));
 
     if (styleSelect) styleSelect.value = 'white-yellow';
     if (progressCheck) progressCheck.checked = false;
@@ -194,7 +217,7 @@ function bootCaptionStudio() {
         const sample = document.getElementById('captionSizePreviewText');
         if (sample) {
             sample.style.fontSize = `${Number(sizeSlider?.value) || 50}px`;
-            sample.style.fontFamily = fontSelect?.value || 'Arial, sans-serif';
+            sample.style.fontFamily = getCaptionFontFamily();
             sample.style.color = colorPicker?.value || '#ffffff';
         }
     }
@@ -1188,6 +1211,7 @@ function bootCaptionStudio() {
         }
 
         try {
+            await ensureCaptionFontReady();
             const result = await window.electronAPI.burnCaptions({
                 videoPath: filePath,
                 sourceFileName: item.file && item.file.name ? item.file.name : '',
@@ -1195,7 +1219,7 @@ function bootCaptionStudio() {
                 style: styleSelect ? styleSelect.value : 'white-yellow',
                 fontSize: selectedQueueFontSize(),
                 position: 'bottom',
-                assContent: buildPreviewMatchedAss()
+                ...buildPreviewMatchedExport()
             });
             if (!result || !result.ok) {
                 throw new Error((result && result.error) || 'FFmpeg caption export failed.');
@@ -2543,7 +2567,68 @@ function bootCaptionStudio() {
         function getVisibleCaptionText(fullText, activeWordIndex, maxWords = CAPTION_WORD_LIMIT) {
             const words = String(fullText || '').trim().split(/\s+/).filter(Boolean);
             if (!Number.isInteger(activeWordIndex) || activeWordIndex < 0) return '';
-            return words.slice(0, Math.max(1, Math.min(words.length, maxWords))).join(' ');
+            const start = Math.floor(activeWordIndex / maxWords) * maxWords;
+            return words.slice(start, start + maxWords).join(' ');
+        }
+
+        function getCaptionWordTimeline(caption) {
+            const tokens = String(caption.text || '').trim().split(/\s+/).filter(Boolean);
+            const [start, end] = caption.timestamp.map(Number);
+            const complete = caption.words?.length === tokens.length && caption.words.every(word =>
+                Array.isArray(word.timestamp) && Number.isFinite(Number(word.timestamp[0]))
+                && Number.isFinite(Number(word.timestamp[1])) && Number(word.timestamp[1]) > Number(word.timestamp[0]));
+            return tokens.map((text, index) => ({
+                text,
+                start: complete ? Math.max(start, Number(caption.words[index].timestamp[0])) : start + index / tokens.length * (end - start),
+                end: complete ? Math.min(end, Number(caption.words[index].timestamp[1])) : start + (index + 1) / tokens.length * (end - start),
+            }));
+        }
+
+        function getCaptionWordEnd(words, index, captionEnd) {
+            const word = words[index];
+            return Math.min(captionEnd, words[index + 1]?.start ?? captionEnd, word.end + SHORT_CAPTION_GAP_SECONDS);
+        }
+
+        function getCaptionActiveWordIndex(caption, time) {
+            const words = getCaptionWordTimeline(caption);
+            for (let index = words.length - 1; index >= 0; index -= 1) {
+                if (time >= words[index].start && time < getCaptionWordEnd(words, index, Number(caption.timestamp[1]))) return index;
+            }
+            return -1;
+        }
+
+        function getCaptionEmojiBitmap(emoji, fontSize) {
+            const key = `${emoji}_${fontSize}`;
+            if (captionEmojiCache.has(key)) return captionEmojiCache.get(key);
+            const bitmap = document.createElement('canvas');
+            bitmap.width = bitmap.height = Math.ceil(fontSize * 3);
+            const ctx = bitmap.getContext('2d');
+            if (!ctx) throw new Error('Could not render the color caption emoji.');
+            ctx.font = `900 ${fontSize * 1.5}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(emoji, bitmap.width / 2, bitmap.height / 2);
+            if (captionEmojiCache.size >= 64) captionEmojiCache.delete(captionEmojiCache.keys().next().value);
+            captionEmojiCache.set(key, bitmap);
+            return bitmap;
+        }
+
+        function addCaptionEmojiOverlay(overlays, emoji, fontSize, event) {
+            let sprite = overlays.find(item => item.emoji === emoji);
+            if (!sprite) {
+                const bitmap = getCaptionEmojiBitmap(emoji, fontSize);
+                sprite = { emoji, pngDataUrl: bitmap.toDataURL('image/png'), events: [] };
+                overlays.push(sprite);
+            }
+            const previous = sprite.events[sprite.events.length - 1];
+            if (previous && Math.abs(previous.end - event.start) < .0001
+                && previous.x === event.x && previous.y === event.y
+                && previous.offsetY === event.offsetY && previous.bounceStart === event.bounceStart) {
+                previous.end = event.end;
+            } else {
+                sprite.events.push(event);
+            }
         }
 
         function getWrappedCaptionLines(ctx, text, maxWidth) {
@@ -2557,10 +2642,10 @@ function bootCaptionStudio() {
             const lines = [];
             let line = '';
             for (let n = 0; n < words.length; n += 1) {
-                const testLine = line + words[n] + ' ';
+                const testLine = line ? line + ' ' + words[n] : words[n];
                 if (ctx.measureText(testLine).width > maxWidth && n > 0) {
                     lines.push(line);
-                    line = words[n] + ' ';
+                    line = words[n];
                 } else {
                     line = testLine;
                 }
@@ -2579,11 +2664,12 @@ function bootCaptionStudio() {
             return Math.max(blockHeight / 2, targetHeight - getCaptionBottomSafety(fontSize, lineHeight, lineCount) - blockHeight / 2);
         }
 
-        function drawWrappedText(ctx, fullText, x, y, maxWidth, lineHeight, elapsedTime, styleType, activeWordIndex = -1, targetEmoji = null, fontSize = 50, colorOverride = null) {
+        function drawWrappedText(ctx, fullText, x, y, maxWidth, lineHeight, elapsedTime, styleType, activeWordIndex = -1, targetEmoji = null, fontSize = 50, colorOverride = null, isKaraoke = true) {
         let text = fullText;
 
         if (styleType === 'white-yellow' && activeWordIndex === -1) return;
         text = getVisibleCaptionText(fullText, activeWordIndex, CAPTION_WORD_LIMIT);
+        activeWordIndex = activeWordIndex < 0 ? -1 : activeWordIndex % CAPTION_WORD_LIMIT;
 
         let lines = getWrappedCaptionLines(ctx, text, maxWidth);
 
@@ -2605,13 +2691,13 @@ function bootCaptionStudio() {
             // Pop bounce animation based on time
             const emojiScale = elapsedTime < 0.2 ? 0.5 + (Math.sin(elapsedTime / 0.2 * Math.PI / 2) * 0.7) : 1.2;
             ctx.scale(emojiScale, emojiScale);
-            ctx.font = `900 ${fontSize * 1.5}px sans-serif`;
-            ctx.fillText(targetEmoji, 0, - (lines.length * lineHeight)/2 - Math.max(30, fontSize));
+            const bitmap = getCaptionEmojiBitmap(targetEmoji, fontSize);
+            ctx.drawImage(bitmap, -bitmap.width / 2, -(lines.length * lineHeight) / 2 - Math.max(30, fontSize) - bitmap.height / 2);
             ctx.restore();
         }
 
         const renderLine = (txt, yPos, wordCursorStart, drawShadowFx) => {
-            if (activeWordIndex === -1 || styleType === 'typewriter' || styleType === 'glitch') {
+            if (!isKaraoke || activeWordIndex === -1 || styleType === 'typewriter' || styleType === 'glitch') {
                 if (drawShadowFx) drawShadowFx();
                 if (shouldStroke) ctx.strokeText(txt, 0, yPos);
                 ctx.fillText(txt, 0, yPos);
@@ -2633,9 +2719,7 @@ function bootCaptionStudio() {
 
                 for(let w = 0; w < wds.length; w++) {
                     const bw = getW(wds[w]);
-                    // No future words are shown. Keep completed words white and
-                    // highlight only the word being spoken so karaoke motion is
-                    // visible instead of the whole revealed caption staying yellow.
+                    // Keep the complete group visible; only the spoken word is highlighted.
                     const isFocus = (wordCursorStart + w === activeWordIndex);
                     const ogAlpha = ctx.globalAlpha;
                     const ogFill = ctx.fillStyle;
@@ -2678,7 +2762,7 @@ function bootCaptionStudio() {
             ctx.scale(scale, scale);
             
         ctx.lineWidth = baseStrokeWidth * 1.5; ctx.lineJoin = 'round';
-            ctx.strokeStyle = '#000000'; ctx.fillStyle = (styleType === 'white-yellow') ? '#fde047' : globalColor; 
+            ctx.strokeStyle = '#101820'; ctx.fillStyle = (styleType === 'white-yellow') ? (isKaraoke ? '#fde047' : '#ffffff') : globalColor;
             
             for(let i = 0; i < lines.length; i++) {
                 wordCursor += renderLine(lines[i].trim(), currentY, wordCursor, () => {
@@ -2862,13 +2946,18 @@ function bootCaptionStudio() {
                  ctx.restore();
              }
 
-            const fontSize = Math.max(12, Math.floor(sizeSlider ? parseInt(sizeSlider.value) : 35));
+            // Caption controls are source-video pixels, even on a capped preview canvas.
+            ctx.save();
+            ctx.scale(targetWidth / (sourceVideo.videoWidth || targetWidth), targetHeight / (sourceVideo.videoHeight || targetHeight));
+            const captionWidth = sourceVideo.videoWidth || targetWidth;
+            const captionHeight = sourceVideo.videoHeight || targetHeight;
+            const fontSize = Math.max(12, Math.round(sizeSlider ? Number(sizeSlider.value) : 35));
             
             const gapMult = (gapSlider ? parseInt(gapSlider.value) : 120) / 100;
             const heightMult = (heightSlider ? parseInt(heightSlider.value) : 100) / 100;
             const lineHeight = fontSize * gapMult * heightMult;
 
-            const maxWBase = targetWidth;
+            const maxWBase = captionWidth;
             const widthMult = (widthSlider ? parseInt(widthSlider.value) : 85) / 100;
             const maxWidth = maxWBase * widthMult;
             
@@ -2879,32 +2968,7 @@ function bootCaptionStudio() {
                   const rawWords = currentChunk.text.trim().split(/\s+/);
                   const totalWords = rawWords.length;
                   
-                  if (currentChunk.words && currentChunk.words.length === totalWords) {
-                       let foundIdx = currentChunk.words.findIndex(w => {
-                           const start = Array.isArray(w.timestamp) ? Number(w.timestamp[0]) : NaN;
-                           const rawEnd = Array.isArray(w.timestamp) ? Number(w.timestamp[1]) : NaN;
-                           const end = Number.isFinite(rawEnd) ? rawEnd : (Number.isFinite(start) ? start + 0.2 : NaN);
-                           return Number.isFinite(start) && Number.isFinite(end) && adjustedTime >= start && adjustedTime < end;
-                       });
-                       if (foundIdx < 0) {
-                           foundIdx = currentChunk.words.findIndex((w, index) => {
-                               const next = currentChunk.words[index + 1];
-                               const rawEnd = Array.isArray(w.timestamp) ? Number(w.timestamp[1]) : NaN;
-                               const nextStart = next && Array.isArray(next.timestamp) ? Number(next.timestamp[0]) : NaN;
-                               return Number.isFinite(rawEnd)
-                                   && adjustedTime >= rawEnd
-                                   && adjustedTime < rawEnd + SHORT_CAPTION_GAP_SECONDS
-                                   && (!Number.isFinite(nextStart) || adjustedTime < nextStart);
-                           });
-                       }
-                       activeWordIndex = foundIdx;
-                  } else {
-                       const chunkDuration = currentChunk.timestamp[1] - currentChunk.timestamp[0];
-                       const elapsedTime = adjustedTime - currentChunk.timestamp[0];
-                       const timePerWord = chunkDuration / Math.max(1, totalWords);
-                       if (timePerWord <= 0 || isNaN(timePerWord)) activeWordIndex = 0;
-                       else activeWordIndex = Math.floor(elapsedTime / timePerWord);
-                  }
+                  activeWordIndex = getCaptionActiveWordIndex(currentChunk, adjustedTime);
                   
                   if (activeWordIndex >= totalWords) activeWordIndex = totalWords - 1;
                   if (activeWordIndex < 0 || isNaN(activeWordIndex)) activeWordIndex = -1;
@@ -2928,13 +2992,14 @@ function bootCaptionStudio() {
             const useEmoji = emojiCheck && emojiCheck.checked;
             if (useEmoji) targetEmoji = getEmojiForText(currentChunk.text);
 
-            const fontFamily = fontSelect ? fontSelect.value : 'Nunito, sans-serif';
+            const fontFamily = getCaptionFontFamily();
             ctx.font = `${boldCheck && !boldCheck.checked ? 400 : 900} ${fontSize}px ${fontFamily}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             const visibleCaptionText = getVisibleCaptionText(currentChunk.text.trim(), activeWordIndex, CAPTION_WORD_LIMIT);
             const wrappedLines = getWrappedCaptionLines(ctx, visibleCaptionText, maxWidth);
-            const anchoredY = targetHeight * captionPosY;
+            const anchoredY = captionHeight * captionPosY;
             
-            drawWrappedText(ctx, currentChunk.text.trim(), targetWidth * captionPosX, anchoredY, maxWidth, lineHeight, adjustedTime - currentChunk.timestamp[0], styleSelect.value, activeWordIndex, targetEmoji, fontSize, currentChunk.colorOverride);
+            drawWrappedText(ctx, currentChunk.text.trim(), captionWidth * captionPosX, anchoredY, maxWidth, lineHeight, adjustedTime - currentChunk.timestamp[0], styleSelect.value, activeWordIndex, targetEmoji, fontSize, currentChunk.colorOverride, isKaraoke);
+            ctx.restore();
           } else {
             let useMusic = bgMusicAudio && !bgMusicAudio.paused;
             if (bgMusicCheck && !bgMusicCheck.checked) useMusic = false;
@@ -3040,7 +3105,7 @@ function bootCaptionStudio() {
     }
 
     function getAssStyleConfig(styleType, fontSize, userColor, strokeValue) {
-        const highlight = styleType === 'white-yellow' ? '#facc15' : userColor;
+        const highlight = styleType === 'white-yellow' ? '#fde047' : userColor;
         const activeColor = hexToAss(highlight, '#facc15');
         const inactiveColor = styleType === 'white-yellow'
             ? '&H00FFFFFF&'
@@ -3052,7 +3117,7 @@ function bootCaptionStudio() {
         let outline = outlineBase;
         let shadow = 4;
         let backColor = '&H64000000&';
-        let outlineColor = '&H00000000&';
+        let outlineColor = styleType === 'white-yellow' ? hexToAss('#101820', '#101820') : '&H00000000&';
 
         if (styleType === 'classic' || styleType === 'typewriter') {
             borderStyle = 3;
@@ -3085,18 +3150,15 @@ function bootCaptionStudio() {
             backColor = '&HFF000000&';
         }
 
-        // White/yellow karaoke needs a dark edge to stay legible on bright footage.
+        // ASS outline is a radius; Canvas lineWidth covers both sides of the edge.
         if (styleType === 'white-yellow') {
-            outline = Math.max(2, Math.round(fontSize * 0.055));
-            shadow = 1;
-        } else {
-            outline = 0;
+            outline = Math.max(2, Math.round(fontSize * 0.09)) * 0.75;
             shadow = 0;
         }
         return { activeColor, inactiveColor, baseTextColor, outlineColor, backColor, borderStyle, outline, shadow };
     }
 
-    function buildPreviewMatchedAss() {
+    function buildPreviewMatchedAss(emojiOverlays = []) {
         const width = sourceVideo.videoWidth || renderCanvas.width || 1920;
         const height = sourceVideo.videoHeight || renderCanvas.height || 1080;
         const fontSize = Math.max(12, Math.round(sizeSlider ? Number(sizeSlider.value) : 35));
@@ -3111,14 +3173,33 @@ function bootCaptionStudio() {
         const sideMargin = Math.max(20, Math.round(width * (1 - widthMult) / 2));
         const marginV = CAPTION_BOTTOM_OFFSET_PX;
         const syncOffset = getCaptionSyncOffsetSeconds();
-        const selectedFont = String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
+        const browserFont = getCaptionFontFamily();
+        const requestedFont = String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
         const selectedBold = boldCheck && !boldCheck.checked ? 0 : -1;
+        const selectedFont = requestedFont === 'Nunito' && selectedBold ? 'Nunito Black' : requestedFont;
         const selectedHeight = Math.max(70, Math.min(140, Number(heightSlider?.value || 100)));
         const isKaraoke = Boolean(karaokeCheck && karaokeCheck.checked);
         const useEmoji = emojiCheck && emojiCheck.checked;
         const measureCanvas = document.createElement('canvas');
         const measureCtx = measureCanvas.getContext('2d');
-        if (measureCtx) measureCtx.font = `${selectedBold ? 900 : 400} ${fontSize}px ${selectedFont}`;
+        if (measureCtx) measureCtx.font = `${selectedBold ? 900 : 400} ${fontSize}px ${browserFont}`;
+        // libass measures fontsize using Windows ascent + descent, not the CSS em.
+        const fontMetrics = measureCtx?.measureText('Mg');
+        const assFontSize = requestedFont === 'Nunito'
+            ? fontSize * 1.377
+            : (fontMetrics?.fontBoundingBoxAscent + fontMetrics?.fontBoundingBoxDescent) || fontSize;
+        let assBaselineOffset = 0;
+        if (measureCtx && Number.isFinite(fontMetrics?.actualBoundingBoxAscent)) {
+            measureCtx.textBaseline = 'middle';
+            const middleMetrics = measureCtx.measureText('Mg');
+            measureCtx.textBaseline = 'alphabetic';
+            const assBaseline = requestedFont === 'Nunito'
+                ? fontSize * .3885
+                : (fontMetrics.fontBoundingBoxAscent - fontMetrics.fontBoundingBoxDescent) / 2;
+            if (Number.isFinite(assBaseline)) {
+                assBaselineOffset = fontMetrics.actualBoundingBoxAscent - middleMetrics.actualBoundingBoxAscent - assBaseline;
+            }
+        }
         const wrapTokensForAss = (tokens) => {
             if (!measureCtx) return [tokens];
             const maxWidth = width * widthMult;
@@ -3136,49 +3217,29 @@ function bootCaptionStudio() {
             if (line.length) lines.push(line);
             return lines.length ? lines : [tokens];
         };
-        const assBottomY = (tokens) => {
-            const lineCount = wrapTokensForAss(tokens).length;
-            const lineHeight = fontSize * 1.2;
-            return Math.round(height * captionPosY);
-        };
+        const lineHeight = fontSize * (Number(gapSlider?.value || 120) / 100) * selectedHeight / 100;
 
-        const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Preview,${selectedFont},${fontSize},${activeColor},${inactiveColor},${outlineColor},${backColor},${selectedBold},0,0,0,100,${selectedHeight},0,0,${borderStyle},0,0,${captionAnchor},${sideMargin},${sideMargin},${marginV},1\nStyle: Progress,Arial,10,${activeColor},${activeColor},${activeColor},${activeColor},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
+        const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Preview,${selectedFont},${assFontSize},${activeColor},${inactiveColor},${outlineColor},${backColor},${selectedBold},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${captionAnchor},${sideMargin},${sideMargin},${marginV},1\nStyle: Progress,Arial,10,${activeColor},${activeColor},${activeColor},${activeColor},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
         const events = [];
         const exportWordLimit = CAPTION_WORD_LIMIT;
 
-        for (const caption of removeIgnoredIntroCaptions(generatedCaptions)) {
+        const exportCaptions = removeIgnoredIntroCaptions(generatedCaptions);
+        for (const [captionIndex, caption] of exportCaptions.entries()) {
             const textTokens = String(caption.text || '').trim().split(/\s+/).filter(Boolean);
             if (!textTokens.length || !Array.isArray(caption.timestamp)) continue;
             const capStart = Math.max(0, Number(caption.timestamp[0]) + syncOffset);
-            const capEnd = Math.max(capStart + 0.1, Number(caption.timestamp[1]) + syncOffset);
-            const hasCompleteWordTimeline = Array.isArray(caption.words)
-                && caption.words.length === textTokens.length
-                && caption.words.every((word) => {
-                    const stamp = Array.isArray(word.timestamp) ? word.timestamp : [];
-                    return Number.isFinite(Number(stamp[0]))
-                        && Number.isFinite(Number(stamp[1]))
-                        && Number(stamp[1]) > Number(stamp[0]);
-                });
-            const sourceWords = hasCompleteWordTimeline
-                ? caption.words.map((word, index) => {
-                    const stamp = Array.isArray(word.timestamp) ? word.timestamp : [];
-                    return {
-                        text: textTokens[index],
-                        start: Math.max(capStart, Number(stamp[0]) + syncOffset),
-                        end: Math.min(capEnd, Number(stamp[1]) + syncOffset),
-                    };
-                })
-                : textTokens.map((text, index) => ({
-                    text,
-                    start: capStart + (index / textTokens.length) * (capEnd - capStart),
-                    end: capStart + ((index + 1) / textTokens.length) * (capEnd - capStart),
-                }));
+            const nextCaptionStart = Number(exportCaptions[captionIndex + 1]?.timestamp?.[0]) + syncOffset;
+            const capEnd = Math.min(Number(caption.timestamp[1]) + syncOffset,
+                Number.isFinite(nextCaptionStart) ? nextCaptionStart : Infinity);
+            const sourceWords = getCaptionWordTimeline(caption).map(word => ({
+                ...word, start: word.start + syncOffset, end: word.end + syncOffset,
+            }));
             const captionGroups = [];
             for (let groupStart = 0; groupStart < textTokens.length; groupStart += exportWordLimit) {
                 const groupTokens = textTokens.slice(groupStart, groupStart + exportWordLimit);
                 const groupWords = sourceWords.slice(groupStart, groupStart + exportWordLimit);
                 const groupStartTime = groupWords[0] ? groupWords[0].start : capStart;
-                const groupEndTime = groupWords[groupWords.length - 1] ? groupWords[groupWords.length - 1].end : capEnd;
+                const groupEndTime = sourceWords[groupStart + exportWordLimit]?.start ?? capEnd;
                 captionGroups.push({
                     tokens: groupTokens,
                     words: groupWords,
@@ -3187,32 +3248,36 @@ function bootCaptionStudio() {
                 });
             }
             const emoji = useEmoji ? getEmojiForText(caption.text) : null;
-            const emojiPrefix = emoji
-                ? `{\\fnSegoe UI Emoji\\fs${Math.round(fontSize * 1.5)}\\1c&H00FFFFFF&}${escapeAssCaptionText(emoji)}\\N{\\fn${escapeAssCaptionText(selectedFont)}\\fs${fontSize}}`
-                : '';
-
             captionGroups.forEach(group => {
                 if (!group.tokens.length) return;
-                const y = assBottomY(group.tokens);
                 const wrappedTokenLines = wrapTokensForAss(group.tokens);
                 // Keep the complete caption group visible and change only the
                 // currently spoken word to the active colour.
                 group.words.forEach((word, activeIndex) => {
-                    const nextWord = group.words[activeIndex + 1];
-                    const start = Number.isFinite(word?.start) ? word.start : group.start;
-                    const end = Math.max(start + 0.08, Math.min(
-                        Number.isFinite(nextWord?.start) ? nextWord.start : group.end,
-                        group.end,
-                    ));
+                    const start = Math.max(0, word.start);
+                    const end = getCaptionWordEnd(group.words, activeIndex, Math.min(capEnd, group.end));
+                    if (end <= start) return;
                     let revealedCursor = 0;
-                    const revealedText = wrapTokensForAss(group.tokens)
-                        .map(line => line.map(token => {
-                            const color = !isKaraoke ? baseTextColor : revealedCursor === activeIndex ? activeColor : inactiveColor;
+                    wrappedTokenLines.forEach((line, lineIndex) => {
+                        const revealedText = line.map(token => {
+                            const captionColor = selectedStyle === 'white-yellow' ? activeColor : hexToAss(caption.colorOverride || userColor, '#fde047');
+                            const color = !isKaraoke ? (selectedStyle === 'white-yellow' ? baseTextColor : captionColor)
+                                : revealedCursor === activeIndex ? captionColor : inactiveColor;
+                            const alpha = isKaraoke && selectedStyle !== 'white-yellow' && revealedCursor !== activeIndex ? '\\1a&HB3&' : '\\1a&H00&';
                             revealedCursor += 1;
-                            return `{\\1c${color}}${escapeAssCaptionText(token)}`;
-                        }).join(' '))
-                        .join('\\N');
-                    events.push(`Dialogue: 0,${toAssTimestamp(start)},${toAssTimestamp(end)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})}${emojiPrefix}${revealedText}`);
+                            return `{\\1c${color}${alpha}}${escapeAssCaptionText(token)}`;
+                        }).join(' ');
+                        const y = height * captionPosY + (lineIndex - (wrappedTokenLines.length - 1) / 2) * lineHeight + assBaselineOffset;
+                        events.push(`Dialogue: 0,${toAssTimestamp(start)},${toAssTimestamp(end)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})}${revealedText}`);
+                    });
+                    if (emoji) {
+                        // Color emoji cannot be preserved as monochrome ASS glyphs.
+                        addCaptionEmojiOverlay(emojiOverlays, emoji, fontSize, {
+                            start, end, x, y: height * captionPosY,
+                            offsetY: -wrappedTokenLines.length * lineHeight / 2 - Math.max(30, fontSize),
+                            bounceStart: Number(caption.timestamp[0]) + syncOffset,
+                        });
+                    }
                 });
             });
         }
@@ -3228,6 +3293,12 @@ function bootCaptionStudio() {
             }
         }
         return [header, ...events].join('\n');
+    }
+
+    function buildPreviewMatchedExport() {
+        const emojiOverlays = [];
+        const assContent = buildPreviewMatchedAss(emojiOverlays);
+        return { assContent, emojiOverlays };
     }
 
     sourceVideo.addEventListener('loadedmetadata', () => {
@@ -3396,6 +3467,7 @@ function bootCaptionStudio() {
                 const _fontSize = Math.max(12, Math.round(Number(sizeSlider && sizeSlider.value) || 35));
                 let _result = null;
                 try {
+                    await ensureCaptionFontReady();
                     nativeExportObserved = typeof window.electronAPI.burnCaptions === 'function';
                     _result = await window.electronAPI.burnCaptions({
                         videoPath: _filePath,
@@ -3406,7 +3478,7 @@ function bootCaptionStudio() {
                         style: _styleName,
                         fontSize: _fontSize,
                         position: 'bottom',
-                        assContent: buildPreviewMatchedAss()
+                        ...buildPreviewMatchedExport()
                     });
                 } finally {
                     if (syncFinalizingTimer) clearInterval(syncFinalizingTimer);

@@ -87,18 +87,18 @@ test('AI Captioning Local preview keeps the complete caption group visible', () 
   assert.equal(get('I for ice cream J for jug', 0), 'I for ice cream J for jug');
   assert.equal(get('I for ice cream J for jug', 3), 'I for ice cream J for jug');
   assert.equal(get('I for ice cream', -1), '');
-  assert.equal(get('one two three four five six seven eight nine ten', 8), 'one two three four five six seven eight');
+  assert.equal(get('one two three four five six seven eight nine ten', 8), 'nine ten');
 });
 function localAss(karaoke) {
-  const context = { CAPTION_WORD_LIMIT: 8, CAPTION_BOTTOM_OFFSET_PX: 80,
+  const context = { CAPTION_WORD_LIMIT: 8, CAPTION_BOTTOM_OFFSET_PX: 80, SHORT_CAPTION_GAP_SECONDS: .75,
     sourceVideo: { videoWidth: 2560, videoHeight: 1440, duration: 7 }, renderCanvas: {},
     sizeSlider: { value: 110 }, styleSelect: { value: 'white-yellow' }, colorPicker: { value: '#ffffff' }, strokeSlider: { value: 80 }, captionPosX: .5, captionPosY: .5,
-    widthSlider: { value: 85 }, fontSelect: { value: 'Arial' }, boldCheck: { checked: true }, heightSlider: { value: 100 }, karaokeCheck: { checked: karaoke }, emojiCheck: { checked: false }, progressCheck: { checked: false },
+    widthSlider: { value: 85 }, gapSlider: { value: 120 }, fontSelect: { value: 'Arial' }, boldCheck: { checked: true }, heightSlider: { value: 100 }, karaokeCheck: { checked: karaoke }, emojiCheck: { checked: false }, progressCheck: { checked: false },
     document: { createElement: () => ({ getContext: () => null }) }, getCaptionSyncOffsetSeconds: () => 0,
     generatedCaptions: [{ text: captions[0].text, timestamp: [0, 6.8], words: words.map(w => ({ text: w.text, timestamp: [w.start, w.end] })) }],
     getCaptionBottomSafety: () => 80,
   };
-  const code = ['spokenPhraseStart', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss'].map(fn).join('\n');
+  const code = ['getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd', 'spokenPhraseStart', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss'].map(fn).join('\n');
   return vm.runInNewContext(code + '\nbuildPreviewMatchedAss()', context);
 }
 test('AI Captioning Local export keeps the complete group with karaoke on and off', () => {
@@ -118,7 +118,7 @@ test('Voice Presenter preview defaults to no captions and offers both modes', ()
   assert.match(panel, /id="stagePreviewWithoutCaptionsBtn"[\s\S]*aria-pressed="true"/);
   assert.match(panel, /id="stagePreviewWithCaptionsBtn"[\s\S]*aria-pressed="false"/);
   assert.match(presenter, /previewCaptionsEnabled: false/);
-  assert.match(presenter, /if \(!state\.exportingVideo && !state\.previewCaptionsEnabled\) return false;/);
+  assert.match(presenter, /if \(!state\.previewCaptionsEnabled\) return false;/);
   assert.match(presenter, /setStagePreviewCaptionMode\(false\);/);
 });
 test('normalization preserves transcription instead of auto-fixing names, brands or lesson wording', () => {

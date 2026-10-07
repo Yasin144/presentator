@@ -24,12 +24,14 @@ const MIME_TYPES = {
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
+  optimizeDeps: {
+    entries: ['index.html'],
+  },
   server: {
     allowedHosts: true,
     watch: {
       ignored: [
-        '**/.voiceclone-venv/**',
-        '**/.singing-venv/**',
+        '**/.*-venv/**',
         '**/.venv/**',
         '**/AI_Models/**',
         '**/generated-media/**',

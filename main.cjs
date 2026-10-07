@@ -42,6 +42,7 @@ const { Client: MagicHourClient } = require('magic-hour');
 const { registerPdfCountingOcr } = require('./pdf-counting-ocr.cjs');
 const { createWhatsAppDrafts } = require('./whatsapp-drafts.cjs');
 const { originalVideoName, createVideoOutputPath } = require('./video-output-name.cjs');
+const { prepareCaptionEmojiExport } = require('./caption-emoji-export.cjs');
 const { createWhatsAppSession } = require('./whatsapp-session.cjs');
 const { createWhatsAppJobObserver } = require('./whatsapp-job-events.cjs');
 // Desktop-only PDF OCR: register before the generic mobile IPC bridge wrapper.
@@ -5334,7 +5335,7 @@ ipcMain.handle('export-translated-video', async (_event, opts) => {
 // ————————————— IPC: Burn Captions via FFmpeg (Express Export) ———————————————————
 // Uses FFmpeg to burn subtitle text directly onto video frames.
 // Audio is COPIED (no re-encode) → zero quality loss, instant mux.
-  // Saves directly to Downloads with the exact uploaded filename.
+  // Saves directly to Downloads, numbering the filename when it is already used.
 function findCaptionFFmpegPath() {
   try {
     const { execSync } = require('child_process');
@@ -5374,7 +5375,7 @@ ipcMain.handle('probe-video-meta', async (event, opts) => {
 });
 
 ipcMain.handle('burn-captions', async (event, opts) => {
-  const { videoPath, sourceFileName, captions, fontSize = 28, position = 'bottom', assContent } = opts || {};
+  const { videoPath, sourceFileName, captions, fontSize = 28, position = 'bottom', assContent, emojiOverlays } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!assContent && (!captions || !captions.length)) return { ok: false, error: 'No captions or assContent provided.' };
 
@@ -5385,10 +5386,8 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   const FFMPEG = findFFmpegPath();
   const tmpDir  = ensureCaptionWorkDir('burn-subtitles');
   const stamp   = Date.now();
-  const downloadsDir = path.join(os.homedir(), 'Downloads');
   const requestedName = originalVideoName(sourceFileName || videoPath);
   const parsedName = path.parse(requestedName);
-  const exactFileName = `${parsedName.name}${parsedName.ext || '.mp4'}`;
   const outFile = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), requestedName);
   const partialOutFile = path.join(tmpDir, `caption-export-${stamp}.part${parsedName.ext || '.mp4'}`);
   const burnLogPath = path.join(ensureCaptionWorkDir('logs'), 'caption-burn.log');
@@ -5396,6 +5395,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   let assPath = '';
   let srtPath = '';
   let subFilter = '';
+  let emojiWorkDir = '';
 
   // ── 1. Build SRT file from caption chunks ────────────────────────────────────
   function toSrtTime(secs) {
@@ -5414,12 +5414,10 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       require('fs').writeFileSync(assPath, assContent, 'utf8');
       console.log('[BurnCaptions] ASS written:', assPath);
       const safeAss = assPath.split('\\').join('/').split(':').join('\\:');
-      // Point libass to the Windows system fonts folder so non-Latin scripts
-      // (Hindi, Telugu, Urdu, Arabic, Chinese, etc.) render with the correct
-      // Nirmala UI / Tahoma / system font instead of showing tofu boxes.
-      // FFmpeg filter escaping: colon must be \: and backslash must be \\
-      const winFonts = 'C\\:/Windows/Fonts';
-      subFilter = `subtitles='${safeAss}':fontsdir='${winFonts}'`;
+      // Load the same offline Nunito faces as the preview. libass's system
+      // font provider still supplies Windows fonts and non-Latin fallbacks.
+      const captionFonts = path.join(ROOT, 'public', 'caption-fonts').split('\\').join('/').split(':').join('\\:');
+      subFilter = `subtitles='${safeAss}':fontsdir='${captionFonts}'`;
     } else {
       // Fallback SRT subtitles
       srtPath = path.join(tmpDir, 'captions-' + stamp + '.srt');
@@ -5453,6 +5451,11 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       const safeSrt    = srtPath.split('\\').join('/').split(':').join('\\:');
       subFilter  = `subtitles='${safeSrt}':force_style='FontName=Arial,FontSize=${fontSize},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Bold=1,Outline=2,Shadow=1,Alignment=2,MarginV=40'`;
     }
+
+    if (Array.isArray(emojiOverlays) && emojiOverlays.length) {
+      emojiWorkDir = fs.mkdtempSync(path.join(tmpDir, 'caption-emoji-'));
+    }
+    const emojiExport = prepareCaptionEmojiExport(subFilter, emojiOverlays, emojiWorkDir);
 
     // ── 2. FFmpeg: burn subtitles onto video, copy audio exactly ──────────────────────
     // First probe total duration/bitrate so progress is accurate and export
@@ -5492,9 +5495,9 @@ ipcMain.handle('burn-captions', async (event, opts) => {
           ];
       const proc = spawn(FFMPEG, [
         '-y', '-i', videoPath,
-        '-map', '0:v:0',
+        ...emojiExport.inputArgs,
+        ...emojiExport.videoArgs,
         '-map', '0:a?',
-        '-vf', subFilter,
         ...videoQualityArgs,
         '-c:a', 'copy',          // ← copy audio stream as-is (no re-encode = perfect audio)
         '-avoid_negative_ts', 'make_zero',
@@ -5534,30 +5537,22 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       });
     });
 
+    let copiedOutput = false;
     try {
-      if (fs.existsSync(outFile)) {
-        throw new Error(`Downloads already contains "${exactFileName}". Move or rename that existing file, then export again.`);
+      // Exclusive creation also protects a file added by another app while
+      // captions were rendering, and works when Downloads is on another drive.
+      fs.copyFileSync(partialOutFile, outFile, fs.constants.COPYFILE_EXCL);
+      copiedOutput = true;
+      const sourceSize = fs.statSync(partialOutFile).size;
+      const outputSize = fs.statSync(outFile).size;
+      if (sourceSize <= 0 || outputSize !== sourceSize) {
+        throw new Error(`Copy verification failed (${outputSize}/${sourceSize} bytes)`);
       }
-      try {
-        // rename is fast and atomic when the work file and Downloads are on
-        // the same volume. Windows reports EXDEV when they are on different
-        // volumes (for example D:\\voice -> C:\\Users\\...\\Downloads).
-        fs.renameSync(partialOutFile, outFile);
-      } catch (renameErr) {
-        if (!renameErr || renameErr.code !== 'EXDEV') throw renameErr;
-
-        fs.copyFileSync(partialOutFile, outFile, fs.constants.COPYFILE_EXCL);
-        const sourceSize = fs.statSync(partialOutFile).size;
-        const outputSize = fs.statSync(outFile).size;
-        if (sourceSize <= 0 || outputSize !== sourceSize) {
-          throw new Error(`Cross-drive copy verification failed (${outputSize}/${sourceSize} bytes)`);
-        }
-        fs.unlinkSync(partialOutFile);
-      }
+      fs.unlinkSync(partialOutFile);
     } catch (moveErr) {
       // Do not leave a corrupt/partial file looking like a successful export.
       try {
-        if (fs.existsSync(outFile) && fs.existsSync(partialOutFile)) fs.unlinkSync(outFile);
+        if (copiedOutput && fs.existsSync(outFile)) fs.unlinkSync(outFile);
       } catch (_) {}
       throw new Error('Could not finalize captioned video: ' + (moveErr.message || String(moveErr)));
     }
@@ -5577,6 +5572,10 @@ ipcMain.handle('burn-captions', async (event, opts) => {
     } catch (_) {}
     return { ok: false, error: err.message };
   } finally {
+    if (emojiWorkDir && path.dirname(path.resolve(emojiWorkDir)) === path.resolve(tmpDir)
+        && path.basename(emojiWorkDir).startsWith('caption-emoji-')) {
+      try { fs.rmSync(emojiWorkDir, { recursive: true, force: true }); } catch (_) {}
+    }
     if (srtPath) console.log('[BurnCaptions] Kept SRT:', srtPath);
     if (assPath) console.log('[BurnCaptions] Kept ASS:', assPath);
   }

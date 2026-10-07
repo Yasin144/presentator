@@ -188,7 +188,7 @@ export default function MyExporter({ active = true }) {
 
   useEffect(() => {
     if (!selectedId) {
-      setSelectedIds([]);
+      if (selectedIds.length) setSelectedIds([]);
     } else if (!selectedIds.includes(selectedId)) {
       setSelectedIds([selectedId]);
     }
