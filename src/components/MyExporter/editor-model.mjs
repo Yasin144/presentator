@@ -161,6 +161,21 @@ export function normalizeProject(input = {}, options = {}) {
     for (const [key, range] of Object.entries({ volume: [0, 2], fadeIn: [0, Infinity], fadeOut: [0, Infinity] })) {
       if (track[key] !== undefined) number(track[key], undefined, `Audio ${key}`, ...range);
     }
+    if (track.fadeEnvelope !== undefined) {
+      const envelope = track.fadeEnvelope;
+      if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('Audio fade envelope is malformed.');
+      const duration = positive(envelope.duration, undefined, 'Audio fade envelope duration');
+      const fields = {};
+      for (const key of ['offset', 'fadeIn', 'fadeOut']) {
+        fields[key] = number(envelope[key], undefined, `Audio fade envelope ${key}`);
+        if (fields[key] === undefined) throw new Error(`Audio fade envelope ${key} is required.`);
+      }
+      // Match the runtime gain helper's floating-point tolerance. A wider
+      // import tolerance could admit a value that later throws in preview.
+      const tolerance = Number.EPSILON * 32 * Math.max(1, Math.abs(duration));
+      if (fields.offset + normalized.duration > duration + tolerance) throw new Error('Audio fade envelope exceeds its original clip.');
+      normalized.fadeEnvelope = { ...clone(envelope), ...fields, duration };
+    }
     for (const key of LINK_FIELDS) if (track[key] !== undefined && typeof track[key] !== 'string') throw new Error(`Audio ${key} must be a scene ID string.`);
     return normalized;
   });
@@ -278,6 +293,19 @@ function invalidateAudioCache(track) {
   return rest;
 }
 
+// A mapped audio piece begins at `from` in the old project. Scale every fade
+// time with the same output-time ratio as its audio, keeping source gain phase.
+function mapAudioFadeEnvelope(track, mapped, from, rate = 1) {
+  if (!track.fadeEnvelope && !track.fadeIn && !track.fadeOut) return mapped;
+  const envelope = track.fadeEnvelope || { offset: 0, duration: track.duration, fadeIn: track.fadeIn || 0, fadeOut: track.fadeOut || 0 };
+  const sliced = from !== track.start || mapped.duration !== track.duration || rate !== 1;
+  if (!track.fadeEnvelope && !sliced) return mapped;
+  mapped.fadeEnvelope = { ...clone(envelope), offset: (envelope.offset + (from - track.start)) * rate,
+    duration: envelope.duration * rate, fadeIn: envelope.fadeIn * rate, fadeOut: envelope.fadeOut * rate };
+  for (const field of ['fadeIn', 'fadeOut']) if (track[field] !== undefined) mapped[field] = track[field] * rate;
+  return mapped;
+}
+
 /** Split the visual clip and its linked sound. Global cue/text times stay exact. */
 export function splitScene(project, sceneId, cutTime, options = {}) {
   assertProject(project);
@@ -299,9 +327,9 @@ export function splitScene(project, sceneId, cutTime, options = {}) {
     if (end <= cutTime + EPS) next.audioTracks.push(relink(clone(track), sceneId, left, entry.start));
     else if (track.start >= cutTime - EPS) next.audioTracks.push(relink(clone(track), sceneId, right, cutTime));
     else {
-      const first = invalidateAudioCache({ ...clone(track), duration: cutTime - track.start });
-      const second = invalidateAudioCache({ ...clone(track), id: uniqueId({ ...next, audioTracks: [...project.audioTracks, ...next.audioTracks] }, `${track.id}-right`, undefined, options.idFactory), start: cutTime,
-        trimStart: track.trimStart + (cutTime - track.start) * track.speed, duration: end - cutTime });
+      const first = mapAudioFadeEnvelope(track, invalidateAudioCache({ ...clone(track), duration: cutTime - track.start }), track.start);
+      const second = mapAudioFadeEnvelope(track, invalidateAudioCache({ ...clone(track), id: uniqueId({ ...next, audioTracks: [...project.audioTracks, ...next.audioTracks] }, `${track.id}-right`, undefined, options.idFactory), start: cutTime,
+        trimStart: track.trimStart + (cutTime - track.start) * track.speed, duration: end - cutTime }), cutTime);
       next.audioTracks.push(relink(first, sceneId, left, entry.start), relink(second, sceneId, right, cutTime));
     }
   }
@@ -351,9 +379,10 @@ function mapAudio(project, map, newScenes, { linkedOnly = false, shiftLooseAfter
     }
     const pieces = intervalPieces(track.start, track.start + track.duration, map);
     for (const [index, piece] of pieces.entries()) {
-      const mapped = invalidateAudioCache({ ...clone(track), id: index ? uniqueId({ ...project, audioTracks: [...project.audioTracks, ...result] }, `${track.id}-part-${index + 1}`, undefined, idFactory) : track.id,
-        start: piece.start, duration: piece.end - piece.start, trimStart: track.trimStart + (piece.from - track.start) * track.speed,
-        speed: track.speed / piece.rate });
+      const mapped = mapAudioFadeEnvelope(track, invalidateAudioCache({ ...clone(track), id: index ? uniqueId({ ...project, audioTracks: [...project.audioTracks, ...result] }, `${track.id}-part-${index + 1}`, undefined, idFactory) : track.id,
+        start: piece.start, duration: (piece.from === track.start && piece.to === track.start + track.duration ? track.duration : piece.to - piece.from) * piece.rate,
+        trimStart: track.trimStart + (piece.from - track.start) * track.speed,
+        speed: track.speed / piece.rate }), piece.from, piece.rate);
       if (reference) {
         const oldEntry = timelineEntries(project.scenes).find(entry => entry.scene.id === reference);
         const sourcePoint = oldEntry.scene.trimStart + (piece.from - oldEntry.start) * oldEntry.scene.speed;
@@ -540,8 +569,8 @@ export function duplicateScene(project, sceneId, newId, options = {}) {
     const pieces = intervalPieces(track.start, track.start + track.duration, map);
     if (!pieces.length) continue;
     const piece = pieces[0];
-    const copied = invalidateAudioCache({ ...clone(track), id: uniqueId(next, `${track.id}-copy`, undefined, options.idFactory),
-      start: piece.start, duration: piece.end - piece.start, trimStart: track.trimStart + (piece.from - track.start) * track.speed });
+    const copied = mapAudioFadeEnvelope(track, invalidateAudioCache({ ...clone(track), id: uniqueId(next, `${track.id}-copy`, undefined, options.idFactory),
+      start: piece.start, duration: piece.end - piece.start, trimStart: track.trimStart + (piece.from - track.start) * track.speed }), piece.from, piece.rate);
     next.audioTracks.push(relink(copied, sceneId, duplicate, entry.end));
   }
   return assertProject(next);

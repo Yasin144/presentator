@@ -231,7 +231,7 @@ async function main() {
       writeFile: async (...args) => { calls.write.push(args); return { ok: true }; },
       myExporterPreflight: async payload => {
         calls.preflight.push(JSON.parse(JSON.stringify(payload)));
-        const result = { ok: true, errors: [], warnings: [], exportCapabilitiesVersion: 2 };
+        const result = { ok: true, errors: [], warnings: [], exportCapabilitiesVersion: 2, audioRangeFadeEnvelope: true };
         if (window.__qaPreflightMode === 'deferred') return new Promise(resolve => { window.__qaResolvePreflight = () => resolve(result); });
         return result;
       },
@@ -264,6 +264,17 @@ async function main() {
   }, seed, projectKey, { video, image, voiceOutput, output: path.join(directory, 'qa-output.mp4') });
   await page.goto(pathToFileURL(path.join(directory, 'editor.html')).href, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.mx-page'); await settle(page);
+
+  if (process.argv.includes('--audio-range-only')) {
+    await runAudioRangeChecks(page, seed, errors);
+    if (!failed.length && screenshots.length) {
+      const destination = path.join(root, 'generated-media', 'my-exporter-ui-qa'); fs.mkdirSync(destination, { recursive: true });
+      fs.copyFileSync(screenshots[0], path.join(destination, 'audio-range-1280.png'));
+    }
+    console.log(JSON.stringify({ passed: passed.length, checks: passed, failed, screenshots, fixtureDirectory: directory }, null, 2));
+    if (failed.length) process.exitCode = 1;
+    return;
+  }
 
   if (process.argv.includes('--auto-all-only')) {
     await runAutoAllChecks(page, seed, autoAllPaths, errors);
@@ -680,6 +691,238 @@ async function runEditingChecks(page, seed, errors) {
       assert.equal(Buffer.from(write[1], 'base64').toString('utf8'), raw);
     } finally { await page.evaluate(() => sessionStorage.removeItem('my-exporter-qa-project-override')); }
   });
+}
+
+async function runAudioRangeChecks(page, seed, errors) {
+  const project = structuredClone(seed);
+  project.audioTracks = [{ id: 'range-sound', kind: 'audio', name: 'Range sound', path: seed.scenes[0].path,
+    start: 2, trimStart: 1, duration: 3, sourceDuration: 8, speed: 2, volume: .4, muted: false, fadeIn: .1, fadeOut: .2 },
+  seed.audioTracks[0]];
+  const clipSelector = '.mx-audio-clip[data-audio-id="range-sound"]';
+  const controls = { start: '[aria-label="Audio range in"]', end: '[aria-label="Audio range out"]' };
+  const near = (actual, expected, tolerance = .02) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} should be near ${expected}`);
+  const editableAudio = tracks => tracks.map(track => {
+    const copy = structuredClone(track);
+    for (const key of ['waveform', 'waveformLoading', 'waveformError', 'waveformCacheKey', 'waveformFingerprint']) delete copy[key];
+    return copy;
+  });
+  const point = time => page.evaluate(({ selector, seconds }) => {
+    const clip = document.querySelector(selector); const box = clip.getBoundingClientRect();
+    return { x: box.left + (seconds - 2) / 3 * box.width, y: box.top + box.height / 2 };
+  }, { selector: clipSelector, seconds: time });
+  const values = () => page.evaluate(selectors => ({ start: Number(document.querySelector(selectors.start)?.value),
+    end: Number(document.querySelector(selectors.end)?.value) }), controls);
+  const setRange = async (start = 3.125, end = 4.375) => {
+    await page.click(controls.end); await setControl(page, controls.end, end); await page.keyboard.press('Tab');
+    await page.click(controls.start); await setControl(page, controls.start, start); await page.keyboard.press('Tab'); await settle(page);
+    assert.deepEqual(await values(), { start, end });
+  };
+  const start = async ({ explicitInspector = true } = {}) => {
+    await page.evaluate(value => sessionStorage.setItem('my-exporter-qa-project-override', JSON.stringify(value)), project);
+    await reset(page); await page.$eval(clipSelector, clip => clip.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    const at = await point(3); await page.mouse.click(at.x, at.y);
+    if (explicitInspector) await showInspector(page, 'Clip'); await settle(page);
+    await page.waitForSelector(controls.start, { visible: true });
+    return saved(page);
+  };
+  const drag = async (from, to) => {
+    await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 12 }); await page.mouse.up(); await settle(page);
+  };
+  const unchanged = async before => {
+    const after = await saved(page);
+    for (const key of ['scenes', 'audioTracks', 'captions', 'textOverlays', 'music', 'settings']) assert.deepEqual(after[key], before[key], `${key} changed while selecting an audio range.`);
+  };
+  const unchangedOtherContent = (after, before) => {
+    for (const key of ['scenes', 'captions', 'textOverlays', 'music', 'settings']) assert.deepEqual(after[key], before[key], `${key} must remain unchanged by selected-audio removal.`);
+    assert.deepEqual(after.audioTracks.find(track => track.id === 'linked-sound'), before.audioTracks.find(track => track.id === 'linked-sound'));
+  };
+  try {
+    await check('selecting audio exposes millisecond range controls and preserves the program', async () => {
+      const before = await start({ explicitInspector: false });
+      const ui = await page.evaluate(selectors => ({
+        inputs: Object.values(selectors).map(selector => { const input = document.querySelector(selector); return { type: input.type, step: input.step, visible: Boolean(input.offsetWidth && input.offsetHeight) }; }),
+        program: Boolean(document.querySelector('.mx-program-stage video,.mx-program-stage img')),
+      }), controls);
+      assert.ok(ui.inputs.every(input => input.type === 'number' && Number(input.step) === .001 && input.visible)); assert.ok(ui.program);
+      await unchanged(before);
+    });
+    for (const zoom of [1, 2]) {
+      await check(`audio drag selection maps exact lane time at zoom ${zoom} without moving the clip`, async () => {
+        const before = await start(); await setControl(page, '[aria-label="Timeline zoom"]', zoom); await settle(page);
+        await clickText(page, 'Select Audio Range');
+        await drag(await point(2.5), await point(3.5));
+        const selected = await values(); near(selected.start, 2.5); near(selected.end, 3.5); await unchanged(before);
+      });
+    }
+    await check('audio click-start/click-end selection retains clip placement', async () => {
+      const before = await start(); await clickText(page, 'Select Audio Range');
+      const first = await point(2.75), last = await point(4.25);
+      await page.mouse.click(first.x, first.y); await page.mouse.click(last.x, last.y); await settle(page);
+      const selected = await values(); near(selected.start, 2.75); near(selected.end, 4.25); await unchanged(before);
+    });
+    await check('numeric audio In and Out retain exact milliseconds without timeline edits', async () => {
+      const before = await start(); await setRange(); await unchanged(before);
+      const capture = path.join(directory, 'audio-range-1280.png'); await page.screenshot({ path: capture, fullPage: true }); screenshots.push(capture);
+    });
+    await check('audio range timestamps accept real keyboard decimal entry', async () => {
+      const before = await start();
+      for (const [selector, value] of [[controls.end, '4.375'], [controls.start, '3.125']]) {
+        await page.click(selector); await page.keyboard.down('Control'); await page.keyboard.press('a'); await page.keyboard.up('Control');
+        await page.keyboard.type(value); await page.keyboard.press('Tab');
+      }
+      await settle(page); assert.deepEqual(await values(), { start: 3.125, end: 4.375 }); await unchanged(before);
+    });
+    await check('editing one audio range edge preserves the other fractional source boundary', async () => {
+      const original = structuredClone(project.audioTracks[0]);
+      try {
+        project.audioTracks[0].start = 10 / 3;
+        await start();
+        await page.click(controls.end); await setControl(page, controls.end, 5.125); await page.keyboard.press('Tab');
+        await clickText(page, 'Remove Selected Audio'); await settle(page);
+        let pieces = (await saved(page)).audioTracks.filter(track => track.id !== 'linked-sound');
+        assert.equal(pieces.length, 1); assert.equal(pieces[0].start, 5.125);
+        assert.equal(pieces[0].trimStart, 1 + (5.125 - 10 / 3) * 2);
+        near(pieces[0].start + pieces[0].duration, 10 / 3 + 3, 1e-12);
+        project.audioTracks[0].duration = 3.0004;
+        await start();
+        await page.click(controls.start); await setControl(page, controls.start, 4.125); await page.keyboard.press('Tab');
+        await clickText(page, 'Remove Selected Audio'); await settle(page);
+        pieces = (await saved(page)).audioTracks.filter(track => track.id !== 'linked-sound');
+        assert.equal(pieces.length, 1); assert.equal(pieces[0].start, 10 / 3); assert.equal(pieces[0].duration, 4.125 - 10 / 3);
+      } finally { project.audioTracks[0] = original; }
+    });
+    await check('cancelled audio movement rolls back and allows later edits to undo', async () => {
+      const before = await start(), from = await point(3), to = await point(3.5);
+      await page.evaluate(() => window.addEventListener('pointerdown', event => { window.__qaAudioPointerId = event.pointerId; }, { once: true, capture: true }));
+      await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 5 });
+      await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: window.__qaAudioPointerId, bubbles: true })));
+      await page.mouse.up(); await settle(page); await unchanged(before);
+      await setControl(page, '[aria-label="Audio volume"]', .6); await settle(page);
+      assert.equal((await saved(page)).audioTracks.find(track => track.id === 'range-sound').volume, .6);
+      await shortcut(page, 'z'); await settle(page);
+      assert.deepEqual(editableAudio((await saved(page)).audioTracks), editableAudio(before.audioTracks));
+    });
+    await check('audio range handles adjust only the selected bounds and clamp at clip edges', async () => {
+      const before = await start(); await setRange();
+      let handle = await page.$('[aria-label="Audio range start"]'), box = await handle.boundingBox();
+      await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, await point(2.5));
+      near((await values()).start, 2.5); near((await values()).end, 4.375);
+      handle = await page.$('[aria-label="Audio range end"]'); box = await handle.boundingBox();
+      await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, await point(4.75));
+      near((await values()).end, 4.75); near((await values()).start, 2.5);
+      handle = await page.$('[aria-label="Audio range start"]'); box = await handle.boundingBox();
+      await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, await point(1.5));
+      near((await values()).start, 2);
+      handle = await page.$('[aria-label="Audio range end"]'); box = await handle.boundingBox();
+      await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, await point(5.5));
+      near((await values()).end, 5); await unchanged(before);
+    });
+    await check('Remove Selected Audio leaves the exact gap and preserves source timing and other tracks', async () => {
+      const before = await start(); await setRange(); await clickText(page, 'Remove Selected Audio'); await settle(page);
+      const after = await saved(page), pieces = after.audioTracks.filter(track => track.id !== 'linked-sound').sort((a, b) => a.start - b.start);
+      assert.equal(pieces.length, 2); assert.equal(pieces[0].start, 2); assert.equal(pieces[0].duration, 1.125); assert.equal(pieces[0].trimStart, 1); assert.equal(pieces[0].speed, 2);
+      assert.equal(pieces[1].start, 4.375); assert.equal(pieces[1].duration, .625); assert.equal(pieces[1].trimStart, 5.75); assert.equal(pieces[1].speed, 2);
+      assert.equal(pieces[1].start - (pieces[0].start + pieces[0].duration), 1.25); assert.equal(pieces[1].start + pieces[1].duration, 5);
+      unchangedOtherContent(after, before);
+      assert.ok(await page.$eval('.mx-operation-status', footer => /gap/i.test(footer.textContent) && !/moved left|no empty space|closes the empty/i.test(footer.textContent)));
+      await shortcut(page, 'z'); await settle(page); assert.deepEqual(editableAudio((await saved(page)).audioTracks), editableAudio(before.audioTracks)); unchangedOtherContent(await saved(page), before);
+      await shortcut(page, 'y'); await settle(page); assert.deepEqual(editableAudio((await saved(page)).audioTracks), editableAudio(after.audioTracks)); unchangedOtherContent(await saved(page), before);
+    });
+    await check('editing a cut audio fade replaces its inherited fade envelope', async () => {
+      await start(); await setRange(); await clickText(page, 'Remove Selected Audio'); await settle(page);
+      const before = await saved(page); assert.ok(before.audioTracks.find(track => track.id === 'range-sound').fadeEnvelope);
+      await setControl(page, '[aria-label="Audio fade in"]', .3); await settle(page);
+      const after = await saved(page), track = after.audioTracks.find(item => item.id === 'range-sound');
+      assert.equal(track.fadeIn, .3); assert.equal(track.fadeEnvelope, undefined); assert.equal(track.start, 2); assert.equal(track.duration, 1.125); assert.equal(track.trimStart, 1); assert.equal(track.speed, 2);
+      unchangedOtherContent(after, before);
+      assert.deepEqual(editableAudio(after.audioTracks.filter(item => item.id !== 'range-sound')), editableAudio(before.audioTracks.filter(item => item.id !== 'range-sound')));
+    });
+    await check('slowing a cut audio clip retains source material and replaces inherited fades', async () => {
+      await start(); await setRange(); await clickText(page, 'Remove Selected Audio'); await settle(page);
+      const before = await saved(page); assert.ok(before.audioTracks.find(track => track.id === 'range-sound').fadeEnvelope);
+      await setControl(page, '[aria-label="Audio speed"]', 1); await settle(page);
+      const after = await saved(page), track = after.audioTracks.find(item => item.id === 'range-sound');
+      assert.equal(track.speed, 1); assert.equal(track.duration, 2.25); assert.equal(track.start, 2); assert.equal(track.trimStart, 1); assert.equal(track.fadeEnvelope, undefined);
+      unchangedOtherContent(after, before);
+      assert.deepEqual(editableAudio(after.audioTracks.filter(item => item.id !== 'range-sound')), editableAudio(before.audioTracks.filter(item => item.id !== 'range-sound')));
+    });
+    await check('clip boundary trim clamps the selected audio range to retained material', async () => {
+      const before = await start(); await setRange();
+      const handle = await page.$(`${clipSelector} .mx-trim-handle.right`), box = await handle.boundingBox();
+      const laneWidth = await page.$eval(clipSelector, clip => clip.closest('.mx-position-lane').getBoundingClientRect().width);
+      const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      await drag(from, { x: from.x - laneWidth / 8, y: from.y });
+      const after = await saved(page), track = after.audioTracks.find(item => item.id === 'range-sound'), selected = await values();
+      near(track.duration, 2, .05); assert.ok(selected.start >= track.start && selected.end <= track.start + track.duration + .000001 && selected.end > selected.start);
+      assert.equal(track.trimStart, 1); assert.equal(track.speed, 2); unchangedOtherContent(after, before);
+    });
+    await check('locked audio prevents range changes, removal and preview', async () => {
+      await start(); await setRange(); await page.$eval('.mx-audio-group-row .mx-track-label button:last-child', button => button.click()); await settle(page);
+      const before = await saved(page), selected = await values();
+      const disabled = await page.evaluate(selectors => ({ inputs: Object.values(selectors).every(selector => document.querySelector(selector).matches(':disabled')),
+        actions: ['Remove Selected Audio', 'Preview Selected Audio'].every(text => [...document.querySelectorAll('button')].find(button => button.textContent.includes(text) && button.offsetWidth)?.matches(':disabled')) }), controls);
+      assert.ok(disabled.inputs && disabled.actions, JSON.stringify(disabled));
+      const handle = await page.$('[aria-label="Audio range start"]'), box = await handle.boundingBox();
+      await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, await point(2.5));
+      assert.deepEqual(await values(), selected); await unchanged(before);
+    });
+    await check('busy caption processing blocks selected-audio edits atomically', async () => {
+      await start(); await setRange(); const selected = await values(); const before = await saved(page);
+      await showInspector(page, 'Captions'); await page.evaluate(() => { window.__qaASRMode = 'deferred'; });
+      await clickText(page, 'Regenerate captions'); await page.waitForFunction(() => window.__qaCalls.transcribe.length === 1); await showInspector(page, 'Clip');
+      assert.ok(await page.$eval(controls.start, input => input.matches(':disabled')));
+      await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent.includes('Remove Selected Audio') && button.offsetWidth)?.click());
+      assert.deepEqual(await values(), selected); await unchanged(before);
+      await clickText(page, 'Cancel captions', { scope: '.mx-operation-status' }); await settle(page); await unchanged(before);
+    });
+    await check('selected-audio preview honors source trim and speed and stops at the exact Out bound', async () => {
+      const before = await start(); await setRange();
+      const hiddenNativeControls = await page.$eval('.mx-cut-preview', audio => !audio.controls);
+      assert.ok(hiddenNativeControls, 'Native seeking controls must not play outside the selected range.');
+      await page.evaluate(() => {
+        const audio = document.querySelector('.mx-cut-preview'); window.__qaAudioRangePreviewTrace = [];
+        for (const event of ['play', 'pause']) audio.addEventListener(event, () => window.__qaAudioRangePreviewTrace.push({ event, time: audio.currentTime, rate: audio.playbackRate }));
+      });
+      await clickText(page, 'Preview Selected Audio', { contains: true });
+      await page.waitForFunction(() => window.__qaAudioRangePreviewTrace.some(entry => entry.event === 'play'), { timeout: 3500 });
+      await page.waitForFunction(() => { const audio = document.querySelector('.mx-cut-preview'); return audio.paused && audio.currentTime >= 5.73; }, { timeout: 3500 });
+      const trace = await page.evaluate(() => ({ events: window.__qaAudioRangePreviewTrace, end: document.querySelector('.mx-cut-preview').currentTime }));
+      const play = trace.events.find(entry => entry.event === 'play'); near(play.time, 3.25, .03); assert.equal(play.rate, 2); near(trace.end, 5.75, .08);
+      await unchanged(before);
+    });
+    await check('a cancelled deferred play cannot pause a newer selected-audio preview', async () => {
+      const before = await start(); await setRange();
+      await page.evaluate(() => {
+        const audio = document.querySelector('.mx-cut-preview'), nativePlay = audio.play.bind(audio);
+        window.__qaRangePlayCount = 0;
+        audio.play = () => {
+          if (++window.__qaRangePlayCount === 1) return new Promise(resolve => { window.__qaResolveOldRangePlay = resolve; });
+          return nativePlay();
+        };
+      });
+      try {
+        await clickText(page, 'Preview Selected Audio', { contains: true });
+        await page.waitForFunction(() => typeof window.__qaResolveOldRangePlay === 'function');
+        await clickText(page, 'Stop Selected Audio');
+        await clickText(page, 'Preview Selected Audio', { contains: true });
+        await page.waitForFunction(() => window.__qaRangePlayCount === 2 && !document.querySelector('.mx-cut-preview').paused);
+        await page.evaluate(() => window.__qaResolveOldRangePlay());
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.$eval('.mx-cut-preview', audio => audio.paused), false, 'Late resolution of an old play promise paused the new preview.');
+        await clickText(page, 'Stop Selected Audio'); assert.equal(await page.$eval('.mx-cut-preview', audio => audio.paused), true);
+        await unchanged(before);
+      } finally {
+        await page.evaluate(() => { const audio = document.querySelector('.mx-cut-preview'); if (audio) delete audio.play; window.__qaResolveOldRangePlay?.(); });
+      }
+    });
+    await check('audio range checks have no runtime errors or unexpected native calls', async () => {
+      assert.deepEqual(errors, []); const calls = await page.evaluate(() => window.__qaCalls);
+      assert.deepEqual(calls.unexpected, []); assert.equal(calls.export.length + calls.voice.length + calls.translation.length + calls.notification.length, 0);
+    });
+  } finally {
+    await page.evaluate(() => sessionStorage.removeItem('my-exporter-qa-project-override'));
+    await reset(page);
+  }
 }
 
 async function runAutoAllChecks(page, seed, paths, errors) {

@@ -1277,3 +1277,20 @@
   .mx-page.mx-editor-studio.mx-editor-simple .mx-filmora-toolstrip > button { padding: 0 8px !important; }
   .mx-page.mx-editor-studio.mx-editor-simple .mx-timeline-zoom input { width: 90px; }
 }
+.mx-page.mx-editor-studio .mx-timeline .mx-audio-clip { min-width: 0; padding-left: 0; padding-right: 0; box-sizing: border-box; }
+.mx-page.mx-editor-studio .mx-audio-clip > strong, .mx-page.mx-editor-studio .mx-audio-clip > small { padding: 0 10px; pointer-events: none; }
+.mx-page.mx-editor-studio .mx-audio-selection { border: 1px solid #ffe19b; background: rgba(244, 196, 83, .28); overflow: visible; box-sizing: border-box; }
+.mx-page.mx-editor-studio .mx-audio-selection b { pointer-events: none; white-space: nowrap; font-size: 10px; }
+.mx-page.mx-editor-studio .mx-audio-selection.awaiting-end { pointer-events: none; }
+.mx-page.mx-editor-studio .mx-range-handle { position: absolute; z-index: 9; top: 0; bottom: 0; width: 10px; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: #ffe19b; cursor: ew-resize; touch-action: none; }
+.mx-page.mx-editor-studio .mx-range-handle.start { left: 0; }
+.mx-page.mx-editor-studio .mx-range-handle.end { right: 0; }
+.mx-audio-range-editor { display: grid; gap: 10px; padding: 14px 0; border-top: 1px solid #35404c; }
+.mx-audio-range-editor p { margin: 0; color: #aab8c9; font-size: 12px; line-height: 1.5; }
+.mx-audio-range-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mx-audio-range-fields label { display: grid; gap: 6px; font-size: 11px; }
+.mx-audio-range-fields input { min-width: 0; width: 100%; box-sizing: border-box; font-variant-numeric: tabular-nums; }
+.mx-audio-range-fields button { font-size: 11px; padding: 7px 3px; }
+.mx-audio-range-editor output { color: #ffe19b; font-size: 12px; font-variant-numeric: tabular-nums; }
+.mx-audio-range-actions, .mx-audio-extra-actions { display: grid; gap: 8px; }
+.mx-audio-range-editor button { min-height: 32px; white-space: normal; }

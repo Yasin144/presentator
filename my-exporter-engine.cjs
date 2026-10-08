@@ -154,16 +154,36 @@ function buildAudioMixArguments(options, input, output, totalDuration) {
     const start = numeric(track.start, 0, 0, 86400, 'Audio timeline start');
     const speed = numeric(track.speed, 1, .25, 4, 'Audio speed');
     const trimStart = numeric(track.trimStart, 0, 0, 86400, 'Audio trim start');
-    const duration = Math.min(numeric(track.duration, totalDuration, .001, 86400, 'Audio duration'), Math.max(0, totalDuration - start));
+    const duration = Math.min(numeric(track.duration, totalDuration, Number.EPSILON, 86400, 'Audio duration'), Math.max(0, totalDuration - start));
     if (duration <= 0) continue;
     args.push('-i', track.path);
     const audio = [`atrim=start=${number(trimStart)}:duration=${number(duration * speed)}`, 'asetpts=PTS-STARTPTS', ...atempoFilters(speed),
       `volume=${number(numeric(track.volume, 1, 0, 2, 'Audio volume'))}`];
-    const fadeIn = Math.min(duration, numeric(track.fadeIn, 0, 0, 86400, 'Audio fade in'));
-    const fadeOut = Math.min(duration, numeric(track.fadeOut, 0, 0, 86400, 'Audio fade out'));
-    if (fadeIn) audio.push(`afade=t=in:st=0:d=${number(fadeIn)}`);
-    if (fadeOut) audio.push(`afade=t=out:st=${number(duration - fadeOut)}:d=${number(fadeOut)}`);
-    audio.push('apad', `atrim=duration=${number(duration)}`, `adelay=${Math.round(start * 1000)}:all=1`);
+    audio.push('aresample=48000');
+    if (track.fadeEnvelope !== undefined) {
+      const envelope = track.fadeEnvelope;
+      if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('Audio fade envelope is invalid.');
+      const originalDuration = numeric(envelope.duration, NaN, Number.EPSILON, 86400, 'Audio fade original duration');
+      const offset = numeric(envelope.offset, NaN, 0, originalDuration, 'Audio fade offset');
+      const fadeIn = numeric(envelope.fadeIn, NaN, 0, 86400, 'Audio fade in');
+      const fadeOut = numeric(envelope.fadeOut, NaN, 0, 86400, 'Audio fade out');
+      if (offset + Number(track.duration) > originalDuration + 1e-7) throw new Error('Audio fade envelope exceeds its original clip.');
+      const gain = [];
+      if (fadeIn) gain.push(`max(0,min(1,(t+${number(offset)})/${number(fadeIn)}))`);
+      if (fadeOut) gain.push(`max(0,min(1,(${number(originalDuration)}-(t+${number(offset)}))/${number(fadeOut)}))`);
+      if (gain.length) {
+        // Explicit channels avoid val(ch)/layout renegotiation in some FFmpeg
+        // builds. Export's mix is stereo, so use the same layout here too.
+        audio.push('aformat=channel_layouts=stereo');
+        audio.push(`aeval='val(0)*${gain.join('*')}|val(1)*${gain.join('*')}':c=stereo`);
+      }
+    } else {
+      const fadeIn = Math.min(duration, numeric(track.fadeIn, 0, 0, 86400, 'Audio fade in'));
+      const fadeOut = Math.min(duration, numeric(track.fadeOut, 0, 0, 86400, 'Audio fade out'));
+      if (fadeIn) audio.push(`afade=t=in:st=0:d=${number(fadeIn)}`);
+      if (fadeOut) audio.push(`afade=t=out:st=${number(duration - fadeOut)}:d=${number(fadeOut)}`);
+    }
+    audio.push('apad', `atrim=duration=${number(duration)}`, `adelay=${Math.round(start * 48000)}S:all=1`);
     chains.push(`[${inputIndex}:a]${audio.join(',')}[a${inputIndex}]`); labels.push(`[a${inputIndex++}]`);
   }
   if (options.musicPath) {
@@ -336,7 +356,7 @@ function createMyExporterEngine(dependencies = {}) {
     const errors = [], warnings = [];
     const preflightId = typeof options.jobId === 'string' && options.jobId ? options.jobId : null;
     for (const [id, state] of preflights) if (Date.now() - state.createdAt > 10 * 60 * 1000) preflights.delete(id);
-    if (preflightId && jobs.has(preflightId)) return { ok: false, errors: ['This export job is already running.'], warnings, exportCapabilitiesVersion: EXPORT_CAPABILITIES_VERSION };
+    if (preflightId && jobs.has(preflightId)) return { ok: false, errors: ['This export job is already running.'], warnings, exportCapabilitiesVersion: EXPORT_CAPABILITIES_VERSION, audioRangeFadeEnvelope: true };
     if (preflightId) {
       if (preflights.size >= 128 && !preflights.has(preflightId)) preflights.delete(preflights.keys().next().value);
       preflights.set(preflightId, { cancelled: preflights.get(preflightId)?.cancelled || false, createdAt: Date.now() });
@@ -356,11 +376,11 @@ function createMyExporterEngine(dependencies = {}) {
       buildAudioMixArguments(options, 'input.mp4', 'output.mp4', 60);
     } catch (error) { errors.push(error.message); }
     if (errors.length && preflightId) preflights.delete(preflightId);
-    return { ok: !errors.length, errors, warnings, exportCapabilitiesVersion: EXPORT_CAPABILITIES_VERSION };
+    return { ok: !errors.length, errors, warnings, exportCapabilitiesVersion: EXPORT_CAPABILITIES_VERSION, audioRangeFadeEnvelope: true };
   }
   async function preflight(options = {}) {
     const jobId = String(options.jobId || `preflight-${crypto.randomUUID()}`), errors = [], warnings = [];
-    if (jobs.has(jobId)) return { ok: false, errors: ['This export job is already running.'], warnings, exportCapabilitiesVersion: EXPORT_CAPABILITIES_VERSION };
+    if (jobs.has(jobId)) return { ok: false, errors: ['This export job is already running.'], warnings, exportCapabilitiesVersion: EXPORT_CAPABILITIES_VERSION, audioRangeFadeEnvelope: true };
     const job = { id: jobId, cancelled: preflights.get(jobId)?.cancelled || false, process: null, progress: 0, committed: false };
     jobs.set(jobId, job);
     try {
@@ -387,7 +407,7 @@ function createMyExporterEngine(dependencies = {}) {
         preflights.set(jobId, { cancelled: job.cancelled, createdAt: Date.now() });
       } else preflights.delete(jobId);
     }
-    return { ok: !errors.length, errors, warnings, ...(job.cancelled ? { cancelled: true } : {}), exportCapabilitiesVersion: EXPORT_CAPABILITIES_VERSION };
+    return { ok: !errors.length, errors, warnings, ...(job.cancelled ? { cancelled: true } : {}), exportCapabilitiesVersion: EXPORT_CAPABILITIES_VERSION, audioRangeFadeEnvelope: true };
   }
   function cancel(jobId) {
     if (typeof jobId !== 'string' || !jobId) return { ok: false, cancelled: false, error: 'Specify the export job to cancel.' };

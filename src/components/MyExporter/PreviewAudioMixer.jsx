@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
+import { audioFadeGain } from './editor-audio.mjs';
 
 const mediaUrl = path => encodeURI(`file:///${String(path || '').replace(/\\/g, '/')}`).replace(/#/g, '%23').replace(/\?/g, '%3F');
 
@@ -24,19 +25,19 @@ export default function PreviewAudioMixer({ tracks = [], music, musicVolume = .1
       const local = time - start;
       const audible = active && !muted && !track.muted && local >= 0 && local < length;
       const speed = Math.max(.25, Math.min(4, Number(track.speed) || 1));
-      const fadeIn = Math.max(0, Number(track.fadeIn) || 0);
-      const fadeOut = Math.max(0, Number(track.fadeOut) || 0);
       const gain = Math.max(0, Math.min(1, Number(track.volume ?? 1)))
-        * (fadeIn ? Math.max(0, Math.min(1, local / fadeIn)) : 1)
-        * (fadeOut ? Math.max(0, Math.min(1, (length - local) / fadeOut)) : 1);
+        * (local >= 0 ? audioFadeGain(track, local) : 0);
       element.volume = audible ? gain : 0;
       element.playbackRate = speed;
-      if (!audible || !playing) { element.pause(); continue; }
       let desired = Math.max(0, Number(track.trimStart) || 0) + Math.max(0, local) * speed;
       if (track.loop && Number.isFinite(element.duration) && element.duration > 0) desired %= element.duration;
-      if (element.readyState >= 1 && Math.abs(element.currentTime - desired) > .12 * speed) {
+      // A paused or newly entered clip must seek even when its offset is below
+      // the ordinary playback drift threshold. Otherwise short cuts play stale audio.
+      const delta = Math.abs(element.currentTime - desired);
+      if (audible && element.readyState >= 1 && delta > 1 / 48000 && (element.paused || !playing || delta > .12 * speed)) {
         try { element.currentTime = desired; } catch (_) {}
       }
+      if (!audible || !playing) { element.pause(); continue; }
       if (element.paused) element.play().catch(() => {});
     }
     const ids = new Set(audio.map(track => track.id));

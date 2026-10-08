@@ -3,9 +3,11 @@ import './my-exporter.css';
 import EditorAssetBrowser from './EditorAssetBrowser';
 import SourceMonitor from './SourceMonitor';
 import PreviewAudioMixer from './PreviewAudioMixer';
+import AudioRangeEditor from './AudioRangeEditor';
 import SceneInspector from './SceneInspector';
 import { transcriptCues, cuesForScene, translateCueTexts } from './editor-captions.mjs';
 import { addAllMediaToTimeline, sortMediaBySceneNumber } from './editor-media.mjs';
+import { editAudioSelection, validateAudioSelection, audioFadeGain, MIN_AUDIO_RANGE_SECONDS } from './editor-audio.mjs';
 import { normalizeProject, timelineEntries, sceneOutputDuration, sampleSceneTransform, splitScene as splitSceneModel, trimScene as trimSceneModel, deleteScenes as deleteScenesModel, createProjectSnapshot, snapshotProjectKey, reorderScenes, deleteTimeRange, insertScene, duplicateScene as duplicateSceneModel } from './editor-model.mjs';
 
 const fileUrl = value => encodeURI(`file:///${String(value || '').replace(/\\/g, '/')}`).replace(/#/g, '%23').replace(/\?/g, '%3F');
@@ -68,6 +70,11 @@ export default function MyExporter({ active = true }) {
   const [captionEngine, setCaptionEngine] = useState(() => initialProject.captionEngine || 'local');
   const audioPreview = useRef(null);
   const audioSelectionPreview = useRef(null);
+  const audioRangePlaybackRef = useRef({ token: 0, frame: 0, timer: 0, cleanup: null });
+  const audioRangeGestureRef = useRef(null);
+  const audioEditGestureRef = useRef(false);
+  const waveformRequestsRef = useRef(new Map());
+  const [audioRangePreviewing, setAudioRangePreviewing] = useState(false);
   const cropPreview = useRef(null);
   const audioSelectionRef = useRef(null);
   const audioDragRef = useRef(false);
@@ -360,61 +367,20 @@ export default function MyExporter({ active = true }) {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop, { once: true });
   };
+  useEffect(() => { audioSelectionRef.current = audioSelection; }, [audioSelection]);
   useEffect(() => {
-    audioSelectionRef.current = audioSelection;
-    if (!audioSelection?.trackId) return;
-    window.requestAnimationFrame(() => {
-      const track = audioTracks.find(item => item.id === audioSelection.trackId);
-      const element = document.querySelector('.mx-audio-clip.active .mx-audio-selection');
-      if (!track || !element) return;
-      const exactPercent = Math.max(.001, (Number(audioSelection.end) - Number(audioSelection.start)) / Math.max(.001, Number(track.duration)) * 100);
-      element.style.setProperty('width', `${exactPercent}%`, 'important');
-    });
-  }, [audioSelection, audioTracks]);
-
+    stopAudioSelectionPreview();
+    return stopAudioSelectionPreview;
+  }, [active, audioSelection, selectedAudioId, selectedAudio?.path, selectedAudio?.start, selectedAudio?.duration, selectedAudio?.trimStart, selectedAudio?.speed, selectedAudio?.volume, selectedAudio?.muted, selectedAudio?.fadeIn, selectedAudio?.fadeOut, selectedAudio?.fadeEnvelope, trackStates.audioMuted]);
   useEffect(() => {
-    if (!selectedAudio || audioSelection?.trackId !== selectedAudio.id) return;
-    const startLimit = Number(selectedAudio.start);
-    const endLimit = startLimit + Number(selectedAudio.duration);
-    const start = Math.max(startLimit, Math.min(endLimit - .001, Number(audioSelection.start)));
-    const end = Math.max(start + .001, Math.min(endLimit, Number(audioSelection.end)));
-    if (Math.abs(start - Number(audioSelection.start)) > .0005 || Math.abs(end - Number(audioSelection.end)) > .0005) setAudioSelection(current => ({ ...current, start, end, label: '' }));
-  }, [selectedAudio?.id, selectedAudio?.start, selectedAudio?.duration, audioSelection?.trackId]);
-
+    if (!audioSelection || audioSelection.trackId !== selectedAudio?.id || audioSelection.start < Number(selectedAudio.start) || audioSelection.end > Number(selectedAudio.start) + Number(selectedAudio.duration)) {
+      audioSelectionRef.current = null; setAudioSelection(null);
+    }
+  }, [selectedAudio?.id, selectedAudio?.start, selectedAudio?.duration]);
+  useEffect(() => () => audioRangeGestureRef.current?.(), []);
   useEffect(() => {
-    if (!audioSelection?.trackId) return undefined;
-    const element = document.querySelector('.mx-audio-clip.active .mx-audio-selection');
-    const track = audioTracks.find(item => item.id === audioSelection.trackId);
-    if (!element || !track) return undefined;
-    const down = event => {
-      event.preventDefault(); event.stopPropagation();
-      const rect = element.getBoundingClientRect();
-      const localX = event.clientX - rect.left;
-      const mode = localX <= 18 ? 'start' : localX >= rect.width - 18 ? 'end' : 'move';
-      const originX = event.clientX;
-      const origin = { ...audioSelectionRef.current };
-      const clipStart = Number(track.start);
-      const clipEnd = clipStart + Number(track.duration);
-      const move = pointerEvent => {
-        const delta = (pointerEvent.clientX - originX) / Math.max(1, element.closest('.mx-audio-clip').getBoundingClientRect().width) * Number(track.duration);
-        let start = origin.start; let end = origin.end;
-        if (mode === 'start') start = Math.max(clipStart, Math.min(origin.end - .001, origin.start + delta));
-        else if (mode === 'end') end = Math.min(clipEnd, Math.max(origin.start + .001, origin.end + delta));
-        else {
-          const length = origin.end - origin.start;
-          start = Math.max(clipStart, Math.min(clipEnd - length, origin.start + delta));
-          end = start + length;
-        }
-        setAudioSelection({ ...origin, start, end, label: '' });
-        setPlayheadTime(mode === 'end' ? end : start);
-      };
-      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up, { once: true });
-    };
-    element.addEventListener('pointerdown', down);
-    return () => element.removeEventListener('pointerdown', down);
-  }, [audioSelection?.trackId, selectedAudioId, audioTracks]);
+    if (!active || captioning || exporting || voiceChanging || audioMorphing || cropSaving || trackStates.audioLocked) { audioRangeGestureRef.current?.(); stopAudioSelectionPreview(); }
+  }, [active, captioning, exporting, voiceChanging, audioMorphing, cropSaving, trackStates.audioLocked]);
 
   useEffect(() => {
     const viewport = previewViewport.current;
@@ -515,6 +481,7 @@ export default function MyExporter({ active = true }) {
   }, [projectName, projectPath, scenes, mediaLibrary, selectedId, music, watermark, watermarkEnabled, playbackMode, audioTracks, trackStates, captions, textOverlays, captionLanguage, captionEngine, voiceLanguage, settings, markers, workspaceTabs, activeWorkspaceId]);
 
   useEffect(() => {
+    if (audioEditGestureRef.current) return;
     const snapshot = createProjectSnapshot(projectData());
     const current = historyRef.current[historyIndexRef.current];
     if (restoringHistoryRef.current) { restoringHistoryRef.current = false; return; }
@@ -616,6 +583,8 @@ export default function MyExporter({ active = true }) {
   const currentWorkspaceData = () => ({ ...projectData(), projectPath, selectedId });
   const applyWorkspaceData = (data, { preserveHistory = false } = {}) => {
     const next = normalizeProject(data || {}, { defaultSettings: DEFAULT_SETTINGS, defaultCaptionLanguage: 'en' });
+    waveformRequestsRef.current.clear();
+    audioRangeGestureRef.current?.(); stopAudioSelectionPreview(); updateAudioSelection(null); setAudioCutSelectionModeId('');
     recoveryNeeded.current = false;
     if (!preserveHistory) {
       historyRef.current = []; historyIndexRef.current = -1; restoringHistoryRef.current = false;
@@ -902,7 +871,7 @@ export default function MyExporter({ active = true }) {
       if (projectBusyRef.current) return;
       setMediaLibrary(current => [...current, ...additions.map(track => ({ ...track, id: `source-${track.id}` }))]);
       setAudioTracks(current => [...current, ...additions]);
-      additions.forEach(track => loadWaveform(track.id, track.path));
+      additions.forEach(track => loadWaveform(track.id, track.path, track));
       setProgress({ pct: 100, phase: `Added ${additions.length} audio track${additions.length === 1 ? '' : 's'}.` });
     } catch (error) {
       setProgress({ pct: 0, phase: error.message });
@@ -917,9 +886,11 @@ export default function MyExporter({ active = true }) {
       const next = audioTracks.map(track => {
         if (track.id !== id) return track;
         const edited = { ...track, ...patch };
+        if (['fadeIn', 'fadeOut', 'speed', 'duration', 'trimStart'].some(key => key in patch)) delete edited.fadeEnvelope;
         if ('start' in patch) Object.assign(edited, { originSceneId: '', detachedFromSceneId: '', reattachedToSceneId: '', pastedAudio: true });
         if ('speed' in patch && !('duration' in patch)) edited.duration = track.duration * Number(track.speed || 1) / edited.speed;
         if (['trimStart','speed','duration'].some(key => key in patch)) {
+          waveformRequestsRef.current.delete(id);
           if (edited.sourceDuration > 0) edited.duration = Math.min(edited.duration, (edited.sourceDuration - Number(edited.trimStart || 0)) / Number(edited.speed || 1));
           edited.waveform = []; edited.waveformLoading = false;
         }
@@ -927,11 +898,17 @@ export default function MyExporter({ active = true }) {
       });
       if (!cacheOnly) normalizeProject({ ...projectData(), audioTracks: next });
       setAudioTracks(next); if (!cacheOnly) setResult(null);
+      if (['trimStart','speed','duration'].some(key => key in patch)) { const edited = next.find(track => track.id === id); if (edited) loadWaveform(edited.id, edited.path, edited); }
     } catch (error) { setWarning(error.message); }
   };
   const loadWaveform = async (id, filePath, clip = null) => {
     if (typeof window.electronAPI?.myExporterWaveform !== 'function') return;
-    patchAudioTrack(id, { waveformLoading: true });
+    const request = uid(); waveformRequestsRef.current.set(id, request);
+    const update = patch => {
+      if (waveformRequestsRef.current.get(id) !== request) return;
+      setAudioTracks(current => current.map(track => track.id === id && track.path === filePath && waveformRequestsRef.current.get(id) === request && (!clip || Number(track.trimStart || 0) === Number(clip.trimStart || 0) && Number(track.duration) * Number(track.speed || 1) === Number(clip.duration) * Number(clip.speed || 1)) ? { ...track, ...patch } : track));
+    };
+    update({ waveformLoading: true, waveformError: '' });
     try {
       const response = await window.electronAPI.myExporterWaveform({ filePath, bars: 120, ...(clip ? { trimStart: Number(clip.trimStart || 0), duration: Number(clip.duration) * Number(clip.speed || 1) } : {}) });
       if (response?.ok) {
@@ -942,9 +919,9 @@ export default function MyExporter({ active = true }) {
           const to = Math.max(from + 1, Math.min(waveform.length, Math.ceil((Number(clip.trimStart || 0) + Number(clip.duration) * Number(clip.speed || 1)) / sourceDuration * waveform.length)));
           waveform = waveform.slice(from, to);
         }
-        patchAudioTrack(id, { waveform, waveformLoading: false });
-      } else patchAudioTrack(id, { waveform: [], waveformLoading: false, waveformError: response?.error || 'Waveform unavailable' });
-    } catch (error) { patchAudioTrack(id, { waveform: [], waveformLoading: false, waveformError: error.message }); }
+        update({ waveform, waveformLoading: false });
+      } else update({ waveform: [], waveformLoading: false, waveformError: response?.error || 'Waveform unavailable' });
+    } catch (error) { update({ waveform: [], waveformLoading: false, waveformError: error.message }); }
   };
 
   const syncBySerialNumber = () => {
@@ -1201,25 +1178,16 @@ export default function MyExporter({ active = true }) {
     window.addEventListener('pointerup', stop, { once: true });
   };
 
-  const trimSelectedAudioStart = amount => {
-    if (!selectedAudio || trackStates.audioLocked) return;
-    const cut = Math.max(0, Math.min(Number(amount) || 0, Number(selectedAudio.duration) - .1));
-    if (!cut) return;
-    patchAudioTrack(selectedAudio.id, { start: Number(selectedAudio.start) + cut, trimStart: Number(selectedAudio.trimStart) + cut * Number(selectedAudio.speed || 1), duration: Number(selectedAudio.duration) - cut, detachedOffset: Number(selectedAudio.detachedOffset || 0) + cut });
-  };
-
-  const trimSelectedAudioEnd = amount => {
-    if (!selectedAudio || trackStates.audioLocked) return;
-    const cut = Math.max(0, Math.min(Number(amount) || 0, Number(selectedAudio.duration) - .1));
-    if (cut) patchAudioTrack(selectedAudio.id, { duration: Number(selectedAudio.duration) - cut });
-  };
-
   const trimSelectedAudioToPlayhead = edge => {
-    if (!selectedAudio || trackStates.audioLocked) return;
-    const local = playheadTime - Number(selectedAudio.start);
-    if (local <= .05 || local >= Number(selectedAudio.duration) - .05) { setWarning('Move the gold stick inside the selected audio before trimming.'); return; }
-    if (edge === 'start') trimSelectedAudioStart(local); else patchAudioTrack(selectedAudio.id, { duration: local });
-    setWarning('');
+    if (!selectedAudio || projectBusyRef.current || trackStates.audioLocked) return;
+    try {
+      const start = Number(selectedAudio.start), end = start + Number(selectedAudio.duration);
+      const edit = editAudioSelection(projectData(), selectedAudio.id, edge === 'start' ? playheadTime : start, edge === 'end' ? playheadTime : end, { action: 'keep' });
+      applyTimelineState(edit.project); updateAudioSelection(null);
+      const trimmed = edit.project.audioTracks.find(track => track.id === selectedAudio.id);
+      loadWaveform(trimmed.id, trimmed.path, trimmed);
+      setProgress({ pct: 100, phase: 'Audio trimmed at the playhead. Other tracks stay in place.' });
+    } catch (error) { setWarning(error.message); }
   };
 
   const applyExportPreset = preset => {
@@ -1512,115 +1480,190 @@ export default function MyExporter({ active = true }) {
   };
 
   const selectAudioAtPointer = (event, track) => {
+    if (audioDragRef.current || event.target.closest('.mx-audio-delete, .mx-trim-handle, .mx-audio-selection')) return;
     setSelectedTextId('');
-    if (event.target.closest('.mx-audio-delete, .mx-trim-handle')) return;
     const isAlreadySelected = selectedAudioId === track.id;
-    setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setSelectedIds([]); setInspectorTab('clip');
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
-    const exactTime = Number(track.start || 0) + ratio * Number(track.duration || 0);
+    setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setSelectedIds([]); openInspector('clip');
+    const exactTime = audioTimeAtPointer(event, track);
     if (isAlreadySelected || audioCutSelectionModeId === track.id) {
       seekTimeline(exactTime);
     }
-    if (audioCutSelectionModeId !== track.id) return;
+    if (projectBusyRef.current || trackStates.audioLocked || audioCutSelectionModeId !== track.id) return;
     const current = audioSelectionRef.current;
     if (current?.trackId === track.id && current.awaitingEnd) {
       const selectionStart = Math.min(Number(current.anchor), exactTime);
       const selectionEnd = Math.max(Number(current.anchor), exactTime);
-      setAudioSelection({ trackId: track.id, start: selectionStart, end: Math.max(selectionStart + .001, selectionEnd), label: '', awaitingEnd: false, anchor: Number(current.anchor) });
+      if (selectionEnd - selectionStart < MIN_AUDIO_RANGE_SECONDS) return;
+      updateAudioSelection({ trackId: track.id, start: selectionStart, end: selectionEnd, awaitingEnd: false, anchor: Number(current.anchor) });
       setAudioCutSelectionModeId('');
       setProgress({ pct: 100, phase: `END set at ${exactTime.toFixed(3)}s. Exact selected length: ${Math.abs(exactTime - Number(current.anchor)).toFixed(3)} seconds.` });
     } else {
-      setAudioSelection({ trackId: track.id, start: exactTime, end: exactTime + .001, label: '', awaitingEnd: true, anchor: exactTime });
+      const start = Math.min(exactTime, Number(track.start) + Number(track.duration) - MIN_AUDIO_RANGE_SECONDS);
+      updateAudioSelection({ trackId: track.id, start, end: start + MIN_AUDIO_RANGE_SECONDS, awaitingEnd: true, anchor: exactTime });
       setProgress({ pct: 100, phase: `START set at ${exactTime.toFixed(3)}s. Now click the audio again where you want END.` });
     }
   };
 
   const beginCutPositionSelection = trackId => {
-    setSelectedAudioId(trackId); setSelectedId(''); setSelectedCaptionId('');
-    setAudioSelection(null); setAudioCutSelectionModeId(trackId);
-    setProgress({ pct: 100, phase: 'Cut selection enabled. Click once for START, then click once for END.' });
+    if (projectBusyRef.current || trackStates.audioLocked) return;
+    setSelectedAudioId(trackId); setSelectedId(''); setSelectedCaptionId(''); setSelectedTextId(''); setSelectedIds([]); openInspector('clip');
+    updateAudioSelection(null); setAudioCutSelectionModeId(trackId);
+    setProgress({ pct: 100, phase: 'Drag to select audio, or click In then Out. Removal leaves the selected gap.' });
   };
 
-  const setAudioSelectionEdge = edge => {
-    if (!selectedAudio) return;
-    const clipStart = Number(selectedAudio.start);
-    const clipEnd = clipStart + Number(selectedAudio.duration);
-    const point = Math.max(clipStart, Math.min(clipEnd, playheadTime));
-    setAudioSelection(current => {
-      const base = current?.trackId === selectedAudio.id ? current : { trackId: selectedAudio.id, start: clipStart, end: clipEnd };
-      return edge === 'start' ? { ...base, start: Math.min(point, base.end - .001) } : { ...base, end: Math.max(point, base.start + .001) };
+  function updateAudioSelection(next) {
+    stopAudioSelectionPreview();
+    audioSelectionRef.current = next; setAudioSelection(next);
+  }
+  const audioTimeAtPointer = (event, track) => {
+    const lane = event.currentTarget.closest('.mx-position-lane');
+    const rect = lane?.getBoundingClientRect();
+    if (!rect) return Number(track.start);
+    return Math.max(Number(track.start), Math.min(Number(track.start) + Number(track.duration), (event.clientX - rect.left) / Math.max(1, rect.width) * totalDuration));
+  };
+  const changeAudioRange = (start, end) => {
+    if (!selectedAudio || projectBusyRef.current || trackStates.audioLocked) return;
+    try {
+      validateAudioSelection(projectData(), selectedAudio.id, start, end);
+      updateAudioSelection({ trackId: selectedAudio.id, start, end, awaitingEnd: false });
+      setAudioCutSelectionModeId(''); setWarning('');
+    } catch (error) { setWarning(error.message); }
+  };
+  const watchAudioRangePointer = (event, move, finish) => {
+    audioRangeGestureRef.current?.();
+    const pointerId = event.pointerId;
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onCancel); window.removeEventListener('blur', onBlur);
+      audioRangeGestureRef.current = null;
+    };
+    const onMove = next => { if (next.pointerId === pointerId && !projectBusyRef.current && !trackStates.audioLocked) move(next); };
+    const onUp = next => { if (next.pointerId !== pointerId) return; cleanup(); finish?.(next, false); };
+    const onCancel = next => { if (next.pointerId !== pointerId) return; cleanup(); finish?.(next, true); };
+    const onBlur = () => { cleanup(); finish?.(null, true); };
+    audioRangeGestureRef.current = () => { cleanup(); finish?.(null, true); };
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp); window.addEventListener('pointercancel', onCancel); window.addEventListener('blur', onBlur);
+  };
+  const beginAudioRange = (event, track) => {
+    if (event.button !== 0 || projectBusyRef.current || trackStates.audioLocked) return;
+    event.preventDefault(); event.stopPropagation();
+    const lane = event.currentTarget.closest('.mx-position-lane');
+    const pointAt = next => audioTimeAtPointer({ currentTarget: lane, clientX: next.clientX }, track);
+    const anchor = pointAt(event), originX = event.clientX;
+    const previous = audioSelectionRef.current;
+    let moved = false;
+    watchAudioRangePointer(event, next => {
+      if (Math.abs(next.clientX - originX) < 3 && !moved) return;
+      const point = pointAt(next), start = Math.min(anchor, point), end = Math.max(anchor, point);
+      if (end - start < MIN_AUDIO_RANGE_SECONDS) return;
+      moved = true; updateAudioSelection({ trackId: track.id, start, end, awaitingEnd: false }); seekTimeline(point);
+    }, (_, cancelled) => {
+      if (cancelled) { updateAudioSelection(previous); return; }
+      if (moved) {
+        audioDragRef.current = true; setAudioCutSelectionModeId('');
+        setProgress({ pct: 100, phase: 'Audio range selected. Preview it, adjust In/Out, or remove it and leave a gap.' });
+        window.setTimeout(() => { audioDragRef.current = false; }, 0);
+      }
     });
   };
 
-  const beginAudioSelectionHandle = (event, track, edge) => {
-    event.preventDefault(); event.stopPropagation();
-    const clipRect = event.currentTarget.closest('.mx-audio-clip')?.getBoundingClientRect();
-    if (!clipRect) return;
-    const move = pointerEvent => {
-      const ratio = Math.max(0, Math.min(1, (pointerEvent.clientX - clipRect.left) / Math.max(1, clipRect.width)));
-      const point = Number(track.start) + ratio * Number(track.duration);
-      setAudioSelection(current => {
-        if (!current || current.trackId !== track.id) return current;
-        return edge === 'start' ? { ...current, start: Math.min(point, current.end - .05), label: '' } : { ...current, end: Math.max(point, current.start + .05), label: '' };
-      });
-      seekTimeline(point);
-      setSelectedAudioId(track.id);
-    };
-    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop, { once: true });
+  const setAudioSelectionEdge = edge => {
+    if (!selectedAudio || projectBusyRef.current || trackStates.audioLocked) return;
+    const clipStart = Number(selectedAudio.start);
+    const clipEnd = clipStart + Number(selectedAudio.duration);
+    const point = Math.max(clipStart, Math.min(clipEnd, playheadTime));
+    const current = audioSelectionRef.current;
+    const base = current?.trackId === selectedAudio.id ? current : { trackId: selectedAudio.id, start: clipStart, end: clipEnd };
+    changeAudioRange(edge === 'start' ? Math.min(point, base.end - MIN_AUDIO_RANGE_SECONDS) : base.start, edge === 'end' ? Math.max(point, base.start + MIN_AUDIO_RANGE_SECONDS) : base.end);
   };
 
-  const previewAudioSelection = () => {
-    if (!selectedAudio || audioSelection?.trackId !== selectedAudio.id || !audioSelectionPreview.current) return;
-    const sourceStart = Number(selectedAudio.trimStart || 0) + (audioSelection.start - Number(selectedAudio.start)) * Number(selectedAudio.speed || 1);
-    audioSelectionPreview.current.currentTime = Math.max(0, sourceStart);
-    audioSelectionPreview.current.play().catch(error => setWarning(`Selected audio preview could not play: ${error.message}`));
+  const beginAudioSelectionHandle = (event, track, edge) => {
+    if (event.button !== 0 || projectBusyRef.current || trackStates.audioLocked || audioCutSelectionModeId === track.id) return;
+    event.preventDefault(); event.stopPropagation();
+    const lane = event.currentTarget.closest('.mx-position-lane'), rect = lane?.getBoundingClientRect();
+    const origin = audioSelectionRef.current;
+    if (!rect || !origin || origin.awaitingEnd) return;
+    const originX = event.clientX, clipStart = Number(track.start), clipEnd = clipStart + Number(track.duration);
+    watchAudioRangePointer(event, next => {
+      const point = audioTimeAtPointer({ currentTarget: lane, clientX: next.clientX }, track);
+      let start = origin.start, end = origin.end;
+      if (edge === 'start') start = Math.min(point, end - MIN_AUDIO_RANGE_SECONDS);
+      else if (edge === 'end') end = Math.max(point, start + MIN_AUDIO_RANGE_SECONDS);
+      else { start = Math.max(clipStart, Math.min(clipEnd - (end - start), origin.start + (next.clientX - originX) / rect.width * totalDuration)); end = start + origin.end - origin.start; }
+      updateAudioSelection({ ...origin, start, end, awaitingEnd: false }); seekTimeline(edge === 'end' ? end : start);
+    }, (_, cancelled) => { if (cancelled) updateAudioSelection(origin); });
+  };
+
+  function stopAudioSelectionPreview() {
+    const session = audioRangePlaybackRef.current;
+    session.token++; cancelAnimationFrame(session.frame); clearTimeout(session.timer); session.cleanup?.(); session.cleanup = null;
+    audioSelectionPreview.current?.pause(); setAudioRangePreviewing(false);
+  }
+  const previewAudioSelection = async () => {
+    if (projectBusyRef.current || trackStates.audioLocked || !selectedAudio || audioSelection?.trackId !== selectedAudio.id || audioSelection.awaitingEnd || !audioSelectionPreview.current) return;
+    stopAudioSelectionPreview();
+    const session = audioRangePlaybackRef.current, token = session.token, audio = audioSelectionPreview.current;
+    try {
+      const range = validateAudioSelection(projectData(), selectedAudio.id, audioSelection.start, audioSelection.end);
+      preview.current?.pause(); setIsPreviewPlaying(false);
+      setAudioRangePreviewing(true);
+      const waitFor = (name, ready) => ready() ? Promise.resolve() : new Promise((resolve, reject) => {
+        let timeout;
+        const cleanup = () => { clearTimeout(timeout); audio.removeEventListener(name, done); audio.removeEventListener('error', failed); session.cleanup = null; };
+        const done = () => { cleanup(); resolve(); };
+        const failed = () => { cleanup(); reject(new Error('The audio source could not be loaded.')); };
+        session.cleanup = () => { cleanup(); resolve(); };
+        audio.addEventListener(name, done, { once: true }); audio.addEventListener('error', failed, { once: true });
+        timeout = window.setTimeout(failed, 15000);
+      });
+      await waitFor('loadedmetadata', () => audio.readyState >= 1);
+      if (session.token !== token) return;
+      audio.playbackRate = range.speed; audio.currentTime = range.sourceStart;
+      await waitFor('seeked', () => !audio.seeking);
+      if (session.token !== token) return;
+      const gainAt = sourceTime => Math.max(0, Math.min(1, selectedAudio.muted || trackStates.audioMuted ? 0 : Number(selectedAudio.volume ?? 1) * audioFadeGain(selectedAudio, Math.max(0, (sourceTime - Number(selectedAudio.trimStart || 0)) / range.speed))));
+      audio.volume = gainAt(range.sourceStart);
+      await audio.play();
+      if (session.token !== token) return;
+      setAudioRangePreviewing(true); setWarning('');
+      const tick = () => {
+        if (session.token !== token) return;
+        if (audio.currentTime >= range.sourceEnd || audio.ended) { stopAudioSelectionPreview(); return; }
+        audio.volume = gainAt(Math.min(range.sourceEnd, audio.currentTime));
+        clearTimeout(session.timer);
+        // Re-arm from the media clock after buffering/seeking; timeupdate alone is too coarse.
+        if (!audio.seeking && audio.readyState >= 2 && !audio.paused) session.timer = window.setTimeout(() => {
+          if (session.token === token && audio.currentTime >= range.sourceEnd - .002 * range.speed) stopAudioSelectionPreview();
+        }, Math.max(1, (range.sourceEnd - audio.currentTime) / range.speed * 1000));
+        session.frame = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (error) {
+      if (session.token === token) { stopAudioSelectionPreview(); setWarning(`Selected audio preview could not play: ${error.message}`); }
+    }
   };
 
   const removeHighlightedAudio = () => {
-    if (!selectedAudio || audioSelection?.trackId !== selectedAudio.id) { setWarning('Click the detached audio waveform first to highlight the part you want to remove.'); return; }
-    const trackStart = Number(selectedAudio.start);
-    const trackEnd = trackStart + Number(selectedAudio.duration);
-    const cutStart = Math.max(trackStart, Math.min(trackEnd, Number(audioSelection.start)));
-    const cutEnd = Math.max(cutStart, Math.min(trackEnd, Number(audioSelection.end)));
-    if (cutEnd - cutStart < .001) { setWarning('The highlighted audio is shorter than one millisecond. Select a slightly larger part.'); return; }
-    const beforeDuration = cutStart - trackStart;
-    const afterDuration = trackEnd - cutEnd;
-    const speed = Number(selectedAudio.speed || 1);
-    const sourceDuration = Math.max(.001, Number(selectedAudio.sourceDuration || selectedAudio.duration));
-    const cropWaveform = (sourceStart, sourceLength) => {
-      const peaks = Array.isArray(selectedAudio.waveform) ? selectedAudio.waveform : [];
-      if (!peaks.length) return peaks;
-      const from = Math.max(0, Math.min(peaks.length - 1, Math.floor(sourceStart / sourceDuration * peaks.length)));
-      const to = Math.max(from + 1, Math.min(peaks.length, Math.ceil((sourceStart + sourceLength) / sourceDuration * peaks.length)));
-      return peaks.slice(from, to);
-    };
-    const pieces = [];
-    if (beforeDuration >= .001) pieces.push({ ...selectedAudio, duration: beforeDuration, waveform: cropWaveform(Number(selectedAudio.trimStart || 0), beforeDuration * speed), name: `${selectedAudio.name} (before cut)`, detachedFromSceneId: '', reattachedToSceneId: '' });
-    if (afterDuration >= .001) pieces.push({ ...selectedAudio, id: uid(), start: cutStart, trimStart: Number(selectedAudio.trimStart || 0) + (cutEnd - trackStart) * speed, duration: afterDuration, waveform: cropWaveform(Number(selectedAudio.trimStart || 0) + (cutEnd - trackStart) * speed, afterDuration * speed), detachedOffset: Number(selectedAudio.detachedOffset || 0) + (cutEnd - trackStart), timelineOffsetWithinScene: Number(selectedAudio.timelineOffsetWithinScene || 0) + beforeDuration, detachedFromSceneId: '', reattachedToSceneId: '', name: `${selectedAudio.name} (after cut)` });
-    const nextTracks = audioTracks.flatMap(track => track.id === selectedAudio.id ? pieces : [track]);
-    setAudioTracks(nextTracks);
-    pieces.forEach(piece => loadWaveform(piece.id, piece.path, piece));
-    setSelectedAudioId(pieces[0]?.id || '');
-    setAudioSelection(null);
-    setAudioCutSelectionModeId('');
-    audioSelectionPreview.current?.pause();
-    setWarning('');
-    setProgress({ pct: 100, phase: `${(cutEnd - cutStart).toFixed(3)} seconds removed. The following audio moved left automatically, so no empty space remains.` });
-    commitTimelineHistory(scenes, nextTracks, captions);
+    if (projectBusyRef.current || trackStates.audioLocked) return;
+    if (!selectedAudio || audioSelection?.trackId !== selectedAudio.id || audioSelection.awaitingEnd) { setWarning('Select the audio range to remove first.'); return; }
+    try {
+      const edit = editAudioSelection(projectData(), selectedAudio.id, audioSelection.start, audioSelection.end, { action: 'delete', ripple: false, idFactory: uid });
+      stopAudioSelectionPreview(); applyTimelineState(edit.project); setSelectedAudioId(edit.selectedId);
+      updateAudioSelection(null); setAudioCutSelectionModeId('');
+      edit.project.audioTracks.filter(track => edit.pieceIds.includes(track.id)).forEach(piece => loadWaveform(piece.id, piece.path, piece));
+      setProgress({ pct: 100, phase: `${edit.removedDuration.toFixed(3)} seconds removed. The silent gap and all other timeline positions are preserved.` });
+    } catch (error) { setWarning(error.message); }
   };
 
   const reattachSelectedAudio = () => {
-    if (!selectedAudio) return;
-    const sceneId = selectedAudio.originSceneId || selectedAudio.detachedFromSceneId || selectedAudio.reattachedToSceneId || scenes.find(scene => scene.path === selectedAudio.path)?.id;
+    if (!selectedAudio || projectBusyRef.current || trackStates.audioLocked) return;
+    const legacyScenes = scenes.filter(scene => scene.path === selectedAudio.path && Number(selectedAudio.start) >= sceneTimelineOffset(scene.id) && Number(selectedAudio.start) + Number(selectedAudio.duration) <= sceneTimelineOffset(scene.id) + sceneOutputDuration(scene));
+    const sceneId = selectedAudio.originSceneId || selectedAudio.detachedFromSceneId || selectedAudio.reattachedToSceneId || (!selectedAudio.pastedAudio && legacyScenes.length === 1 ? legacyScenes[0].id : '');
     const scene = scenes.find(item => item.id === sceneId);
     if (!scene) { setWarning('The source video for this detached audio could not be found. Keep the audio on its current synchronized track.'); return; }
-    const related = audioTracks.filter(track => (track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId) === sceneId || (track.path === scene.path && Number(track.start) >= sceneTimelineOffset(sceneId) - .05));
+    const related = audioTracks.filter(track => (track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId) === sceneId || (track.id === selectedAudio.id && !track.pastedAudio && !(track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId)));
     const originalStart = sceneTimelineOffset(sceneId);
     const originalDuration = Number(scene.duration || 0) / Math.max(.25, Number(scene.speed || 1));
-    const untouched = related.length === 1 && Math.abs(Number(related[0].start) - originalStart) < .05 && Math.abs(Number(related[0].duration) - originalDuration) < .05 && Math.abs(Number(related[0].trimStart) - Number(scene.trimStart || 0)) < .05;
+    const untouched = related.length === 1 && Math.abs(Number(related[0].start) - originalStart) < 1e-9 && Math.abs(Number(related[0].duration) - originalDuration) < 1e-9 && Math.abs(Number(related[0].trimStart) - Number(scene.trimStart || 0)) < 1e-9 && Number(related[0].speed || 1) === Number(scene.speed || 1) && Number(related[0].volume ?? 1) === Number(scene.volume ?? 1) && !related[0].muted && !related[0].fadeIn && !related[0].fadeOut && !related[0].fadeEnvelope;
     let nextTracks = [];
     let nextScenes = [];
     if (untouched) {
@@ -1653,51 +1696,48 @@ export default function MyExporter({ active = true }) {
   };
 
   const beginAudioTrim = (event, track, edge) => {
-    if (projectBusyRef.current) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (trackStates.audioLocked) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.button !== 0 || projectBusyRef.current || trackStates.audioLocked || audioCutSelectionModeId === track.id) return;
+    waveformRequestsRef.current.delete(track.id);
     const laneWidth = event.currentTarget.closest('.mx-position-lane')?.getBoundingClientRect().width || 1;
-    const originX = event.clientX;
-    const origin = { start: Number(track.start) || 0, trimStart: Number(track.trimStart) || 0, duration: Number(track.duration) || .1, detachedOffset: Number(track.detachedOffset) || 0 };
-    const originSceneId = track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId;
-    const linkedRightIds = new Set(audioTracks.filter(item => {
-      const itemSceneId = item.originSceneId || item.detachedFromSceneId || item.reattachedToSceneId;
-      return item.id !== track.id && itemSceneId === originSceneId && Math.abs(Number(item.start || 0) - (origin.start + origin.duration)) <= .03;
-    }).map(item => item.id));
-    const move = moveEvent => {
-      const delta = ((moveEvent.clientX - originX) / laneWidth) * totalDuration;
-      if (edge === 'left') {
-        const availableEarlierAudio = Math.min(origin.trimStart / Number(track.speed || 1), origin.detachedOffset);
-        if (delta < 0 && availableEarlierAudio <= .001) {
-          const scene = scenes.find(item => item.id === originSceneId);
-          const sceneStart = scene ? sceneTimelineOffset(scene.id) : 0;
-          const start = Math.max(sceneStart, origin.start + delta);
-          patchAudioTrack(track.id, { start, timelineOffsetWithinScene: Math.max(0, start - sceneStart) });
-          setPlayheadTime(start);
-        } else {
-          const cut = Math.max(-availableEarlierAudio, Math.min(origin.duration - .1, delta));
-          patchAudioTrack(track.id, { start: origin.start + cut, trimStart: origin.trimStart + cut * Number(track.speed || 1), duration: origin.duration - cut, detachedOffset: origin.detachedOffset + cut, timelineOffsetWithinScene: Math.max(0, Number(track.timelineOffsetWithinScene || 0) + cut) });
-        }
-      } else {
-        const maxDuration = Math.max(.1, ((Number(track.sourceDuration) || 999999) - origin.trimStart) / Number(track.speed || 1));
-        const duration = Math.max(.1, Math.min(maxDuration, origin.duration + delta));
-        const oldEnd = origin.start + origin.duration;
-        const newEnd = origin.start + duration;
-        setAudioTracks(current => current.map(item => {
-          if (item.id === track.id) return { ...item, duration };
-          if (!linkedRightIds.has(item.id)) return item;
-          return { ...item, start: newEnd, timelineOffsetWithinScene: Math.max(0, Number(item.timelineOffsetWithinScene || 0) + (newEnd - oldEnd)) };
-        }));
+    const originX = event.clientX, speed = Number(track.speed || 1), clipStart = Number(track.start), clipEnd = clipStart + Number(track.duration);
+    const sceneId = track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId;
+    const entry = entries.find(item => item.scene.id === sceneId);
+    const minStart = Math.max(entry?.start || 0, clipStart - Number(track.trimStart || 0) / speed);
+    const maxEnd = Math.min(entry?.end ?? Infinity, clipStart + ((Number(track.sourceDuration) || Number(track.trimStart || 0) + Number(track.duration) * speed) - Number(track.trimStart || 0)) / speed);
+    const originalTracks = audioTracks;
+    let finalTracks = originalTracks, changed = false;
+    setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId('');
+    watchAudioRangePointer(event, next => {
+      const delta = (next.clientX - originX) / laneWidth * totalDuration;
+      const start = edge === 'left' ? Math.max(minStart, Math.min(clipEnd - MIN_AUDIO_RANGE_SECONDS, clipStart + delta)) : clipStart;
+      const end = edge === 'right' ? Math.min(maxEnd, Math.max(clipStart + MIN_AUDIO_RANGE_SECONDS, clipEnd + delta)) : clipEnd;
+      const offset = start - clipStart;
+      const edited = { ...track, start, duration: end - start, trimStart: Number(track.trimStart || 0) + offset * speed, waveform: [], waveformLoading: false };
+      if (entry) Object.assign(edited, { detachedOffset: start - entry.start, timelineOffsetWithinScene: start - entry.start });
+      if (track.fadeEnvelope) {
+        const envelopeOffset = track.fadeEnvelope.offset + offset;
+        if (envelopeOffset >= 0 && envelopeOffset + edited.duration <= track.fadeEnvelope.duration + 1e-9) edited.fadeEnvelope = { ...track.fadeEnvelope, offset: envelopeOffset };
+        else delete edited.fadeEnvelope;
+      } else if (track.fadeIn || track.fadeOut) {
+        if (start >= clipStart && end <= clipEnd) edited.fadeEnvelope = { offset, duration: track.duration, fadeIn: track.fadeIn || 0, fadeOut: track.fadeOut || 0 };
       }
-    };
-    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop, { once: true });
+      try {
+        finalTracks = originalTracks.map(item => item.id === track.id ? edited : item);
+        normalizeProject({ ...projectData(), audioTracks: finalTracks });
+        changed = start !== clipStart || end !== clipEnd;
+        audioEditGestureRef.current = true; setAudioTracks(finalTracks); setResult(null); setPlayheadTime(edge === 'left' ? start : end);
+      } catch (error) { setWarning(error.message); }
+    }, (_, cancelled) => {
+      audioEditGestureRef.current = false;
+      if (cancelled) { setAudioTracks(originalTracks); return; }
+      if (changed) { commitTimelineHistory(scenes, finalTracks, captions); loadWaveform(track.id, track.path, finalTracks.find(item => item.id === track.id)); }
+    });
   };
 
   const beginAudioMove = (event, track) => {
     if (projectBusyRef.current) return;
+    if (audioCutSelectionModeId === track.id) { beginAudioRange(event, track); return; }
     if (event.button !== 0 || trackStates.audioLocked || event.target.closest('.mx-trim-handle,.mx-audio-selection,button')) return;
     event.preventDefault(); event.stopPropagation();
     const lane = event.currentTarget.closest('.mx-position-lane');
@@ -1713,6 +1753,7 @@ export default function MyExporter({ active = true }) {
     const move = pointerEvent => {
       const delta = (pointerEvent.clientX - originX) / laneWidth * totalDuration;
       if (Math.abs(pointerEvent.clientX - originX) > 3) moved = true;
+      if (!moved || projectBusyRef.current) return;
       
       let start = Math.max(0, originStart + delta);
       
@@ -1775,6 +1816,7 @@ export default function MyExporter({ active = true }) {
         }
       }
 
+      audioEditGestureRef.current = true;
       setAudioTracks(current => {
         finalAudioTracks = current.map(item => {
           if (item.id === track.id) {
@@ -1793,32 +1835,20 @@ export default function MyExporter({ active = true }) {
       setPlayheadTime(start);
     };
     
-    const stop = () => {
+    const stop = (_, cancelled) => {
+      audioEditGestureRef.current = false;
+      if (cancelled) { setAudioTracks(audioTracks); audioDragRef.current = false; return; }
       audioDragRef.current = moved;
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', stop);
       window.setTimeout(() => { audioDragRef.current = false; }, 0);
-      commitTimelineHistory(scenes, finalAudioTracks, captions);
+      if (moved) commitTimelineHistory(scenes, finalAudioTracks, captions);
     };
     
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop, { once: true });
+    watchAudioRangePointer(event, move, stop);
   };
-
-  useEffect(() => {
-    const clips = [...document.querySelectorAll('.mx-track-row .mx-audio-clip')];
-    const listeners = clips.map((clip, index) => {
-      const track = audioTracks[index];
-      if (!track) return null;
-      const listener = event => beginAudioMove(event, track);
-      clip.addEventListener('pointerdown', listener);
-      return { clip, listener };
-    }).filter(Boolean);
-    return () => listeners.forEach(({ clip, listener }) => clip.removeEventListener('pointerdown', listener));
-  }, [audioTracks, scenes, totalDuration, trackStates.audioLocked]);
 
   const togglePreviewPlayback = () => {
     if (!programScene || !active) return;
+    stopAudioSelectionPreview();
     if (!isPreviewPlaying && playheadTime >= totalDuration - 1 / Number(settings.fps || 30)) seekTimeline(0, true);
     setIsPreviewPlaying(value => !value);
   };
@@ -1908,9 +1938,13 @@ export default function MyExporter({ active = true }) {
         if (trackStates.audioLocked) throw new Error('Unlock the audio track before splitting.');
         const local = playheadTime - Number(selectedAudio.start);
         if (local <= 0 || local >= selectedAudio.duration) throw new Error('Move the playhead inside the selected audio clip.');
-        const second = { ...selectedAudio, id: uid(), start: playheadTime, duration: selectedAudio.duration - local, trimStart: Number(selectedAudio.trimStart || 0) + local * Number(selectedAudio.speed || 1), timelineOffsetWithinScene: Number(selectedAudio.timelineOffsetWithinScene || 0) + local, waveform: [], waveformLoading: false };
-        const nextAudio = audioTracks.flatMap(track => track.id === selectedAudio.id ? [{ ...track, duration: local, waveform: [] }, second] : [track]);
-        commitTimelineHistory(scenes, nextAudio, captions); setAudioTracks(nextAudio); setSelectedAudioId(second.id);
+        const base = projectData(), start = Number(selectedAudio.start), end = start + Number(selectedAudio.duration);
+        const left = editAudioSelection(base, selectedAudio.id, start, playheadTime, { action: 'keep' }).project.audioTracks.find(track => track.id === selectedAudio.id);
+        const right = editAudioSelection(base, selectedAudio.id, playheadTime, end, { action: 'keep' }).project.audioTracks.find(track => track.id === selectedAudio.id);
+        right.id = uid();
+        applyTimelineState({ ...base, audioTracks: audioTracks.flatMap(track => track.id === selectedAudio.id ? [left, right] : [track]) });
+        setSelectedAudioId(right.id); updateAudioSelection(null);
+        [left, right].forEach(track => loadWaveform(track.id, track.path, track));
       } else if (selectedCaptionId) {
         if (trackStates.captionsLocked) throw new Error('Unlock captions before splitting.');
         const cue = captions.find(item => item.id === selectedCaptionId);
@@ -2218,6 +2252,7 @@ export default function MyExporter({ active = true }) {
       const check = await window.electronAPI.myExporterPreflight(payload);
       if (check?.cancelled || exportJobRef.current !== jobId) return false;
       if (check?.exportCapabilitiesVersion !== 2) throw new Error('The new editor needs the updated export service. Save your projects and reopen Pattan Presentator when all jobs are idle.');
+      if (payload.audioTracks.some(track => track.fadeEnvelope) && check?.audioRangeFadeEnvelope !== true) throw new Error('Edited audio fades need the updated export service. Save your projects and reopen Pattan Presentator when all jobs are idle.');
       if (!check?.ok) throw new Error((check?.errors || ['Export validation failed.']).join('\n'));
       if (check.warnings?.length) setWarning(check.warnings.join('\n'));
       const response = await window.electronAPI.myExporterExport(payload);
@@ -2320,6 +2355,8 @@ export default function MyExporter({ active = true }) {
       if (event.key === 'F2' && selected) { event.preventDefault(); renameSelectedScene(); return; }
       if (event.key.toLowerCase() === 'n' && !event.ctrlKey) { event.preventDefault(); setSnapEnabled(value => !value); return; }
       if (event.shiftKey && event.key === 'Delete' && selected) { event.preventDefault(); removeScene(selected.id, true); return; }
+      if (event.key === 'Delete' && selectedAudio && audioSelection?.trackId === selectedAudio.id && !audioSelection.awaitingEnd) { event.preventDefault(); removeHighlightedAudio(); return; }
+      if (!event.ctrlKey && !event.altKey && selectedAudio && ['i','o'].includes(event.key.toLowerCase())) { event.preventDefault(); setAudioSelectionEdge(event.key.toLowerCase() === 'i' ? 'start' : 'end'); return; }
       if (event.shiftKey && event.key === 'Delete' && selectedAudio) { event.preventDefault(); removeAudioTrack(selectedAudio.id, true); return; }
       if (event.key === 'Delete' && selectedAudio) { event.preventDefault(); removeAudioTrack(selectedAudio.id); return; }
       
@@ -2340,7 +2377,7 @@ export default function MyExporter({ active = true }) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, selected, selectedAudio, selectedCaptionId, selectedTextId, playheadTime, scenes, audioTracks, captions, rippleEnabled, snapEnabled, timelineZoom, historyVersion, audioClipboard, sceneClipboard, selectedIds, isPreviewPlaying, settings, markers, trackStates]);
+  }, [active, selected, selectedAudio, selectedCaptionId, selectedTextId, playheadTime, scenes, audioTracks, captions, rippleEnabled, snapEnabled, timelineZoom, historyVersion, audioClipboard, sceneClipboard, selectedIds, isPreviewPlaying, settings, markers, trackStates, audioSelection]);
 
   const previewFontPx = Math.max(10, Number(settings.captionFontSize || 42) * (previewFrame.height || 540) / 1080);
   const captionPosition = settings.captionPosition || 'bottom';
@@ -2391,7 +2428,7 @@ export default function MyExporter({ active = true }) {
     if (projectBusyRef.current) return;
     if (selectedTextId) { setTextOverlays(current => current.filter(item => item.id !== selectedTextId)); setSelectedTextId(''); }
     else if (selectedCaptionId && !trackStates.captionsLocked) { setCaptions(current => current.filter(item => item.id !== selectedCaptionId)); setSelectedCaptionId(''); }
-    else if (selectedAudio && !trackStates.audioLocked) removeAudioTrack(selectedAudio.id);
+    else if (selectedAudio && !trackStates.audioLocked) { if (audioSelection?.trackId === selectedAudio.id && !audioSelection.awaitingEnd) removeHighlightedAudio(); else removeAudioTrack(selectedAudio.id); }
     else if (selected && !trackStates.videoLocked) removeScene(selected.id);
   };
   const selectedEntry = entries.find(entry => entry.scene.id === selected?.id);
@@ -2581,7 +2618,26 @@ export default function MyExporter({ active = true }) {
                 <div className="mx-position-lane mx-video-lane mx-image-lane">{scenes.map((scene, index) => { if (scene.kind !== 'image') return null; const sceneDuration = Number(scene.duration || 0); return <button key={scene.id} draggable={!trackStates.videoLocked} title="Image scene · click to select · right-click for options" className={`mx-clip mx-image-clip ${selectedIds.includes(scene.id) ? 'active' : ''}`} style={{ left: `${totalDuration ? sceneTimelineOffset(scene.id) / totalDuration * 100 : 0}%`, width: `${totalDuration ? sceneDuration / totalDuration * 100 : 100}%` }} onClick={event => { selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); setContextMenu({ type: 'video', id: scene.id, name: scene.name, x: Math.min(event.clientX, window.innerWidth - 235), y: Math.min(event.clientY, window.innerHeight - 360) }); }}><img src={fileUrl(scene.path)} alt="" /><span>{index + 1}</span><strong>{scene.name}</strong><small>{formatTime(sceneDuration)}</small></button>; })}</div>
               </div>
               <div className="mx-track-row mx-audio-group-row"><div className="mx-track-label"><strong>Audio mix</strong><button onClick={() => setTrackStates(value => ({ ...value, audioMuted: !value.audioMuted }))}>{trackStates.audioMuted ? '🔇' : '🔊'}</button><button onClick={() => setTrackStates(value => ({ ...value, audioLocked: !value.audioLocked }))}>{trackStates.audioLocked ? '🔒' : '🔓'}</button></div><div className="mx-position-lane"><small>{audioTracks.length ? 'Each sound has its own lane. Overlapping tracks play together.' : 'Import audio or detach a video’s sound to start mixing.'}</small></div></div>
-              {audioTracks.map((track, index) => <div className="mx-track-row mx-audio-row" key={track.id}><div className="mx-track-label"><strong title={track.name}>Audio {index + 1}</strong></div><div className="mx-position-lane"><div role="button" tabIndex="0" key={track.id} className={`mx-audio-clip ${selectedAudioId === track.id ? 'active' : ''} ${audioCutSelectionModeId === track.id ? 'cut-selecting' : ''}`} style={{ left: `${totalDuration ? (track.start / totalDuration) * 100 : 0}%`, width: `${totalDuration ? Math.max(1, (track.duration / totalDuration) * 100) : 20}%` }} onDoubleClick={() => openInspector('clip')} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setContextMenu({ type: 'audio', id: track.id, name: track.name, x: Math.min(event.clientX, window.innerWidth - 235), y: Math.min(event.clientY, window.innerHeight - 390) }); }} onPointerDown={event => beginAudioMove(event, track)} onClick={event => selectAudioAtPointer(event, track)}><span className="mx-trim-handle left" title="Drag to trim audio start" onPointerDown={event => beginAudioTrim(event, track, 'left')} />{audioSelection?.trackId === track.id && <span className="mx-audio-selection" style={{ left: `${Math.max(0, (audioSelection.start - Number(track.start)) / Number(track.duration) * 100)}%`, width: `${Math.max(1, (audioSelection.end - audioSelection.start) / Number(track.duration) * 100)}%` }}>{audioSelection.awaitingEnd ? <b>START — CLICK END</b> : <><b>SELECTED CUT</b><button className="mx-selection-delete-btn" title="Delete selected audio part" onClick={event => { event.preventDefault(); event.stopPropagation(); removeHighlightedAudio(); }} style={{ marginLeft: '6px', padding: '2px 6px', background: '#ff4d4d', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '9px', fontWeight: 'bold', cursor: 'pointer', pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>🗑 Delete Part</button></>}</span>}<div className="mx-waveform" aria-hidden="true">{track.waveform?.map((peak, index) => <i key={index} style={{ height: `${Math.max(8, peak * 100)}%` }} />)}</div><strong>{track.name}</strong><small>{audioCutSelectionModeId === track.id ? 'CUT MODE: click START, then END' : track.waveformLoading ? 'Building waveform…' : `${formatTime(track.trimStart)} → ${formatTime(track.trimStart + track.duration)} · ${Number(track.duration).toFixed(1)}s`}</small><button className="mx-audio-delete" title="Delete this detached or cut audio piece" onClick={event => { event.stopPropagation(); removeAudioTrack(track.id); }}>Delete</button><span className="mx-trim-handle right" title="Drag to trim audio end" onPointerDown={event => beginAudioTrim(event, track, 'right')} /></div></div></div>)}
+              {audioTracks.map((track, index) => <div className="mx-track-row mx-audio-row" key={track.id}>
+                <div className="mx-track-label"><strong title={track.name}>Audio {index + 1}</strong></div>
+                <div className="mx-position-lane"><div role="button" tabIndex="0" data-audio-id={track.id}
+                  className={`mx-audio-clip ${selectedAudioId === track.id ? 'active' : ''} ${audioCutSelectionModeId === track.id ? 'cut-selecting' : ''}`}
+                  style={{ left: `${totalDuration ? track.start / totalDuration * 100 : 0}%`, width: `${totalDuration ? track.duration / totalDuration * 100 : 0}%` }}
+                  onPointerDown={event => beginAudioMove(event, track)} onClick={event => selectAudioAtPointer(event, track)} onDoubleClick={() => openInspector('clip')}
+                  onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setContextMenu({ x: Math.min(event.clientX, window.innerWidth - 235), y: Math.min(event.clientY, window.innerHeight - 390), id: track.id, type: 'audio' }); }}>
+                  <span className="mx-trim-handle left" title="Drag to trim audio start" onPointerDown={event => beginAudioTrim(event, track, 'left')} />
+                  {audioSelection?.trackId === track.id && <span className={`mx-audio-selection ${audioSelection.awaitingEnd ? 'awaiting-end' : ''}`}
+                    style={{ left: `${(audioSelection.start - Number(track.start)) / Number(track.duration) * 100}%`, width: `${(audioSelection.end - audioSelection.start) / Number(track.duration) * 100}%` }}
+                    onPointerDown={event => audioCutSelectionModeId === track.id ? beginAudioRange(event, track) : beginAudioSelectionHandle(event, track, 'move')}>
+                    {!audioSelection.awaitingEnd && <><button className="mx-range-handle start" aria-label="Audio range start" title="Adjust selection In" onPointerDown={event => beginAudioSelectionHandle(event, track, 'start')} /><button className="mx-range-handle end" aria-label="Audio range end" title="Adjust selection Out" onPointerDown={event => beginAudioSelectionHandle(event, track, 'end')} /></>}
+                    <b>{audioSelection.awaitingEnd ? 'IN — CLICK OUT' : `${(audioSelection.end - audioSelection.start).toFixed(3)}s`}</b>
+                  </span>}
+                  <div className="mx-waveform" aria-hidden="true">{track.waveform?.map((peak, peakIndex) => <i key={peakIndex} style={{ height: `${Math.max(8, peak * 100)}%` }} />)}</div>
+                  <strong>{track.name}</strong><small>{audioCutSelectionModeId === track.id ? 'SELECT RANGE: drag or click In, then Out' : track.waveformLoading ? 'Building waveform…' : `${Number(track.trimStart || 0).toFixed(3)} → ${(Number(track.trimStart || 0) + Number(track.duration) * Number(track.speed || 1)).toFixed(3)}s source`}</small>
+                  <button className="mx-audio-delete" title="Delete this entire audio piece" onClick={event => { event.stopPropagation(); removeAudioTrack(track.id); }}>Delete</button>
+                  <span className="mx-trim-handle right" title="Drag to trim audio end" onPointerDown={event => beginAudioTrim(event, track, 'right')} />
+                </div></div>
+              </div>)}
               <div className="mx-track-row mx-titles-row"><div className="mx-track-label"><strong>Titles</strong></div><div className="mx-position-lane">{textOverlays.map(item => <button key={item.id} className={`mx-caption-clip mx-title-clip ${selectedTextId === item.id ? 'active' : ''}`} title={item.text} style={{ left: `${totalDuration ? item.start / totalDuration * 100 : 0}%`, width: `${totalDuration ? (item.end - item.start) / totalDuration * 100 : 0}%` }} onClick={event => { event.stopPropagation(); setSelectedTextId(item.id); setSelectedAudioId(''); setSelectedCaptionId(''); setSelectedId(''); seekTimeline(item.start, true); openInspector('text'); }}>{item.text}</button>)}</div></div>
               <div className={`mx-track-row ${expandedTimelineTrack === 'captions' ? 'track-expanded' : ''}`}>
                 <div className="mx-track-label"><strong>Captions</strong><button className="mx-track-size" title="Enlarge or reduce Captions track" onClick={() => setExpandedTimelineTrack(value => value === 'captions' ? '' : 'captions')}>{expandedTimelineTrack === 'captions' ? '▾' : '▴'}</button><button onClick={() => setTrackStates(value => ({ ...value, captionsMuted: !value.captionsMuted }))}>{trackStates.captionsMuted ? '🙈' : 'CC'}</button><button onClick={() => setTrackStates(value => ({ ...value, captionsLocked: !value.captionsLocked }))}>{trackStates.captionsLocked ? '🔒' : '🔓'}</button></div>
@@ -2611,10 +2667,21 @@ export default function MyExporter({ active = true }) {
           {selectedAudio && <section className="mx-scene-inspector"><div className="mx-panel-title">Audio · {selectedAudio.name}</div><label>Volume<input aria-label="Audio volume" type="range" min="0" max="1" step=".01" value={selectedAudio.volume ?? 1} onChange={event => patchAudioTrack(selectedAudio.id, { volume: Number(event.target.value) })} /></label><label>Speed<input aria-label="Audio speed" type="number" min=".25" max="4" step=".05" value={selectedAudio.speed || 1} onChange={event => patchAudioTrack(selectedAudio.id, { speed: Math.max(.25, Math.min(4, Number(event.target.value))) })} /></label><label>Fade in (seconds)<input aria-label="Audio fade in" type="number" min="0" max={selectedAudio.duration} step=".1" value={selectedAudio.fadeIn || 0} onChange={event => patchAudioTrack(selectedAudio.id, { fadeIn: Math.max(0, Math.min(selectedAudio.duration, Number(event.target.value))) })} /></label><label>Fade out (seconds)<input aria-label="Audio fade out" type="number" min="0" max={selectedAudio.duration} step=".1" value={selectedAudio.fadeOut || 0} onChange={event => patchAudioTrack(selectedAudio.id, { fadeOut: Math.max(0, Math.min(selectedAudio.duration, Number(event.target.value))) })} /></label><label className="mx-check"><input type="checkbox" checked={Boolean(selectedAudio.muted)} onChange={event => patchAudioTrack(selectedAudio.id, { muted: event.target.checked })} /> Mute this track</label></section>}
           {!selectedAudio && <SceneInspector scene={selected} transform={selectedTransform} localTime={selectedLocalTime} duration={selectedEntry?.outputDuration || 0} disabled={exporterBusy || trackStates.videoLocked}
             onChange={changeSceneProperty} onAddKeyframe={() => addKeyframe()} onDeleteKeyframe={index => patchScene(selected.id, { keyframes: selected.keyframes.filter((_, i) => i !== index) })} onSeekKeyframe={time => seekTimeline(selectedEntry.start + time, true)} onTrimChange={patch => patchScene(selected.id, patch)} />}
-          {selectedAudio && <details className="mx-audio-advanced"><summary>Trim & cut audio</summary>
-            {selectedAudio && <div className="mx-audio-edit"><strong>{selectedAudio.name}</strong>{audioSelection?.trackId === selectedAudio.id && <div className="mx-selection-summary"><b>Selected cut</b><span>{formatTime(audioSelection.start)} → {formatTime(audioSelection.end)} · {(audioSelection.end - audioSelection.start).toFixed(2)}s</span></div>}<audio ref={audioSelectionPreview} className="mx-cut-preview" src={fileUrl(selectedAudio.path)} controls preload="metadata" onTimeUpdate={event => { if (audioSelection?.trackId !== selectedAudio.id) return; const sourceEnd = Number(selectedAudio.trimStart || 0) + (audioSelection.end - Number(selectedAudio.start)) * Number(selectedAudio.speed || 1); if (event.currentTarget.currentTime >= sourceEnd) event.currentTarget.pause(); }} /><label>Timeline start<input type="number" min="0" max={totalDuration} step="0.1" value={selectedAudio.start} disabled={trackStates.audioLocked || Boolean(selectedAudio.detachedFromSceneId)} onChange={event => patchAudioTrack(selectedAudio.id, { start: Math.max(0, Number(event.target.value)) })} /></label><label>Trim start<input type="number" min="0" max={selectedAudio.sourceDuration || 9999} step="0.1" value={selectedAudio.trimStart} disabled={trackStates.audioLocked} onChange={event => patchAudioTrack(selectedAudio.id, { trimStart: Math.max(0, Number(event.target.value)) })} /></label><label>Length<input type="number" min="0.1" max={selectedAudio.sourceDuration || 9999} step="0.1" value={selectedAudio.duration} disabled={trackStates.audioLocked} onChange={event => patchAudioTrack(selectedAudio.id, { duration: Math.max(.1, Number(event.target.value)) })} /></label><label>Volume<input type="range" min="0" max="2" step="0.05" value={selectedAudio.volume} disabled={trackStates.audioLocked} onChange={event => patchAudioTrack(selectedAudio.id, { volume: Number(event.target.value) })} /></label><button onClick={() => setAudioSelectionEdge('start')}>Set Selection Start</button><button onClick={() => setAudioSelectionEdge('end')}>Set Selection End</button><button className="mx-preview-cut" onClick={previewAudioSelection} disabled={audioSelection?.trackId !== selectedAudio.id}>▶ Preview Selected Cut</button><button onClick={() => patchAudioTrack(selectedAudio.id, { muted: !selectedAudio.muted })}>{selectedAudio.muted ? 'Unmute' : 'Mute'}</button><button onClick={razorCut}>✂ Cut at Stick</button><button onClick={() => trimSelectedAudioToPlayhead('start')}>Trim Start to Stick</button><button onClick={() => trimSelectedAudioToPlayhead('end')}>Trim End to Stick</button><button onClick={() => trimSelectedAudioStart(.1)}>Start −0.1s</button><button onClick={() => trimSelectedAudioEnd(.1)}>End −0.1s</button><button className="mx-danger" onClick={() => removeAudioTrack(selectedAudio.id)}>Delete Audio</button></div>}
-            {selectedAudio && <div className="mx-simple-audio-cut"><div><b>Detached Audio — Controlled Cut</b><span>Right-click audio → Cut Selected Position Audio. Then click START and END. Removal closes the empty space.</span></div><button onClick={() => beginCutPositionSelection(selectedAudio.id)} className={audioCutSelectionModeId === selectedAudio.id ? 'active' : ''}>1. Cut Selected Position Audio</button><button onClick={previewAudioSelection} disabled={audioSelection?.trackId !== selectedAudio.id || audioSelection?.awaitingEnd}>▶ Preview Selected Audio</button><button className="remove" onClick={removeHighlightedAudio} disabled={audioSelection?.trackId !== selectedAudio.id || audioSelection?.awaitingEnd}>2. Remove Selected Audio</button><button className="reattach" onClick={reattachSelectedAudio}>🔗 Reattach Audio to Video</button></div>}
-          </details>}
+          {selectedAudio && <>
+            <AudioRangeEditor track={selectedAudio} selection={audioSelection} selecting={audioCutSelectionModeId === selectedAudio.id}
+              disabled={exporterBusy || trackStates.audioLocked} previewing={audioRangePreviewing} onChange={changeAudioRange}
+              onSelect={() => beginCutPositionSelection(selectedAudio.id)} onEdge={setAudioSelectionEdge}
+              onPreview={previewAudioSelection} onStop={stopAudioSelectionPreview} onRemove={removeHighlightedAudio} onReattach={reattachSelectedAudio} />
+            <audio ref={audioSelectionPreview} className="mx-cut-preview" src={fileUrl(selectedAudio.path)} preload="metadata" hidden />
+            <details className="mx-audio-advanced"><summary>More audio edits</summary>
+              <div className="mx-audio-extra-actions">
+                <button onClick={razorCut}>Split at playhead</button>
+                <button onClick={() => trimSelectedAudioToPlayhead('start')}>Trim start to playhead</button>
+                <button onClick={() => trimSelectedAudioToPlayhead('end')}>Trim end to playhead</button>
+                <button className="mx-danger" onClick={() => removeAudioTrack(selectedAudio.id)}>Delete entire audio clip</button>
+              </div>
+            </details>
+          </>}
           </section>
           <section className="mx-inspector-page" data-inspector-page="export" hidden={inspectorTab !== 'export'}>
           <details className="mx-inspector-section" open><summary>Export settings</summary>
