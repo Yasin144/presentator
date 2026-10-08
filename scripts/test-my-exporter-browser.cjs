@@ -265,6 +265,19 @@ async function main() {
   await page.goto(pathToFileURL(path.join(directory, 'editor.html')).href, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.mx-page'); await settle(page);
 
+  if (process.argv.includes('--help-only')) {
+    await runHelpChecks(page, seed, errors);
+    if (!failed.length) {
+      const destination = path.join(root, 'generated-media', 'my-exporter-ui-qa'); fs.mkdirSync(destination, { recursive: true });
+      for (let i = 0; i < screenshots.length; i++) {
+        const copy = path.join(destination, path.basename(screenshots[i])); fs.copyFileSync(screenshots[i], copy); screenshots[i] = copy;
+      }
+    }
+    console.log(JSON.stringify({ passed: passed.length, checks: passed, failed, screenshots, fixtureDirectory: directory }, null, 2));
+    if (failed.length) process.exitCode = 1;
+    return;
+  }
+
   if (process.argv.includes('--audio-range-only')) {
     await runAudioRangeChecks(page, seed, errors);
     if (!failed.length && screenshots.length) {
@@ -691,6 +704,232 @@ async function runEditingChecks(page, seed, errors) {
       assert.equal(Buffer.from(write[1], 'base64').toString('utf8'), raw);
     } finally { await page.evaluate(() => sessionStorage.removeItem('my-exporter-qa-project-override')); }
   });
+}
+
+async function runHelpChecks(page, seed, errors) {
+  const dialog = '[role="dialog"][aria-label="My Exporter help and demos"]';
+  const search = `${dialog} [aria-label="Search My Exporter help"]`;
+  const demo = `${dialog} [data-testid="exporter-help-demo"]`;
+  const callKeys = ['transcribe', 'translation', 'voice', 'preflight', 'export', 'cancel', 'save', 'write', 'notification', 'unexpected'];
+  const projectKeys = ['scenes', 'audioTracks', 'captions', 'textOverlays', 'music', 'settings', 'watermark', 'watermarkEnabled',
+    'mediaLibrary', 'trackStates', 'projectName'];
+  const content = async () => {
+    const state = await saved(page); const values = {};
+    for (const key of projectKeys) values[key] = state[key];
+    // Waveforms arrive independently of the UI and do not represent edits.
+    values.audioTracks = values.audioTracks?.map(track => {
+      const copy = structuredClone(track);
+      for (const key of ['waveform', 'waveformLoading', 'waveformError', 'waveformCacheKey', 'waveformFingerprint']) delete copy[key];
+      return copy;
+    });
+    return values;
+  };
+  const calls = () => page.evaluate(keys => Object.fromEntries(keys.map(key => [key, window.__qaCalls[key].length])), callKeys);
+  const active = id => page.waitForSelector(`${dialog} [data-help-active-topic="${id}"]`, { visible: true });
+  const choose = async id => {
+    const selector = `${dialog} button[data-help-topic="${id}"]`;
+    await page.waitForSelector(selector, { visible: true });
+    await page.$eval(selector, button => button.scrollIntoView({ block: 'nearest' }));
+    await page.click(selector); await active(id);
+  };
+  const category = async id => {
+    await page.click(`${dialog} button[data-help-category="${id}"]`);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+  };
+  const open = async () => {
+    if (await page.$(dialog)) return;
+    await page.click('[aria-label="Help & Demos"]'); await page.waitForSelector(dialog, { visible: true });
+  };
+  const close = async () => {
+    if (!await page.$(dialog)) return;
+    await page.keyboard.press('Escape'); await page.waitForSelector(dialog, { hidden: true });
+  };
+  const start = async () => { await reset(page); return { content: await content(), calls: await calls() }; };
+  const unchanged = async before => {
+    await settle(page); assert.deepEqual(await content(), before.content, 'Using help changed the real editable project.');
+    assert.deepEqual(await calls(), before.calls, 'Using help invoked a provider, saved a file, exported, or cancelled a job.');
+  };
+  try {
+    await check('Help & Demos opens a searchable guide with every editor category', async () => {
+      const before = await start(); await open();
+      assert.ok(await page.evaluate(query => document.activeElement === document.querySelector(query), search), 'Opening the guide must focus its search field.');
+      await category('all');
+      const ui = await page.evaluate(({ query, input }) => ({
+        categories: [...document.querySelectorAll(`${query} button[data-help-category]`)].map(button => button.dataset.helpCategory),
+        topics: [...document.querySelectorAll(`${query} button[data-help-topic]`)].map(button => button.dataset.helpTopic),
+        activeText: document.querySelector(`${query} [data-help-active-topic]`)?.textContent,
+      }), { query: dialog, input: search });
+      for (const id of ['project', 'media', 'timeline', 'clip', 'audio', 'text', 'captions', 'tools', 'export']) assert.ok(ui.categories.includes(id), `Missing help category: ${id}`);
+      assert.equal(ui.topics.length, 90, 'All 90 editor features should have a guide.');
+      assert.ok(ui.activeText?.length > 150, 'Each feature needs an explanation and instructions.');
+      await unchanged(before); await close();
+    });
+    await check('help multiword search finds audio removal and gives useful empty results', async () => {
+      const before = await start(); await open(); await setControl(page, search, 'remove selected audio');
+      await page.waitForSelector(`${dialog} button[data-help-topic="audio-remove-range"]`, { visible: true }); await choose('audio-remove-range');
+      const description = await page.$eval(`${dialog} [data-help-active-topic]`, panel => panel.textContent);
+      assert.match(description, /gap/i, 'Audio removal guide must explain leaving a gap.');
+      await setControl(page, search, 'zznonexistenthelpzz');
+      await page.waitForFunction(query => !document.querySelector(`${query} button[data-help-topic]`), {}, dialog);
+      assert.match(await page.$eval(dialog, panel => panel.textContent), /no.*(feature|result|match)|try.*search/i);
+      await setControl(page, search, ''); await unchanged(before); await close();
+    });
+    await check('all 90 feature guides render complete instructions and replay their isolated demos', async () => {
+      const before = await start();
+      await page.keyboard.press('F1'); await page.waitForSelector(dialog, { visible: true });
+      await category('all');
+      const topicIds = await page.$$eval(`${dialog} button[data-help-topic]`, buttons => buttons.map(button => button.dataset.helpTopic));
+      assert.equal(topicIds.length, 90);
+      for (const id of topicIds) {
+        await choose(id);
+        const instructions = await page.$eval(`${dialog} [data-help-active-topic]`, article => ({
+          title: article.querySelector('h3')?.textContent,
+          steps: [...article.querySelectorAll('ol li')].map(step => step.textContent.trim()),
+        }));
+        assert.ok(instructions.title?.trim(), `${id} has no title.`);
+        assert.ok(instructions.steps.length >= 2 && instructions.steps.every(Boolean), `${id} has incomplete steps.`);
+        await page.waitForFunction(query => document.querySelector(query)?.dataset.demoStep === '0', {}, demo);
+        for (const step of ['1', '2']) {
+          await page.click(`${demo} [aria-label="Next demo step"]`);
+          await page.waitForFunction(({ query, value }) => document.querySelector(query)?.dataset.demoStep === value, {}, { query: demo, value: step });
+        }
+        await page.click(`${demo} [aria-label="Replay demo"]`);
+        await page.waitForFunction(query => document.querySelector(query)?.dataset.demoStep === '0', {}, demo);
+      }
+      await unchanged(before); await close();
+    });
+    await check('media, captions and export guides are reachable by category and explain the real workflow', async () => {
+      const before = await start(); await open();
+      for (const [group, topic, expected] of [['media', 'source-range', /in|out|source/i],
+        ['captions', 'captions-engine', /groq|gemini|local/i], ['export', 'export-video', /export|folder|save/i]]) {
+        await category(group); await choose(topic);
+        assert.match(await page.$eval(`${dialog} [data-help-active-topic]`, panel => panel.textContent), expected);
+        assert.equal(await page.$eval(demo, element => element.dataset.demoStep), '0', 'Changing feature should reset its demo.');
+      }
+      await clickText(page, 'Show controls', { scope: dialog }); await page.waitForSelector(dialog, { hidden: true });
+      assert.equal(await page.$eval('.mx-inspector-tabs .active', button => button.textContent.trim()), 'Export', 'Show controls did not locate Export settings.');
+      await unchanged(before); await close();
+    });
+    await check('the audio gap demo shows removal, replays, and keyboard shortcuts never edit the actual project', async () => {
+      const before = await start(); await open(); await category('audio'); await choose('audio-remove-range');
+      assert.equal(await page.$eval(demo, element => element.dataset.demoKind), 'audio-gap');
+      await page.click(`${demo} [aria-label="Next demo step"]`);
+      assert.equal(await page.$eval(demo, element => element.dataset.demoStep), '1');
+      await page.click(`${demo} [aria-label="Next demo step"]`);
+      assert.equal(await page.$eval(demo, element => element.dataset.demoStep), '2');
+      assert.match(await page.$eval(demo, element => element.textContent), /silent gap/i);
+      await page.click(`${demo} [aria-label="Replay demo"]`);
+      assert.equal(await page.$eval(demo, element => element.dataset.demoStep), '0');
+      await page.focus(`${demo} [aria-label="Next demo step"]`);
+      await page.keyboard.press('Delete'); await page.keyboard.press('s'); await shortcut(page, 'z');
+      await page.keyboard.press('Space');
+      assert.ok(await page.$(dialog), 'Editor shortcuts dismissed the help guide.');
+      assert.ok(await page.$eval('.mx-program-stage video', video => video.paused), 'Demo keyboard events started the real program playback.');
+      await unchanged(before); await close();
+    });
+    await check('demo playback advances its sample, pauses, and respects reduced motion', async () => {
+      const before = await start(); await open(); await category('audio'); await choose('audio-remove-range');
+      assert.equal(await page.$eval(`${demo} [aria-label="Play demo"]`, button => button.getAttribute('aria-pressed')), 'false');
+      await page.click(`${demo} [aria-label="Play demo"]`);
+      await page.waitForFunction(query => document.querySelector(query)?.dataset.demoStep === '1', { timeout: 4000 }, demo);
+      await page.click(`${demo} [aria-label="Pause demo"]`);
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 2350)));
+      assert.equal(await page.$eval(demo, element => element.dataset.demoStep), '1', 'Paused demo kept advancing.');
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.waitForFunction(query => !document.querySelector(`${query} [aria-label="Play demo"]`), {}, demo);
+      await page.click(`${demo} [aria-label="Replay demo"]`); await page.click(`${demo} [aria-label="Next demo step"]`);
+      assert.equal(await page.$eval(demo, element => element.dataset.demoStep), '1', 'Reduced motion must retain manual demo controls.');
+      await unchanged(before); await close(); await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+    });
+    await check('inline Audio range help opens the correct feature and restores focus with Escape', async () => {
+      const before = await start(); await page.click('.mx-audio-clip'); await settle(page);
+      const trigger = '[aria-label="How to use Audio range"]'; await page.waitForSelector(trigger, { visible: true });
+      await page.click(trigger); await active('audio-remove-range'); await close();
+      assert.equal(await page.evaluate(query => document.activeElement === document.querySelector(query), trigger), true);
+      // Selecting audio is an ordinary editor action; the guide itself must not edit it.
+      await unchanged(before);
+    });
+    await check('Show controls locates project, timeline and the existing source preview without inserting media', async () => {
+      const before = await start();
+      for (const [group, topic, target] of [['project', 'project-save', '.mx-editor-topbar'], ['timeline', 'timeline-split', '.mx-filmora-toolstrip']]) {
+        await open(); await category(group); await choose(topic); await clickText(page, 'Show controls', { scope: dialog });
+        await page.waitForSelector(dialog, { hidden: true });
+        await page.waitForFunction(query => document.querySelector(query)?.contains(document.activeElement), {}, target);
+      }
+      await page.click('[aria-label="Preview Unused source"]'); await page.waitForSelector('.mx-source-monitor', { visible: true });
+      await page.click('[aria-label="How to use Source preview"]'); await active('source-range');
+      await clickText(page, 'Show controls', { scope: dialog }); await page.waitForSelector(dialog, { hidden: true });
+      await page.waitForFunction(() => document.querySelector('.mx-source-monitor')?.contains(document.activeElement));
+      assert.ok(await page.$('.mx-source-monitor video'), 'Source help lost the existing preview.');
+      await unchanged(before);
+    });
+    await check('inline Preview help and Show controls locate the correct playback, crop and project sections', async () => {
+      const before = await start();
+      await clickText(page, 'Preview options ▾', { scope: '.mx-player-tools' });
+      await page.click('[aria-label="How to use Preview controls"]'); await active('timeline-playback'); await close();
+      for (const [group, topic, section] of [['tools', 'tools-crop', 'Direct crop & part export'], ['project', 'project-reset', 'Project tools']]) {
+        await page.evaluate(title => {
+          const summary = [...document.querySelectorAll('.mx-inspector-page summary')].find(element => element.textContent === title);
+          summary.closest('details').open = false;
+        }, section);
+        await open(); await category(group); await choose(topic); await clickText(page, 'Show controls', { scope: dialog });
+        await page.waitForSelector(dialog, { hidden: true });
+        await page.waitForFunction(title => {
+          const summary = [...document.querySelectorAll('.mx-inspector-page[data-inspector-page="tools"] summary')].find(element => element.textContent === title);
+          return summary?.closest('details').open && document.activeElement === summary;
+        }, {}, section);
+      }
+      await unchanged(before);
+    });
+    await check('help traps keyboard focus and returns it to Help & Demos when closed', async () => {
+      await start(); await open();
+      for (let i = 0; i < 6; i++) {
+        await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
+        const focus = await page.evaluate(query => ({ inside: document.querySelector(query).contains(document.activeElement),
+          tag: document.activeElement?.tagName, label: document.activeElement?.getAttribute('aria-label'), text: document.activeElement?.textContent.slice(0, 100) }), dialog);
+        assert.ok(focus.inside, `Reverse Tab ${i + 1} escaped help: ${JSON.stringify(focus)}`);
+      }
+      await close();
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Help & Demos');
+    });
+    for (const width of [1024, 1280]) await check(`help guide, search and demo fit a ${width}px viewport`, async () => {
+      await start(); await page.setViewport({ width, height: width === 1024 ? 768 : 900 }); await open();
+      await category('audio'); await choose('audio-remove-range');
+      const overview = path.join(directory, `help-instructions-${width}.png`); await page.screenshot({ path: overview, fullPage: true }); screenshots.push(overview);
+      await page.click(`${demo} [aria-label="Next demo step"]`); await page.click(`${demo} [aria-label="Next demo step"]`);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const bounds = await page.evaluate(({ query, demonstration, input }) => {
+        const rect = element => { const box = element.getBoundingClientRect(); return { left: box.left, top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height }; };
+        const panel = document.querySelector(query), example = document.querySelector(demonstration);
+        const focusedSearch = document.querySelector(input);
+        return { viewport: { width: innerWidth, height: innerHeight }, panel: rect(panel), example: rect(example), search: rect(focusedSearch),
+          horizontalOverflow: panel.scrollWidth - panel.clientWidth, bodyOverflow: document.documentElement.scrollWidth - innerWidth };
+      }, { query: dialog, demonstration: demo, input: search });
+      assert.ok(bounds.panel.left >= 0 && bounds.panel.right <= width + 1 && bounds.panel.top >= 0 && bounds.panel.bottom <= bounds.viewport.height + 1, JSON.stringify(bounds));
+      assert.ok(bounds.horizontalOverflow <= 2 && bounds.bodyOverflow <= 2, JSON.stringify(bounds));
+      assert.ok(bounds.example.width > 200 && bounds.search.width > 150, JSON.stringify(bounds));
+      const capture = path.join(directory, `help-audio-gap-${width}.png`); await page.screenshot({ path: capture, fullPage: true }); screenshots.push(capture); await close();
+    });
+    await check('Help & Demos remains usable during caption generation without cancelling the active job', async () => {
+      await page.setViewport({ width: 1280, height: 900 }); await start(); await showInspector(page, 'Captions');
+      await page.evaluate(() => { window.__qaASRMode = 'deferred'; }); await clickText(page, 'Regenerate captions');
+      await page.waitForFunction(() => window.__qaCalls.transcribe.length === 1); await settle(page);
+      const before = { content: await content(), calls: await calls() };
+      await open(); await category('export'); await choose('export-video');
+      await page.click(`${demo} [aria-label="Next demo step"]`); await page.click(`${demo} [aria-label="Next demo step"]`);
+      await unchanged(before); await close();
+      assert.ok(await page.$eval('.mx-operation-status', footer => [...footer.querySelectorAll('button')].some(button => button.textContent.trim() === 'Cancel captions' && !button.disabled)), 'Help ended or cancelled the active caption job.');
+      await clickText(page, 'Cancel captions', { scope: '.mx-operation-status' }); await settle(page);
+      assert.deepEqual(await content(), before.content, 'Cancelling the mock job changed the project.');
+    });
+    await check('help tests complete without runtime errors or unexpected native requests', async () => {
+      assert.deepEqual(errors, []); assert.deepEqual(await page.evaluate(() => window.__qaCalls.unexpected), []);
+      assert.equal(await page.evaluate(() => window.__qaCalls.voice.length + window.__qaCalls.translation.length + window.__qaCalls.export.length + window.__qaCalls.write.length), 0);
+    });
+  } finally {
+    await close(); await page.setViewport({ width: 1280, height: 900 });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  }
 }
 
 async function runAudioRangeChecks(page, seed, errors) {
@@ -1169,8 +1408,8 @@ async function runVoiceChecks(page, seed, paths, errors) {
 async function runOrganizationChecks(page) {
   await check('organization keeps primary navigation clear and advanced Effects reachable', async () => {
     await reset(page);
-    const primary = await page.$$eval('.mx-editor-navigation > button', buttons => buttons.map(button => button.textContent.trim()));
-    assert.deepEqual(primary, ['Media', 'Audio', 'Titles', 'Captions', 'Clip settings']);
+    const primary = await page.$$eval('.mx-editor-navigation > button', buttons => buttons.map(button => button.getAttribute('aria-label') || button.textContent.trim()));
+    assert.deepEqual(primary, ['Media', 'Audio', 'Titles', 'Captions', 'Help & Demos', 'Clip settings']);
     await page.focus('.mx-editor-navigation .mx-editor-menu > summary'); await page.keyboard.press('Space');
     assert.equal(await page.$eval('.mx-editor-navigation .mx-editor-menu', menu => menu.open), true, 'Space did not open Effects');
     assert.ok(await page.$eval('.mx-program-stage video', video => video.paused), 'Space on Effects also started playback');

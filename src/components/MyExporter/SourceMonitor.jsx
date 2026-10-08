@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { HelpHint } from './HelpGuide';
 
 // Paths originate in the local file picker. Remote URLs are deliberately not
 // accepted by either source preview or media thumbnails.
@@ -30,7 +31,7 @@ export function sourceTimecode(seconds, frameRate = 30) {
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const positiveDuration = value => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : 0;
 
-export default function SourceMonitor({ asset, onInsert, onClose, disabled = false }) {
+export default function SourceMonitor({ asset, onInsert, onClose, disabled = false, onHelp }) {
   const media = useRef(null);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -108,6 +109,7 @@ export default function SourceMonitor({ asset, onInsert, onClose, disabled = fal
   return <section className="mx-source-monitor" aria-label="Source monitor">
     <header className="mx-source-heading">
       <span><strong>Source</strong><small title={asset.name}>{asset.name || 'Local media'}</small></span>
+      <HelpHint label="Source preview" topic="source" onHelp={onHelp} />
       <button type="button" className="mx-source-close" onClick={onClose} aria-label="Close source preview" title="Close source preview">×</button>
     </header>
     <div className={`mx-source-picture${isAudio ? ' is-audio' : ''}`}>

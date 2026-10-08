@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { HelpHint } from './HelpGuide';
 
-export default function AudioRangeEditor({ track, selection, selecting, disabled, previewing, onChange, onSelect, onEdge, onPreview, onStop, onRemove, onReattach }) {
+export default function AudioRangeEditor({ track, selection, selecting, disabled, previewing, onChange, onSelect, onEdge, onPreview, onStop, onRemove, onReattach, onHelp }) {
   const start = Number(track.start), end = start + Number(track.duration);
   const range = selection?.trackId === track.id ? selection : { start, end };
   const [draft, setDraft] = useState({ start: range.start.toFixed(3), end: range.end.toFixed(3) });
@@ -15,7 +16,7 @@ export default function AudioRangeEditor({ track, selection, selecting, disabled
     setDirty({});
   };
   return <section className="mx-audio-range-editor" aria-label="Audio range editor">
-    <div className="mx-panel-title">Audio range</div>
+    <div className="mx-help-section-heading"><div className="mx-panel-title">Audio range</div><HelpHint label="Audio range" topic="audioRange" onHelp={onHelp} /></div>
     <p>Drag across the waveform, or click In then Out. Remove leaves a silent gap and keeps the video in sync.</p>
     <button className={selecting ? 'active' : ''} disabled={disabled} onClick={onSelect}>Select Audio Range</button>
     <div className="mx-audio-range-fields">

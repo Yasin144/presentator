@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { sourceMediaUrl } from './SourceMonitor';
 import { getSceneNumber, sortMediaBySceneNumber } from './editor-media.mjs';
+import { HelpHint } from './HelpGuide';
 
 const FILTERS = [
   { id: 'natural', name: 'Natural', detail: 'Clean, balanced colour' },
@@ -65,7 +66,7 @@ function AssetThumbnail({ asset }) {
 }
 
 export default function EditorAssetBrowser({ tab = 'Media', assets = [], onImport, onImportAudio, onPreview, onAdd, onAddAll, onRemove,
-  onApplyFilter, onApplyTransition, onAddTitle, onAddSticker, onApplyTemplate, disabled = false, autoAddDisabled = false }) {
+  onApplyFilter, onApplyTransition, onAddTitle, onAddSticker, onApplyTemplate, disabled = false, autoAddDisabled = false, onHelp }) {
   const [query, setQuery] = useState('');
   const [mediaType, setMediaType] = useState('all');
   useEffect(() => { setQuery(''); setMediaType('all'); }, [tab]);
@@ -85,6 +86,7 @@ export default function EditorAssetBrowser({ tab = 'Media', assets = [], onImpor
 
   return <section className="mx-asset-browser" aria-label={`${tab} library`}>
     <header className="mx-asset-browser-heading"><h2>{tab === 'Media' ? 'Project media' : tab}</h2>
+      <HelpHint label={`${tab} library`} topic={({ Audio: 'audio', Titles: 'text', Filters: 'clip-filters', Transitions: 'clip-transition', Stickers: 'text-stickers', Templates: 'media-templates' })[tab] || 'media'} onHelp={onHelp} />
       {isMedia && typeof importAction === 'function' && <button type="button" className="mx-asset-import" disabled={disabled} onClick={importAction}>+ Import</button>}</header>
     <div className="mx-asset-search"><span aria-hidden="true">⌕</span><input type="search" aria-label={`Search ${tab.toLowerCase()}`} placeholder={`Search ${tab.toLowerCase()}`} value={query} onChange={event => setQuery(event.target.value)} />
       {query && <button type="button" onClick={() => setQuery('')} aria-label="Clear library search">×</button>}</div>

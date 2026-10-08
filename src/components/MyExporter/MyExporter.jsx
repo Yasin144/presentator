@@ -4,6 +4,8 @@ import EditorAssetBrowser from './EditorAssetBrowser';
 import SourceMonitor from './SourceMonitor';
 import PreviewAudioMixer from './PreviewAudioMixer';
 import AudioRangeEditor from './AudioRangeEditor';
+import HelpGuide, { HelpHint } from './HelpGuide';
+import { HELP_DEFAULT_TOPICS } from './editor-help.mjs';
 import SceneInspector from './SceneInspector';
 import { transcriptCues, cuesForScene, translateCueTexts } from './editor-captions.mjs';
 import { addAllMediaToTimeline, sortMediaBySceneNumber } from './editor-media.mjs';
@@ -157,6 +159,32 @@ export default function MyExporter({ active = true }) {
   const [expandedTimelineTrack, setExpandedTimelineTrack] = useState('');
   const [openSidePanel, setOpenSidePanel] = useState('library');
   const [inspectorTab, setInspectorTab] = useState('clip');
+  const [helpTopic, setHelpTopic] = useState(null);
+  const openHelp = topic => {
+    setContextMenu(null); setExportDropdownOpen(false); setIsPreviewPlaying(false); stopAudioSelectionPreview();
+    setHelpTopic(HELP_DEFAULT_TOPICS[topic] || topic || HELP_DEFAULT_TOPICS.media);
+  };
+  useEffect(() => { if (!active) setHelpTopic(null); }, [active]);
+  const locateHelpControls = topic => {
+    const target = topic.target;
+    setHelpTopic(null);
+    if (!target) return;
+    if (['project', 'timeline', 'source'].includes(target.panel)) {
+      if (target.panel === 'source' && !sourceAsset) { setAssetTab('Media'); setOpenSidePanel('library'); }
+      requestAnimationFrame(() => {
+        const element = document.querySelector(target.panel === 'project' ? '.mx-editor-topbar' : target.panel === 'timeline' ? '.mx-filmora-toolstrip' : sourceAsset ? '.mx-source-monitor' : '.mx-asset-browser');
+        element?.scrollIntoView({ block: 'nearest' }); element?.querySelector('button:not(:disabled)')?.focus();
+      });
+      return;
+    }
+    if (target.panel === 'library') { setAssetTab(target.assetTab || 'Media'); setOpenSidePanel('library'); }
+    else openInspector(target.panel || 'clip');
+    if (target.section) requestAnimationFrame(() => {
+      const scopes = document.querySelectorAll(target.panel === 'library' ? '.mx-library' : `.mx-inspector-page[data-inspector-page="${target.panel}"]`);
+      const summary = [...scopes].flatMap(scope => [...scope.querySelectorAll('summary')]).find(item => item.textContent.toLocaleLowerCase().includes(target.section.toLocaleLowerCase()));
+      if (summary) { for (let parent = summary.closest('details'); parent; parent = parent.parentElement?.closest('details')) parent.open = true; summary.scrollIntoView({ block: 'nearest' }); summary.focus(); }
+    });
+  };
   const openInspector = (tab = 'clip') => { setInspectorTab(tab); setSourceAsset(null); setOpenSidePanel('inspector'); };
   const closeEditorMenu = event => { if (event.target.closest('button')) event.currentTarget.closest('details').open = false; };
   useEffect(() => {
@@ -2298,7 +2326,8 @@ export default function MyExporter({ active = true }) {
     const onKeyDown = event => {
       // Do not intercept keyboard shortcuts when My Exporter is hidden.
       // (MyExporter is now always mounted; active=false means another module tab is showing.)
-      if (!active) return;
+      if (!active || helpTopic) return;
+      if (event.key === 'F1') { event.preventDefault(); openHelp('media'); return; }
       const tag = event.target?.tagName?.toLowerCase();
       if (['input', 'textarea', 'select', 'summary'].includes(tag) || event.target?.isContentEditable || event.target?.closest('[contenteditable=true], .mx-editor-menu[open]')) return;
       if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); saveProject(); return; }
@@ -2377,7 +2406,7 @@ export default function MyExporter({ active = true }) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, selected, selectedAudio, selectedCaptionId, selectedTextId, playheadTime, scenes, audioTracks, captions, rippleEnabled, snapEnabled, timelineZoom, historyVersion, audioClipboard, sceneClipboard, selectedIds, isPreviewPlaying, settings, markers, trackStates, audioSelection]);
+  }, [active, selected, selectedAudio, selectedCaptionId, selectedTextId, playheadTime, scenes, audioTracks, captions, rippleEnabled, snapEnabled, timelineZoom, historyVersion, audioClipboard, sceneClipboard, selectedIds, isPreviewPlaying, settings, markers, trackStates, audioSelection, helpTopic]);
 
   const previewFontPx = Math.max(10, Number(settings.captionFontSize || 42) * (previewFrame.height || 540) / 1080);
   const captionPosition = settings.captionPosition || 'bottom';
@@ -2512,7 +2541,7 @@ export default function MyExporter({ active = true }) {
         {visibleAssetTabs.map(tab => <button key={tab} className={openSidePanel === 'library' && assetTab === tab ? 'active' : ''} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }}>{tab}</button>)}
         <button className={openSidePanel === 'inspector' && inspectorTab === 'captions' ? 'active' : ''} onClick={() => openInspector('captions')}>Captions</button>
         <details className="mx-editor-menu"><summary>Effects ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>{effectAssetTabs.map(tab => <button key={tab} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }}>{tab}</button>)}</div></details>
-        <span /><button className={openSidePanel === 'inspector' && inspectorTab === 'clip' ? 'active' : ''} onClick={() => openSidePanel === 'inspector' && inspectorTab === 'clip' ? setOpenSidePanel('library') : openInspector('clip')}>Clip settings</button>
+        <span /><button aria-label="Help & Demos" className="mx-editor-help-button" onClick={() => openHelp('media')}>? Help & Demos</button><button className={openSidePanel === 'inspector' && inspectorTab === 'clip' ? 'active' : ''} onClick={() => openSidePanel === 'inspector' && inspectorTab === 'clip' ? setOpenSidePanel('library') : openInspector('clip')}>Clip settings</button>
       </nav>
       {workspaceTabs.length > 1 && <div className="mx-project-tabs"><strong>Projects</strong>{workspaceTabs.map(tab => <button key={tab.id} className={tab.id === activeWorkspaceId ? 'active' : ''} disabled={exporterBusy} onClick={() => switchWorkspace(tab.id)}>{tab.id === activeWorkspaceId ? projectName : tab.name}</button>)}<button disabled={exporterBusy} onClick={addWorkspace}>+ Project</button><span>{autosaveState} · {settings.aspectRatio} · {settings.fps} fps</span></div>}
 
@@ -2526,12 +2555,12 @@ export default function MyExporter({ active = true }) {
             onAddAll={addAutoAllScenes} autoAddDisabled={trackStates.videoLocked || trackStates.audioLocked || trackStates.captionsLocked}
             onRemove={asset => { setMediaLibrary(current => current.filter(item => item.id !== asset.id)); if (sourceAsset?.id === asset.id) setSourceAsset(null); }}
             onApplyFilter={applyVisualPreset} onApplyTransition={preset => selected ? patchScene(selected.id, { transition: preset, transitionDuration: .4 }) : setWarning('Select a clip before applying a transition.')}
-            onAddTitle={addTitlePreset} onAddSticker={addStickerPreset} onApplyTemplate={applyTemplate} />
+            onAddTitle={addTitlePreset} onAddSticker={addStickerPreset} onApplyTemplate={applyTemplate} onHelp={openHelp} />
           <details className="mx-audio-box"><summary>Background music</summary><button onClick={() => musicInput.current?.click()} disabled={exporterBusy}>{music ? 'Replace music' : '+ Add music'}</button>{music && <div><strong>{music.name}</strong><button onClick={() => setMusic(null)} disabled={exporterBusy}>Remove</button></div>}<label>Music volume<input aria-label="Music volume" type="range" min="0" max="1" step=".01" value={settings.musicVolume} onChange={event => setSettings(value => ({ ...value, musicVolume: Number(event.target.value) }))} /></label></details>
         </aside>
 
         <main className={`mx-center${sourceAsset ? ' mx-has-source-monitor' : ''}`}>
-          {sourceAsset && <SourceMonitor asset={sourceAsset} onInsert={addAsset} onClose={() => setSourceAsset(null)} disabled={exporterBusy} />}
+          {sourceAsset && <SourceMonitor asset={sourceAsset} onInsert={addAsset} onClose={() => setSourceAsset(null)} disabled={exporterBusy || Boolean(helpTopic)} onHelp={openHelp} />}
           <div ref={previewViewport} className={`mx-viewer ${previewLarge ? 'mx-viewer-large' : ''}`}>
             {isPreviewFullscreen && <button className="mx-exit-fullscreen" onClick={togglePreviewFullscreen}>← Exit fullscreen (Esc)</button>}
             <div ref={viewer} className="mx-program-stage" style={{ width: canvasSize.width, height: canvasSize.height }}>
@@ -2571,6 +2600,7 @@ export default function MyExporter({ active = true }) {
             <button title="Next frame" onClick={() => seekTimeline(playheadTime + 1 / Number(settings.fps || 30), true)}>|▶</button>
             <button onClick={togglePreviewFullscreen}>Fullscreen</button>
             <details className="mx-editor-menu"><summary>Preview options ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>
+              <HelpHint label="Preview controls" topic="timeline-playback" onHelp={openHelp} />
               <button onClick={() => setPlaybackMode(value => value === 'continuous' ? 'scene' : 'continuous')}>{playbackMode === 'continuous' ? 'Play selected scene only' : 'Play all scenes'}</button>
               <button onClick={() => { setPreviewLarge(value => !value); window.setTimeout(updatePreviewFrame, 50); }}>{previewLarge ? 'Normal preview' : 'Larger preview'}</button>
               <button onClick={() => setSafeGuides(value => !value)}>{safeGuides ? 'Hide guides' : 'Show guides'}</button>
@@ -2583,6 +2613,7 @@ export default function MyExporter({ active = true }) {
               <button title="Delete selected" onClick={deleteSelectedItem} disabled={exporterBusy || (!selected && !selectedAudio && !selectedCaptionId && !selectedTextId) || (selectedCaptionId && trackStates.captionsLocked) || (selectedAudio && trackStates.audioLocked) || (selected && trackStates.videoLocked)}>Delete</button>
               <button onClick={pickAudioTracks} disabled={exporterBusy}>+ Audio</button>
               <details className="mx-editor-menu"><summary>More tools ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>
+                <HelpHint label="Timeline editing" topic="timeline" onHelp={openHelp} />
                 <button onClick={() => selectedAudio ? copySelectedAudio() : copyScene()} disabled={exporterBusy || (!selected && !selectedAudio)}>Copy</button>
                 <button onClick={() => audioClipboard ? pasteCopiedAudio() : pasteScene()} disabled={exporterBusy || (!audioClipboard && !sceneClipboard)}>Paste at playhead</button>
                 <button onClick={duplicateScene} disabled={exporterBusy || !selected}>Duplicate clip</button>
@@ -2660,18 +2691,18 @@ export default function MyExporter({ active = true }) {
         </main>
 
         <aside className="mx-inspector">
-          <div className="mx-inspector-heading"><strong>Settings</strong><button className="mx-side-panel-close" title="Hide editing controls" onClick={() => setOpenSidePanel('')}>Close</button></div>
+          <div className="mx-inspector-heading"><strong>Settings</strong><HelpHint label={`${inspectorTab === 'text' ? 'Titles' : inspectorTab[0].toUpperCase() + inspectorTab.slice(1)} settings`} topic={selectedAudio && inspectorTab === 'clip' ? 'audio' : inspectorTab} onHelp={openHelp} /><button className="mx-side-panel-close" title="Hide editing controls" onClick={() => setOpenSidePanel('')}>Close</button></div>
           <nav className="mx-inspector-tabs" aria-label="Settings categories">{[['clip','Clip'],['text','Text'],['captions','Captions'],['export','Export'],['tools','Tools']].map(([id, label]) => <button key={id} className={inspectorTab === id ? 'active' : ''} aria-pressed={inspectorTab === id} onClick={() => setInspectorTab(id)}>{label}</button>)}</nav>
           <fieldset className="mx-inspector-controls" disabled={exporterBusy}>
           <section className="mx-inspector-page" data-inspector-page="clip" hidden={inspectorTab !== 'clip'}>
           {selectedAudio && <section className="mx-scene-inspector"><div className="mx-panel-title">Audio · {selectedAudio.name}</div><label>Volume<input aria-label="Audio volume" type="range" min="0" max="1" step=".01" value={selectedAudio.volume ?? 1} onChange={event => patchAudioTrack(selectedAudio.id, { volume: Number(event.target.value) })} /></label><label>Speed<input aria-label="Audio speed" type="number" min=".25" max="4" step=".05" value={selectedAudio.speed || 1} onChange={event => patchAudioTrack(selectedAudio.id, { speed: Math.max(.25, Math.min(4, Number(event.target.value))) })} /></label><label>Fade in (seconds)<input aria-label="Audio fade in" type="number" min="0" max={selectedAudio.duration} step=".1" value={selectedAudio.fadeIn || 0} onChange={event => patchAudioTrack(selectedAudio.id, { fadeIn: Math.max(0, Math.min(selectedAudio.duration, Number(event.target.value))) })} /></label><label>Fade out (seconds)<input aria-label="Audio fade out" type="number" min="0" max={selectedAudio.duration} step=".1" value={selectedAudio.fadeOut || 0} onChange={event => patchAudioTrack(selectedAudio.id, { fadeOut: Math.max(0, Math.min(selectedAudio.duration, Number(event.target.value))) })} /></label><label className="mx-check"><input type="checkbox" checked={Boolean(selectedAudio.muted)} onChange={event => patchAudioTrack(selectedAudio.id, { muted: event.target.checked })} /> Mute this track</label></section>}
-          {!selectedAudio && <SceneInspector scene={selected} transform={selectedTransform} localTime={selectedLocalTime} duration={selectedEntry?.outputDuration || 0} disabled={exporterBusy || trackStates.videoLocked}
+          {!selectedAudio && <SceneInspector scene={selected} transform={selectedTransform} localTime={selectedLocalTime} duration={selectedEntry?.outputDuration || 0} disabled={exporterBusy || trackStates.videoLocked} onHelp={openHelp}
             onChange={changeSceneProperty} onAddKeyframe={() => addKeyframe()} onDeleteKeyframe={index => patchScene(selected.id, { keyframes: selected.keyframes.filter((_, i) => i !== index) })} onSeekKeyframe={time => seekTimeline(selectedEntry.start + time, true)} onTrimChange={patch => patchScene(selected.id, patch)} />}
           {selectedAudio && <>
             <AudioRangeEditor track={selectedAudio} selection={audioSelection} selecting={audioCutSelectionModeId === selectedAudio.id}
               disabled={exporterBusy || trackStates.audioLocked} previewing={audioRangePreviewing} onChange={changeAudioRange}
               onSelect={() => beginCutPositionSelection(selectedAudio.id)} onEdge={setAudioSelectionEdge}
-              onPreview={previewAudioSelection} onStop={stopAudioSelectionPreview} onRemove={removeHighlightedAudio} onReattach={reattachSelectedAudio} />
+              onPreview={previewAudioSelection} onStop={stopAudioSelectionPreview} onRemove={removeHighlightedAudio} onReattach={reattachSelectedAudio} onHelp={openHelp} />
             <audio ref={audioSelectionPreview} className="mx-cut-preview" src={fileUrl(selectedAudio.path)} preload="metadata" hidden />
             <details className="mx-audio-advanced"><summary>More audio edits</summary>
               <div className="mx-audio-extra-actions">
@@ -2685,7 +2716,7 @@ export default function MyExporter({ active = true }) {
           </section>
           <section className="mx-inspector-page" data-inspector-page="export" hidden={inspectorTab !== 'export'}>
           <details className="mx-inspector-section" open><summary>Export settings</summary>
-          <div className="mx-panel-title">Export settings</div>
+          <div className="mx-help-section-heading"><div className="mx-panel-title">Export settings</div><HelpHint label="Export" topic="export" onHelp={openHelp} /></div>
           {advancedMode && <div className="mx-export-presets"><button onClick={() => applyExportPreset('youtube4k')}>YouTube 4K</button><button onClick={() => applyExportPreset('cinematic')}>Cinema</button><button onClick={() => applyExportPreset('shorts')}>Shorts</button><button onClick={() => applyExportPreset('reels')}>Reels</button><button onClick={() => applyExportPreset('smooth')}>60 FPS</button></div>}
           <label>Canvas<select aria-label="Export resolution" value={settings.resolution} onChange={event => setSettings(value => ({ ...value, resolution: event.target.value, aspectRatio: event.target.value === 'vertical' ? '9:16' : event.target.value === 'square' ? '1:1' : value.aspectRatio }))}><option value="1080p">Full HD 1920×1080</option><option value="1440p">2K 2560×1440</option><option value="4k">4K UHD 3840×2160</option><option value="vertical">Vertical 1080×1920</option><option value="square">Square 1080×1080</option></select></label>
           <label>Aspect ratio<select aria-label="Aspect ratio" value={settings.aspectRatio} disabled={exporterBusy} onChange={event => setSettings(value => ({ ...value, aspectRatio: event.target.value, resolution: ['vertical','square'].includes(value.resolution) ? '1080p' : value.resolution }))}>{['16:9','9:16','1:1','4:3'].map(ratio => <option key={ratio}>{ratio}</option>)}</select></label>
@@ -2697,7 +2728,7 @@ export default function MyExporter({ active = true }) {
           </section>
           <section className="mx-inspector-page" data-inspector-page="text" hidden={inspectorTab !== 'text'}>
           <details className="mx-inspector-section" open><summary>Titles & stickers</summary>
-          <div className="mx-panel-title">Text and titles</div>
+          <div className="mx-help-section-heading"><div className="mx-panel-title">Text and titles</div><HelpHint label="Titles and stickers" topic="text" onHelp={openHelp} /></div>
           <button className="mx-wide" onClick={addTextOverlay}>+ Add Text</button>
           {selectedText && <div className="mx-text-controls"><label>Text<textarea value={selectedText.text} onChange={event => patchTextOverlay(selectedText.id, { text: event.target.value })} /></label><label>Font<select value={selectedText.fontFamily} onChange={event => patchTextOverlay(selectedText.id, { fontFamily: event.target.value })}><option>Arial</option><option>Segoe UI</option><option>Georgia</option><option>Impact</option><option>Comic Sans MS</option></select></label><label>Color<input type="color" value={selectedText.color} onChange={event => patchTextOverlay(selectedText.id, { color: event.target.value })} /></label><label>Shape<select value={selectedText.shape} onChange={event => patchTextOverlay(selectedText.id, { shape: event.target.value })}><option value="none">No shape</option><option value="box">Box</option><option value="pill">Rounded pill</option><option value="badge">Badge</option></select></label><label>Size — {selectedText.fontSize}<input type="range" min="20" max="180" step="2" value={selectedText.fontSize} onChange={event => patchTextOverlay(selectedText.id, { fontSize: Number(event.target.value) })} /></label><label>Opacity — {Math.round(selectedText.opacity * 100)}%<input type="range" min=".2" max="1" step=".05" value={selectedText.opacity} onChange={event => patchTextOverlay(selectedText.id, { opacity: Number(event.target.value) })} /></label><label>3D depth — {selectedText.depth}<input type="range" min="0" max="16" step="1" value={selectedText.depth} onChange={event => patchTextOverlay(selectedText.id, { depth: Number(event.target.value) })} /></label><button className="mx-danger" onClick={() => { setTextOverlays(current => current.filter(item => item.id !== selectedText.id)); setSelectedTextId(''); }}>Delete Text</button></div>}
           <div className="mx-divider" />
@@ -2707,7 +2738,7 @@ export default function MyExporter({ active = true }) {
           <div className="mx-inspector-note">Extra tools for narration, logos and individual video crops.</div>
           <details className="mx-inspector-section"><summary>Audio & caption helpers</summary><button className="mx-wide" onClick={() => { scanForStutters(); setStutterCutterOpen(true); }} disabled={!captions.length}>AI Stutter Cutter</button><button className="mx-wide" onClick={autoInjectSfx} disabled={!captions.length}>Auto-Inject SFX</button><button className="mx-wide" onClick={generateChapters} disabled={!captions.length}>Generate Chapters</button><button className="mx-wide" onClick={generateExportAndShutdown} disabled={!scenes.length}>Generate captions, export & shut down</button></details>
           <details className="mx-inspector-section"><summary>Logo & watermark</summary>
-          <div className="mx-panel-title">Logo watermark</div>
+          <div className="mx-help-section-heading"><div className="mx-panel-title">Logo watermark</div><HelpHint label="Logo watermark" topic="tools-logo" onHelp={openHelp} /></div>
           <button className={`mx-wide mx-logo-enable ${watermarkEnabled ? 'active' : ''}`} onClick={() => { const next = !watermarkEnabled; if (next) { setWatermark(DEFAULT_LOGO); setWatermarkPreset('bottom-right'); } setWatermarkEnabled(next); }}>{watermarkEnabled ? '✓ Info Kids Logo Enabled' : 'Enable Info Kids Logo'}</button>
           <button className="mx-wide mx-cover-flow" onClick={coverFlowWatermark}>Cover Flow Watermark</button>
           {watermark ? <div className="mx-watermark-control"><span>{watermark.name}</span><button className="mx-danger" onClick={() => { setWatermark(null); setWatermarkEnabled(false); }}>Delete Logo</button></div> : <><button className="mx-wide" onClick={() => { setWatermark(DEFAULT_LOGO); setWatermarkEnabled(true); setWatermarkPreset('bottom-right'); }}>Restore Info Kids Logo</button><button className="mx-wide" onClick={() => watermarkInput.current?.click()}>+ Import another logo</button></>}
@@ -2715,7 +2746,7 @@ export default function MyExporter({ active = true }) {
           <div className="mx-divider" />
           </details>
           <details className="mx-inspector-section"><summary>Translate narration</summary>
-          <div className="mx-panel-title">Translate video voice</div>
+          <div className="mx-help-section-heading"><div className="mx-panel-title">Translate video voice</div><HelpHint label="Translate narration" topic="voice-translate" onHelp={openHelp} /></div>
           <div className="mx-inspector-note">Select a video on the timeline. Translation uses the engine selected in Captions ({captionEngine === 'groq' ? 'Groq' : 'Local Whisper'}) and spoken word times. After replacing the voice, regenerate that clip's captions.</div>
           <label>Voice language<select value={voiceLanguage} disabled={exporterBusy} onChange={event => setVoiceLanguage(event.target.value)}><option value="en">English / Indian English</option><option value="hi">Hindi</option><option value="te">Telugu</option><option value="ta">Tamil</option><option value="kn">Kannada</option><option value="ml">Malayalam</option></select></label>
           <label>Narration voice<select value={voiceGender} onChange={event => setVoiceGender(event.target.value)} disabled={exporterBusy}><option value="female">Consistent female voice</option><option value="male">Consistent male voice</option></select></label>
@@ -2723,7 +2754,7 @@ export default function MyExporter({ active = true }) {
           <div className="mx-divider" />
           </details>
           <details className="mx-inspector-section"><summary>Voice tools</summary>
-          <div className="mx-panel-title">Vocal Morphing Studio</div>
+          <div className="mx-help-section-heading"><div className="mx-panel-title">Vocal Morphing Studio</div><HelpHint label="Voice tools" topic="voice-morph" onHelp={openHelp} /></div>
           <div className="mx-inspector-note">Morph the timbre of any audio track on the timeline to match another voice profile offline.</div>
           <label>Target voice timbre<select value={targetMorphVoice} onChange={event => setTargetMorphVoice(event.target.value)}><option value="sc3">SC3 Default Voice</option><option value="female">Standard Female Voice</option><option value="male">Standard Male Voice</option></select></label>
           <button className="mx-wide" onClick={morphSelectedAudio} disabled={!selectedAudio || audioMorphing}>{audioMorphing ? 'Morphing voice timbre...' : 'Morph Selected Audio Timbre'}</button>
@@ -2733,7 +2764,7 @@ export default function MyExporter({ active = true }) {
           <section className="mx-inspector-page" data-inspector-page="captions" hidden={inspectorTab !== 'captions'}>
           <details className="mx-inspector-section" open><summary>Automatic captions</summary>
           <div className="mx-panel-title">Automatic captions</div>
-          <label>Caption engine<select aria-label="Caption engine" value={captionEngine} disabled={exporterBusy} onChange={event => setCaptionEngine(event.target.value)}><option value="local">Local Whisper · offline</option><option value="groq">Groq · cloud transcription</option></select></label>
+          <div className="mx-help-section-heading"><div className="mx-panel-title">Caption engine</div><HelpHint label="Caption engine" topic="captions-engine" onHelp={openHelp} /></div><label>Caption engine<select aria-label="Caption engine" value={captionEngine} disabled={exporterBusy} onChange={event => setCaptionEngine(event.target.value)}><option value="local">Local Whisper · offline</option><option value="groq">Groq · cloud transcription</option></select></label>
           <label>Caption language<select value={captionLanguage} onChange={event => setCaptionLanguage(event.target.value)}><option value="auto">Same as spoken video / detect</option><option value="en">English / Indian English</option><option value="te">Telugu</option><option value="hi">Hindi</option><option value="ta">Tamil</option><option value="kn">Kannada</option><option value="ml">Malayalam</option></select></label>
           {detectedCaptionLanguage && <div className="mx-caption-source"><strong>{captionEngine === 'groq' ? 'Groq captions' : 'Local captions'}</strong><span>Detected: {detectedCaptionLanguage}</span></div>}
           <div className="mx-caption-actions"><button className="mx-wide" onClick={generateCaptions} disabled={!scenes.length || captioning || exporting}>{captioning ? 'Generating captions…' : captions.length ? 'Regenerate captions' : 'Generate captions'}</button><button className="mx-wide" onClick={() => setCaptionEditorOpen(true)} disabled={!captions.length}>Edit captions</button></div>
@@ -2756,7 +2787,7 @@ export default function MyExporter({ active = true }) {
           </section>
           <section className="mx-inspector-page" data-inspector-page="tools" hidden={inspectorTab !== 'tools'}>
           <details className="mx-inspector-section"><summary>Direct crop & part export</summary>
-          <div className="mx-panel-title">Crop video & save locally</div>
+          <div className="mx-help-section-heading"><div className="mx-panel-title">Crop video & save locally</div><HelpHint label="Crop and part export" topic="tools-crop" onHelp={openHelp} /></div>
           <div className="mx-inspector-note">Handles videos larger than 2 GB from their local path. This does not add the file to the timeline and does not use the normal exporter.</div>
           <button className="mx-wide mx-crop-pick" onClick={pickCropVideo} disabled={cropSaving}>{cropSource ? 'Choose Another Large Video' : 'Choose Large Video to Crop'}</button>
           {cropSource && <div className="mx-direct-crop">
@@ -2793,6 +2824,7 @@ export default function MyExporter({ active = true }) {
         {exporting && <button onClick={cancelExport}>Cancel export</button>}
         {result && <button onClick={() => window.electronAPI?.showItemInFolder?.(result.outputPath)}>Open exported file</button>}
       </footer>
+      {helpTopic && <HelpGuide topicId={helpTopic} onClose={() => setHelpTopic(null)} onLocate={locateHelpControls} />}
       {contextMenu && <div className="mx-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}>
         <header><strong>{contextMenu.type === 'video' ? 'Video Scene' : 'Detached Audio'}</strong><span>{contextMenu.name}</span></header>
         {contextMenu.type === 'video' ? <>

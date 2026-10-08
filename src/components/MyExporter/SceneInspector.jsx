@@ -1,8 +1,9 @@
 import React from 'react';
+import { HelpHint } from './HelpGuide';
 
 const number = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
-export default function SceneInspector({ scene, transform = {}, localTime = 0, duration = 0, disabled, onChange, onTrimChange, onAddKeyframe, onDeleteKeyframe, onSeekKeyframe }) {
+export default function SceneInspector({ scene, transform = {}, localTime = 0, duration = 0, disabled, onChange, onTrimChange, onAddKeyframe, onDeleteKeyframe, onSeekKeyframe, onHelp }) {
   if (!scene) return <div className="mx-inspector-note">Select a clip on the timeline to edit its picture and sound.</div>;
   const keyframes = scene.keyframes || [];
   const isVideo = scene.kind === 'video';
@@ -18,7 +19,7 @@ export default function SceneInspector({ scene, transform = {}, localTime = 0, d
   return <section className="mx-scene-inspector" aria-label="Clip inspector">
     <div className="mx-panel-title" title={scene.name}>Clip · {scene.name}</div>
     <div className="mx-clip-basic-fields">
-      <h3>Picture</h3>
+      <div className="mx-help-section-heading"><h3>Picture</h3><HelpHint label="Clip picture" topic="clip-picture" onHelp={onHelp} /></div>
       <label>Fit<select aria-label="Clip framing" value={scene.fit || 'contain'} disabled={disabled} onChange={event => onChange('fit', event.target.value)}><option value="contain">Show full picture</option><option value="fill">Fill canvas</option></select></label>
       <label>Rotation<select aria-label="Clip rotation" value={scene.rotation || 0} disabled={disabled} onChange={event => onChange('rotation', Number(event.target.value))}>{[0, 90, 180, 270].map(value => <option key={value} value={value}>{value}°</option>)}</select></label>
       <div className="mx-inspector-buttons"><button disabled={disabled} className={scene.flipX ? 'active' : ''} onClick={() => onChange('flipX', !scene.flipX)}>Flip horizontal</button><button disabled={disabled} className={scene.flipY ? 'active' : ''} onClick={() => onChange('flipY', !scene.flipY)}>Flip vertical</button></div>
@@ -28,7 +29,7 @@ export default function SceneInspector({ scene, transform = {}, localTime = 0, d
       </div>}
     </div>
     <div className="mx-clip-timing-fields">
-      <h3>Timing</h3>
+      <div className="mx-help-section-heading"><h3>Timing</h3><HelpHint label="Clip timing" topic="clip-timing" onHelp={onHelp} /></div>
       <div className="mx-clip-timing-grid">
         {isVideo && <label>Start (seconds)<input aria-label="Clip trim start" type="number" min="0" max={Math.max(0, sourceDuration - .1)} step=".1" value={Number(trimStart.toFixed(3))} disabled={trimDisabled} onChange={event => {
           if (event.target.value === '' || !Number.isFinite(Number(event.target.value))) return;
