@@ -22,6 +22,12 @@
         "appId": "com.presentator.app",
         "files": [
             "**/*",
+            "!**/.groq_api_key",
+            "!**/.gemini_api_key",
+            "!**/.hf_token",
+            "!**/.env",
+            "!**/.env.*",
+            "!**/.caption-eraser-venv/**",
             "!**/temp/**",
             "!**/dist/**",
             "!**/logs/**",
@@ -31,6 +37,12 @@
             "!**/*.wav",
             "!**/*.mp3",
             "!**/*.tmp"
+        ],
+        "extraResources": [
+            {
+                "from": "Setup-Caption-Eraser-AI.ps1",
+                "to": "Setup-Caption-Eraser-AI.ps1"
+            }
         ],
         "win": {
             "target": "portable",

@@ -34,3 +34,27 @@ test('both legacy song modes select song filtering and the intended engine', () 
     assert.equal(result.song,mode === 'song');
   }
 });
+
+test('Local caption engine selection supports Groq for speech and lyrics without changing audio hints', () => {
+  const helpers = legacy.slice(legacy.indexOf('function getCaptionTranscriptionOptions()'), legacy.indexOf('function spokenPhraseStart('));
+  for (const [selected, selectedEngine, mode, engine] of [
+    ['speech', 'groq', 'speech', 'groq'], ['song', 'groq', 'song', 'groq'],
+    ['speech', 'local', 'speech', 'local'], ['song', 'local', 'song', 'local'],
+    ['speech', 'gemini', 'song', 'gemini'], ['song', 'gemini', 'song', 'gemini'],
+    ['song-gemini', 'local', 'song', 'gemini'], ['speech', 'invalid', 'speech', 'local'],
+  ]) {
+    const fields = {
+      captionContentMode: { value: selected }, captionEngine: { value: selectedEngine },
+      captionVocalFocus: { checked: true }, captionVocabularyHints: { value: 'Jingle bells, Telugu names' },
+    };
+    const result = vm.runInNewContext(helpers + '\n({options:getCaptionTranscriptionOptions(),song:isSongCaptionMode(),label:getCaptionEngineLabel()})', {
+      document: { getElementById: id => fields[id] || null },
+    });
+    assert.equal(result.options.contentMode, mode);
+    assert.equal(result.options.engine, engine);
+    assert.equal(result.options.audioMode, 'vocal-focus');
+    assert.equal(result.options.transcriptionHints, fields.captionVocabularyHints.value);
+    assert.equal(result.song, mode === 'song');
+    if (engine === 'groq') assert.equal(result.label, 'Groq API (Fast)');
+  }
+});

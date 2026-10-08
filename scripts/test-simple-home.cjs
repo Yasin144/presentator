@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
-const input = read('src/components/InputPanel.jsx');
+const input = read('src/components/InputPanel.jsx') + '\n' + read('src/components/LocalCaptionPanel.jsx');
 const stage = read('src/components/StagePanel.jsx');
 const appSource = read('src/App.jsx');
 const homeSource = read('src/components/StudioHome.jsx');

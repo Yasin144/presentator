@@ -20,18 +20,102 @@ const CAPTION_WORD_LIMIT = 8;
 const CAPTION_BOTTOM_OFFSET_PX = 80;
 const SHORT_CAPTION_GAP_SECONDS = 0.75;
 
+function normalizeCaptionOutputLanguage(value) {
+    return ({ english: 'en', telugu: 'te', hindi: 'hi', en: 'en', te: 'te', hi: 'hi' })[String(value || '').trim().toLowerCase()] || 'en';
+}
+
+function getCaptionOutputLanguage() {
+    return normalizeCaptionOutputLanguage(document.getElementById('captionLanguage')?.value);
+}
+
+function captionTextScriptLanguage(text) {
+    const value = String(text || '');
+    if (/[\u0c00-\u0c7f]/u.test(value)) return 'te';
+    if (/[\u0900-\u097f]/u.test(value)) return 'hi';
+    return '';
+}
+
+function captionTranslationTimeoutMs(captions) {
+    let chunks = 0, items = 0, characters = 0;
+    for (const cue of captions || []) {
+        const length = Array.from(String(cue.text || '')).length;
+        if (items && (items >= 60 || characters + length > 2000)) { chunks++; items = 0; characters = 0; }
+        items++; characters += length;
+    }
+    if (items) chunks++;
+    return Math.min(3600000, Math.max(300000, chunks * 300000) + 30000);
+}
+
+async function translateCaptionLanguageBatch(captions, { target = 'en', sourceLanguage = '', timingSource, warnings = [], signal, fetchImpl = fetch } = {}) {
+    const targetCode = normalizeCaptionOutputLanguage(target);
+    const staged = JSON.parse(JSON.stringify(captions || []));
+    const sourceCode = String(sourceLanguage || '').trim().toLowerCase();
+    const script = captionTextScriptLanguage(staged.map(cue => cue.text).join(' '));
+    // Mixed-script captions can contain words in several languages. A script
+    // that contradicts ASR metadata must not become a same-language shortcut.
+    const translationSource = script && script !== sourceCode ? 'auto' : sourceCode || 'auto';
+    if (signal?.aborted) throw new Error('Caption translation cancelled.');
+    if (!staged.length || (sourceCode === targetCode && (!script || script === targetCode))) {
+        return { captions: staged, outputLanguage: targetCode, timingSource, warnings: [...warnings], translated: false };
+    }
+    const response = await fetchImpl('http://127.0.0.1:8434/api/translate/batch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
+        body: JSON.stringify({ texts: staged.map(cue => String(cue.text || '')), target: targetCode, source: translationSource }),
+    });
+    const data = await response.json();
+    if (signal?.aborted) throw new Error('Caption translation cancelled.');
+    if (!response.ok) throw new Error(data?.error || `Caption translation failed (HTTP ${response.status}).`);
+    if ((data?.target != null && data.target !== targetCode) || !Array.isArray(data?.results) || data.results.length !== staged.length ||
+        data.results.some(text => typeof text !== 'string' || !text.trim())) {
+        throw new Error('Caption translation returned incomplete captions. The previous captions are preserved.');
+    }
+    const translated = staged.map((cue, index) => ({ ...cue, text: data.results[index], words: [] }));
+    const warning = 'Translated captions retain the original cue start and end times. Word highlighting uses estimated timing; review synchronization.';
+    return { captions: translated, outputLanguage: targetCode, timingSource: 'estimated',
+        warnings: [...new Set([...warnings, warning])], translated: true };
+}
+
 function getCaptionTranscriptionOptions() {
     const selected = document.getElementById('captionContentMode')?.value || 'speech';
+    const selectedEngine = document.getElementById('captionEngine')?.value;
+    const engine = selected === 'song-gemini' ? 'gemini'
+        : ['local', 'groq', 'gemini'].includes(selectedEngine) ? selectedEngine : 'local';
+    const apiKey = engine === 'groq' ? String(document.getElementById('captionGroqApiKey')?.value || '').trim() : '';
     return {
-        contentMode: selected.startsWith('song') ? 'song' : 'speech',
-        engine: selected === 'song-gemini' ? 'gemini' : 'local',
+        contentMode: selected.startsWith('song') || engine === 'gemini' ? 'song' : 'speech',
+        engine,
         audioMode: document.getElementById('captionVocalFocus')?.checked ? 'vocal-focus' : 'original',
         transcriptionHints: document.getElementById('captionVocabularyHints')?.value || '',
+        ...(apiKey ? { apiKey } : {}),
     };
+}
+
+function getCaptionEngineLabel(options = getCaptionTranscriptionOptions()) {
+    return { local: 'Local Whisper', groq: 'Groq API (Fast)', gemini: 'Gemini song accuracy' }[options.engine] || 'Local Whisper';
 }
 
 function isSongCaptionMode() {
     return getCaptionTranscriptionOptions().contentMode === 'song';
+}
+
+async function explainCaptionTimingFailure(error, options, api = window.electronAPI) {
+    if (!error?.captionTimingFailure || options?.engine !== 'groq' || options?.contentMode !== 'speech'
+        || typeof api?.transcribeVideo !== 'function') return error;
+    let capability;
+    try {
+        // This diagnostic has no source path or key. Older backends reject it
+        // before extraction; current backends answer without an ASR request.
+        capability = await api.transcribeVideo({ engine: 'groq', contentMode: 'speech', capabilityProbe: true });
+    } catch (_) {}
+    if (capability?.ok === true && Number.isFinite(capability.groqSpeechTimingRepairVersion)
+        && capability.groqSpeechTimingRepairVersion >= 1) return error;
+    const detail = String(error.message || 'Speech timestamps conflict.')
+        .replace(/Generate captions again; the previous captions are preserved\.?/i, '').trim();
+    const explained = new Error(`${detail} Close and reopen the app to activate the Groq timing fix. Your previous captions are preserved.`);
+    explained.cause = error;
+    explained.captionTimingFailure = true;
+    explained.captionBackendRestartSuggested = true;
+    return explained;
 }
 
 function spokenPhraseStart(tokens, activeIndex, limit = 8) {
@@ -48,13 +132,23 @@ function normalizeNurseryCaptionText(value) {
 }
 
 function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LIMIT) {
-    const words = (Array.isArray(sourceWords) ? sourceWords : [])
-        .map((word) => ({
-            text: String(word.word || word.text || '').trim(),
-            start: Number(word.start ?? (Array.isArray(word.timestamp) ? word.timestamp[0] : 0)),
-            end: Number(word.end ?? (Array.isArray(word.timestamp) ? word.timestamp[1] : 0))
-        }))
-        .filter((word) => word.text && Number.isFinite(word.start) && Number.isFinite(word.end));
+    const words = [];
+    for (const [index, word] of (Array.isArray(sourceWords) ? sourceWords : []).entries()) {
+        const text = word?.word ?? word?.text;
+        const start = word?.start ?? (Array.isArray(word?.timestamp) ? word.timestamp[0] : undefined);
+        const end = word?.end ?? (Array.isArray(word?.timestamp) ? word.timestamp[1] : undefined);
+        const previous = words[words.length - 1];
+        // Keep recognition order. Sorting a backwards timestamp would show a
+        // later spoken word early and could replace the preceding caption.
+        if (typeof text !== 'string' || !text.trim() || typeof start !== 'number' || typeof end !== 'number'
+            || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start
+            || (previous && start < previous.end)) {
+            const error = new Error(`Speech timestamps conflict at word ${index + 1}. Generate captions again; the previous captions are preserved.`);
+            error.captionTimingFailure = true;
+            throw error;
+        }
+        words.push({ text: text.trim(), start, end });
+    }
     const chunks = [];
     let group = [];
     const flush = () => {
@@ -63,10 +157,10 @@ function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LI
         const normalizedTokens = normalizedText.split(/\s+/).filter(Boolean);
         chunks.push({
             text: normalizedText,
-            timestamp: [group[0].start, Math.max(group[0].start + 0.05, group[group.length - 1].end)],
+            timestamp: [group[0].start, group[group.length - 1].end],
             words: group.map((word, index) => ({
                 text: normalizedTokens[index] || word.text,
-                timestamp: [word.start, Math.max(word.start + 0.05, word.end)]
+                timestamp: [word.start, word.end]
             }))
         });
         group = [];
@@ -301,8 +395,9 @@ function bootCaptionStudio() {
     let captionFontReady = null;
     const captionEmojiCache = new Map();
 
-    function getCaptionFontFamily() {
+    function getCaptionFontFamily(text = '') {
         const selected = fontSelect ? fontSelect.value : 'Nunito, sans-serif';
+        if (/[\u0900-\u097f\u0c00-\u0c7f]/u.test(String(text))) return '"Nirmala UI", "Noto Sans Telugu", "Noto Sans Devanagari", sans-serif';
         return selected.startsWith('Nunito') ? '"Pattan Caption Nunito", sans-serif' : selected;
     }
 
@@ -365,7 +460,7 @@ function bootCaptionStudio() {
         const sample = document.getElementById('captionSizePreviewText');
         if (sample) {
             sample.style.fontSize = `${Number(sizeSlider?.value) || 50}px`;
-            sample.style.fontFamily = getCaptionFontFamily();
+            sample.style.fontFamily = getCaptionFontFamily(sample.textContent);
             sample.style.color = colorPicker?.value || '#ffffff';
         }
     }
@@ -579,6 +674,7 @@ function bootCaptionStudio() {
     let captionQueueExporting = false;
     let captionQueueMode = '';
     let captionTranslationBusy = false;
+    let captionTranslationController = null;
     let captionPreviewSpeed = 1;
     let captionPreviewLoop = null;
     const captionBusyControlStates = new Map();
@@ -610,7 +706,7 @@ function bootCaptionStudio() {
                 colorPicker, syncSlider, positionXControl, positionYControl, positionPresetControl,
                 emojiCheck, karaokeCheck, filterSelect, progressCheck, watermarkCheck,
                 watermarkInput, bgMusicCheck, bgMusicInput, translateCheck, brollCheck, sfxCheck],
-            ...['captionContentMode', 'captionVocalFocus', 'captionVocabularyHints', 'captionUseVoiceTextBtn',
+            ...['captionContentMode', 'captionEngine', 'captionLanguage', 'captionTranslateSelectedBtn', 'captionEraserQuality', 'captionGroqApiKey', 'captionRegenerateBtn', 'captionVocalFocus', 'captionVocabularyHints', 'captionUseVoiceTextBtn',
                 'captionTranslateEnBtn', 'captionTranslateHiBtn', 'captionTranslateTeBtn', 'captionSizePreviewBtn'].map(id => document.getElementById(id))].filter(Boolean);
         if (disabled) {
             controls.forEach(control => {
@@ -629,11 +725,18 @@ function bootCaptionStudio() {
         if (!item) return;
         item.timingSource = result?.timingSource === 'estimated' || !result?.words?.length ? 'estimated' : 'word';
         item.warnings = Array.isArray(result?.warnings) ? result.warnings.map(String) : [];
+        item.sourceLanguage = normalizeCaptionLanguageCode(result?.language) || inferCaptionLanguageCode(result?.text);
     }
 
-    function commitCaptionLocalEdits(metadata, redraw = true) {
+    function commitCaptionLocalEdits(metadata, redraw = true, preserveLanguage = false) {
         clearCaptionPreviewLoop();
         const item = captionVideoQueue[captionQueueIndex];
+        if (item && !preserveLanguage && JSON.stringify((item.captions || []).map(cue => cue.text)) !==
+            JSON.stringify(generatedCaptions.map(cue => cue.text))) {
+            item.outputLanguage = undefined;
+            item.captionLanguage = undefined;
+            item.sourceLanguage = '';
+        }
         if (item) captionVideoQueue[captionQueueIndex] = captionLocalEditedQueueItem(item, generatedCaptions, metadata || {
             timingSource: item.timingSource, warnings: item.warnings || [],
         });
@@ -689,6 +792,20 @@ function bootCaptionStudio() {
 
     function publishCaptionLocalState() {
         syncCaptionWorkbenchBusy();
+        if (eraseBtn) {
+            eraseBtn.classList.remove('hidden');
+            eraseBtn.disabled = captionLocalBusy() || !activeFile;
+        }
+        const regenerateBtn = document.getElementById('captionRegenerateBtn');
+        if (regenerateBtn) {
+            regenerateBtn.disabled = captionLocalBusy() || !activeFile;
+            regenerateBtn.classList.toggle('hidden', !generatedCaptions.length);
+        }
+        if (actionBtn && !captionLocalBusy()) {
+            actionBtn.classList.toggle('hidden', generatedCaptions.length > 0 && captionVideoQueue.length <= 1);
+        }
+        const translateSelected = document.getElementById('captionTranslateSelectedBtn');
+        if (translateSelected) translateSelected.disabled = captionLocalBusy() || !generatedCaptions.length;
         return localWorkbenchBridge.publish();
     }
 
@@ -701,6 +818,7 @@ function bootCaptionStudio() {
     }
 
     const modeSelect = document.getElementById('captionContentMode');
+    const engineSelect = document.getElementById('captionEngine');
     if (modeSelect) {
         let disclosure = document.getElementById('captionLocalModeDisclosure');
         if (!disclosure) {
@@ -709,16 +827,34 @@ function bootCaptionStudio() {
             modeSelect.parentElement?.appendChild(disclosure);
         }
         const disclose = () => {
-            disclosure.textContent = modeSelect.value === 'song-gemini'
+            const options = getCaptionTranscriptionOptions();
+            document.getElementById('captionGroqKeyField')?.classList.toggle('hidden', options.engine !== 'groq');
+            disclosure.textContent = options.engine === 'gemini'
                 ? 'Gemini sends this audio to Google. Lyric and word timing is estimated; review synchronization.'
-                : modeSelect.value === 'song' ? 'Local song captions process audio on this computer. Review the lyrics and timing before export.'
-                : 'Speech uses local Whisper and may use the configured high-accuracy cloud fallback. Review the words and timing before export.';
+                : options.engine === 'groq'
+                    ? 'Groq sends this audio to the Groq speech service for fast Whisper captions with word timestamps. Review the words and timing before export.'
+                    : options.contentMode === 'song' ? 'Local song captions process audio on this computer. Review the lyrics and timing before export.'
+                    : engineSelect ? 'Local processes audio on this computer. Review the words and timing before export.'
+                    : 'Speech uses local Whisper and may use the configured high-accuracy cloud fallback. Review the words and timing before export.';
         };
-        modeSelect.addEventListener('change', disclose); disclose();
+        modeSelect.addEventListener('change', () => {
+            if (modeSelect.value === 'speech' && engineSelect?.value === 'gemini') engineSelect.value = 'local';
+            disclose();
+        });
+        engineSelect?.addEventListener('change', () => {
+            if (engineSelect.value === 'gemini') modeSelect.value = 'song';
+            disclose();
+        });
+        disclose();
     }
+    document.getElementById('captionRegenerateBtn')?.addEventListener('click', async () => {
+        if (captionLocalBusy() || !activeFile) return;
+        await transcribeActiveCaptionVideo();
+    });
     publishCaptionLocalState();
     if (window.electronAPI && typeof window.electronAPI.onTranscribeProgress === 'function') {
         window.electronAPI.onTranscribeProgress((rawPct) => {
+            if (captionTranslationBusy) return;
             const pct = Math.max(0, Math.min(100, Number(rawPct) || 0));
             const activeIndex = captionVideoQueue.findIndex(item => item.status === 'transcribing');
             if (activeIndex < 0) return;
@@ -727,7 +863,7 @@ function bootCaptionStudio() {
                 progress: mappedPct,
                 message: pct >= 100
                     ? 'Transcription complete. Building captions...'
-                    : `Whisper transcription ${pct}%`,
+                    : `${getCaptionEngineLabel()} transcription ${pct}%`,
             });
             setCaptionProgressBar(mappedPct);
         });
@@ -976,7 +1112,7 @@ function bootCaptionStudio() {
         videoContainer.classList.add('hidden');
         actionBtn.disabled = true; actionBtn.classList.remove('hidden');
         exportBtn.classList.add('hidden'); editorPanel.classList.add('hidden');
-        if (eraseBtn) eraseBtn.classList.add('hidden');
+        if (eraseBtn) eraseBtn.disabled = true;
         if (previewBtn) previewBtn.classList.add('hidden');
         setCaptionExportActionsVisible(false);
         hideSingleCaptionProgress();
@@ -990,7 +1126,7 @@ function bootCaptionStudio() {
 
     if (eraseBtn) {
         eraseBtn.addEventListener('click', async () => {
-            if (isErasingCaptions || isExtractingText || isRecording || captionQueueRunning || captionQueueExporting) return;
+            if (captionLocalBusy()) return;
             const videoPath = getCaptionSourcePath();
             if (!videoPath) {
                 alert('No video file path available. Please re-upload or select a local video.');
@@ -1030,7 +1166,8 @@ function bootCaptionStudio() {
                 eraseBtn.textContent = '🧹 Detecting captions...';
                 if (typeof api.onCaptionEraseProgress === 'function') unsubscribe = api.onCaptionEraseProgress(onProgress);
                 onProgress({ pct: 0, message: 'Detecting previous captions throughout the video...' });
-                const res = await api.eraseCaptions({ filePath: videoPath, jobId });
+                const quality = document.getElementById('captionEraserQuality')?.value === 'quick' ? 'quick' : 'ai';
+                const res = await api.eraseCaptions({ filePath: videoPath, jobId, quality });
                 if (!res?.ok) throw new Error(res?.error || 'Caption erasing failed');
                 if (res.noCaptionsDetected || res.changed === false) {
                     if (originalItem) captionVideoQueue[queueIndex] = originalItem;
@@ -1071,7 +1208,7 @@ function bootCaptionStudio() {
                 isErasingCaptions = false;
                 disabledStates.forEach((disabled, control) => { control.disabled = disabled; });
                 if (changed) actionBtn.disabled = false;
-                eraseBtn.textContent = '🧹 Erase Captions';
+                eraseBtn.textContent = 'Caption Eraser';
                 hideSingleCaptionProgress();
                 renderCaptionQueue();
                 window.updateTaskProgressUi?.(0, false);
@@ -1308,6 +1445,8 @@ function bootCaptionStudio() {
             actionBtn.classList.remove('hidden');
             return;
         }
+        if (syncSlider) syncSlider.value = '0';
+        updateCaptionStyleValueLabels();
         captionVideoQueue = files.map(file => ({ file, status: 'ready', captions: [] }));
         captionQueueIndex = 0;
         loadQueuedCaptionVideo(0);
@@ -1416,7 +1555,7 @@ function bootCaptionStudio() {
             message: `${phaseLabel}... ${shownPct}%`
         });
         return setInterval(() => {
-            if (!captionQueueRunning || !captionVideoQueue[index] || captionVideoQueue[index].status !== 'transcribing') return;
+            if (captionTranslationBusy || !captionQueueRunning || !captionVideoQueue[index] || captionVideoQueue[index].status !== 'transcribing') return;
             const remaining = maxPct - shownPct;
             if (remaining <= 0.4) return;
             shownPct = Math.min(maxPct, shownPct + Math.max(1, remaining * 0.035));
@@ -1453,11 +1592,13 @@ function bootCaptionStudio() {
     }
 
     function scrollCaptionStudioToWorkSection() {
-        const target = queuePanel || document.getElementById('captionProgress') || editorPanel || statusText;
-        if (!target) return;
         setTimeout(() => {
+            const target = [queuePanel, progressBlock, videoContainer, editorPanel, statusText]
+                .find(element => element && element.getClientRects().length);
+            if (!target) return;
             const scrollBody = document.querySelector('#aiCaptionSection .caption-burner-body');
-            if (scrollBody) {
+            const overflow = scrollBody ? window.getComputedStyle(scrollBody).overflowY : '';
+            if (scrollBody && /^(auto|scroll)$/.test(overflow) && scrollBody.scrollHeight > scrollBody.clientHeight) {
                 const baseTop = scrollBody.getBoundingClientRect().top;
                 const targetTop = target.getBoundingClientRect().top;
                 scrollBody.scrollTo({
@@ -1575,11 +1716,13 @@ function bootCaptionStudio() {
 
     async function transcribeCaptionQueueFrom(startIndex = 0) {
         if (captionLocalBusy() || !captionVideoQueue.length) return;
+        const outputLanguage = getCaptionOutputLanguage();
         const notifyQueue = captionVideoQueue.some(item => item.status !== 'exported')
             ? createCaptionWhatsAppJob('AI Captioning · caption queue') : () => {};
         captionQueueRunning = true;
         captionQueueExporting = true;
         captionQueueMode = 'start';
+        captionTranscriptionCancelRequested = false;
         lockCaptionQueueControls(true);
         renderCaptionQueue();
         try {
@@ -1589,8 +1732,10 @@ function bootCaptionStudio() {
                 ordered.push((startIndex + offset) % captionVideoQueue.length);
             }
             for (const index of ordered) {
+                if (captionTranscriptionCancelRequested) break;
                 const item = captionVideoQueue[index];
                 if (!item || item.status === 'exported') continue;
+                const previousQueueItem = { ...item, captions: JSON.parse(JSON.stringify(item.captions || [])), warnings: [...(item.warnings || [])] };
                 try {
                     captionQueueIndex = index;
                     loadQueuedCaptionVideo(index, true);
@@ -1611,26 +1756,53 @@ function bootCaptionStudio() {
                             if (!videoPath || !window.electronAPI || typeof window.electronAPI.transcribeVideo !== 'function') {
                                 throw new Error('Electron could not access the local video path for captioning.');
                             }
-                            const selectedLanguage = String(item.captionLanguage || '').toLowerCase();
-                            const captionLanguages = { telugu: 'te', hindi: 'hi', english: 'en', tamil: 'ta', kannada: 'kn', malayalam: 'ml', urdu: 'ur', arabic: 'ar' };
-                            const languageHint = Object.entries(captionLanguages).find(([name, code]) => selectedLanguage.includes(name) || selectedLanguage === code)?.[1] || 'auto';
-                            const transcription = await window.electronAPI.transcribeVideo({ videoPath, languageHint, ...getCaptionTranscriptionOptions() });
+                            activeCaptionTranscription = { videoPath, languageHint: 'auto', ...getCaptionTranscriptionOptions() };
+                            if (cancelBtn) {
+                                cancelBtn.disabled = false;
+                                cancelBtn.textContent = 'Stop Transcription';
+                                cancelBtn.classList.remove('hidden');
+                            }
+                            const transcription = await window.electronAPI.transcribeVideo(activeCaptionTranscription);
+                            if (transcription?.cancelled || captionTranscriptionCancelRequested) {
+                                captionTranscriptionCancelRequested = true;
+                                throw new Error('Caption queue transcription cancelled.');
+                            }
                             if (!transcription || !transcription.ok) {
                                 throw new Error((transcription && transcription.error) || 'Electron transcription failed.');
                             }
+                            activeCaptionTranscription = null;
                             if (isSongCaptionMode() && !transcription.words?.length) throw new Error('No timed lyrics detected. Clearer vocals are needed for synchronized song captions.');
                             const directCaptions = buildCaptionChunksFromTranscription(transcription, sourceVideo.duration || 60);
                             if (!directCaptions.length) {
                                 throw new Error('No recognizable speech or lyrics. Instrumental music and silent video may have no words to caption. Review the audio or select its spoken language.');
                             }
-                            generatedCaptions = JSON.parse(JSON.stringify(directCaptions));
-                            captionVideoQueue[index].captions = JSON.parse(JSON.stringify(directCaptions));
                             captionMetadataFromTranscription(transcription);
+                            const output = await prepareCaptionOutput(directCaptions, outputLanguage, {
+                                sourceLanguage: normalizeCaptionLanguageCode(transcription.language) || inferCaptionLanguageCode(transcription.text),
+                                timingSource: captionVideoQueue[index].timingSource, warnings: captionVideoQueue[index].warnings,
+                            });
+                            generatedCaptions = output.captions;
+                            captionVideoQueue[index].captions = JSON.parse(JSON.stringify(output.captions));
+                            applyCaptionOutputMetadata(captionVideoQueue[index], output);
                             captionVideoQueue[index].status = 'transcribed';
                             renderCaptionQueue();
                         } finally {
                             clearInterval(heartbeat);
+                            activeCaptionTranscription = null;
+                            if (cancelBtn) cancelBtn.classList.add('hidden');
                         }
+                    }
+                    if (captionVideoQueue[index].outputLanguage !== outputLanguage) {
+                        const current = captionVideoQueue[index];
+                        const output = await prepareCaptionOutput(current.captions, outputLanguage, {
+                            sourceLanguage: current.outputLanguage || current.sourceLanguage,
+                            timingSource: current.timingSource, warnings: current.warnings || [],
+                        });
+                        generatedCaptions = output.captions;
+                        captionVideoQueue[index].captions = JSON.parse(JSON.stringify(output.captions));
+                        applyCaptionOutputMetadata(captionVideoQueue[index], output);
+                        captionVideoQueue[index].outputPath = undefined;
+                        captionVideoQueue[index].outputFileName = undefined;
                     }
                     if (!(captionVideoQueue[index].captions && captionVideoQueue[index].captions.length)) {
                         throw new Error(`No captions generated for ${item.file.name}`);
@@ -1648,8 +1820,21 @@ function bootCaptionStudio() {
                     }
                     await exportActiveCaptionVideoForQueue(index);
                 } catch (itemError) {
+                    itemError = await explainCaptionTimingFailure(itemError, getCaptionTranscriptionOptions());
+                    if (captionTranscriptionCancelRequested) {
+                        setQueueItemState(index, { status: captionVideoQueue[index]?.captions?.length ? 'transcribed' : 'ready',
+                            progress: 0, message: 'Queue stopped. Ready to restart.' });
+                        break;
+                    }
                     if (/cancelled after preview/i.test(String(itemError.message || itemError))) {
                         setQueueItemState(index, { status: 'transcribed', progress: 100, message: 'Ready for review. Export cancelled; captions preserved.' });
+                        continue;
+                    }
+                    if (itemError.captionTranslationFailure && previousQueueItem.captions.length) {
+                        captionVideoQueue[index] = previousQueueItem;
+                        generatedCaptions = JSON.parse(JSON.stringify(previousQueueItem.captions));
+                        setQueueItemState(index, { status: 'transcribed', progress: 100,
+                            message: `${itemError.message} Captions retained; no export started.` });
                         continue;
                     }
                     const attempt = attempts.get(index) || 0;
@@ -1663,17 +1848,27 @@ function bootCaptionStudio() {
                     setQueueItemState(index, {
                         status: 'failed',
                         progress: 0,
-                        message: String(itemError.message || itemError).slice(0, 100)
+                        message: (String(itemError.message || itemError)
+                            + (itemError.captionTimingFailure ? ' No export started.' : '')).slice(0, 500)
                     });
                     console.error(`[Caption Queue] Video ${index + 1} failed:`, itemError);
                 }
             }
             const exportedCount = captionVideoQueue.filter(item => item.status === 'exported').length;
             const failedCount = captionVideoQueue.filter(item => item.status === 'failed').length;
+            if (captionTranscriptionCancelRequested) {
+                statusText.textContent = `Queue stopped. Exported ${exportedCount}/${captionVideoQueue.length} videos. Remaining videos are ready to restart.`;
+                notifyQueue('cancelled', 'Caption queue stopped; remaining videos are ready to restart.');
+                return;
+            }
             notifyQueue(failedCount ? 'failed' : 'completed', failedCount
                 ? `Exported ${exportedCount}/${captionVideoQueue.length}. ${captionVideoQueue.filter(item => item.status === 'failed').map(item => item.message || 'Caption processing failed.').join(' | ')}`
                 : `Exported ${exportedCount}/${captionVideoQueue.length} captioned videos. ${captionVideoQueue.filter(item => item.status === 'transcribed').length} ready for review.`);
-            statusText.innerHTML = `Queue complete. Exported ${exportedCount}/${captionVideoQueue.length} videos${failedCount ? ` · Failed ${failedCount}` : ''}.`;
+            statusText.textContent = failedCount
+                ? `Queue finished. Exported ${exportedCount}/${captionVideoQueue.length} videos · Failed ${failedCount}. `
+                    + captionVideoQueue.filter(item => item.status === 'failed')
+                        .map(item => `${item.file?.name || 'Video'}: ${item.message || 'Caption processing failed.'}`).join(' | ')
+                : `Queue complete. Exported ${exportedCount}/${captionVideoQueue.length} videos.`;
             speakCaptionStudio('Caption queue complete');
             notifyCaptionStudio(
                 'Caption queue complete',
@@ -1695,6 +1890,13 @@ function bootCaptionStudio() {
             captionQueueRunning = false;
             captionQueueExporting = false;
             captionQueueMode = '';
+            activeCaptionTranscription = null;
+            captionTranscriptionCancelRequested = false;
+            if (cancelBtn) {
+                cancelBtn.classList.add('hidden');
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Stop Transcription';
+            }
             lockCaptionQueueControls(false);
             renderCaptionQueue();
         }
@@ -2108,6 +2310,7 @@ function bootCaptionStudio() {
     }
     
     function populateEditor() {
+        editorPanel.classList.toggle('hidden', !generatedCaptions.length);
         editorPanel.style.display = generatedCaptions.length ? 'block' : 'none';
         const sizeSample = document.getElementById('captionSizePreviewText');
         if (sizeSample) sizeSample.textContent = generatedCaptions[0]?.text || 'Caption size sample';
@@ -2195,86 +2398,80 @@ function bootCaptionStudio() {
     }
 
     // ── Multi-language Caption Translator ───────────────────────────────────
-    const TRANSLATE_SERVER = 'http://127.0.0.1:8434';
+    function applyCaptionOutputMetadata(item, output) {
+        if (!item) return;
+        item.outputLanguage = output.outputLanguage;
+        item.captionLanguage = { en: 'English', te: 'Telugu', hi: 'Hindi' }[output.outputLanguage];
+        item.timingSource = output.timingSource;
+        item.warnings = output.warnings;
+    }
+
+    async function prepareCaptionOutput(captions, target, metadata = {}) {
+        const expectedId = ensureCaptionLocalItemId(captionVideoQueue[captionQueueIndex]);
+        const controller = new AbortController();
+        captionTranslationController = controller;
+        captionTranslationBusy = true;
+        const timeout = setTimeout(() => controller.abort(new Error('Caption translation timed out. The previous captions are preserved.')), captionTranslationTimeoutMs(captions));
+        publishCaptionLocalState();
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.textContent = 'Stop Translation';
+            cancelBtn.classList.remove('hidden');
+        }
+        statusText.textContent = `Preparing ${ { en: 'English', te: 'Telugu', hi: 'Hindi' }[target] || 'English'} captions…`;
+        try {
+            const output = await translateCaptionLanguageBatch(captions, { target, ...metadata, signal: controller.signal });
+            if (captionTranscriptionCancelRequested || expectedId !== ensureCaptionLocalItemId(captionVideoQueue[captionQueueIndex])) {
+                throw new Error('Caption translation cancelled.');
+            }
+            return output;
+        } catch (error) {
+            if (controller.signal.aborted) {
+                const reason = controller.signal.reason instanceof Error ? controller.signal.reason : new Error('Caption translation cancelled.');
+                reason.captionTranslationFailure = true;
+                throw reason;
+            }
+            const failure = new Error(`Caption translation failed: ${error.message || error}. Check the translation service and retry. The previous captions are preserved.`);
+            failure.captionTranslationFailure = true;
+            throw failure;
+        } finally {
+            clearTimeout(timeout);
+            if (captionTranslationController === controller) captionTranslationController = null;
+            captionTranslationBusy = false;
+            if (cancelBtn) { cancelBtn.classList.add('hidden'); cancelBtn.disabled = false; cancelBtn.textContent = 'Stop Transcription'; }
+            publishCaptionLocalState();
+        }
+    }
 
     async function translateCaptionsTo(targetLang) {
         if (captionLocalBusy()) return;
-        if (!generatedCaptions || !generatedCaptions.length) {
-            statusText.innerHTML = '⚠️ Generate or load captions first, then translate.';
-            return;
-        }
-        const langLabel = { en: 'English', hi: 'हिंदी (Hindi)', te: 'తెలుగు (Telugu)' }[targetLang] || targetLang;
+        if (!generatedCaptions.length) { statusText.textContent = 'Generate or load captions first, then translate.'; return; }
+        const target = normalizeCaptionOutputLanguage(targetLang);
+        const selector = document.getElementById('captionLanguage');
+        if (selector) selector.value = target;
+        const item = captionVideoQueue[captionQueueIndex];
         const notifyTranslation = createCaptionWhatsAppJob('AI Captioning · caption translation');
-        captionTranslationBusy = true;
-        publishCaptionLocalState();
-        statusText.innerHTML = `🌐 Translating ${generatedCaptions.length} captions to ${langLabel}...`;
-
-        // Highlight active button
-        ['En','Hi','Te'].forEach(l => {
-            const b = document.getElementById('captionTranslate' + l + 'Btn');
-            if (b) b.style.opacity = (l.toLowerCase() === targetLang) ? '1' : '0.5';
-        });
-
-        const pBar = document.getElementById('captionProgressBarValue');
-        if (pBar) pBar.style.width = '10%';
-
-        // Check server health first
+        captionTranscriptionCancelRequested = false;
         try {
-            const health = await fetch(`${TRANSLATE_SERVER}/health`, { signal: AbortSignal.timeout(3000) });
-            if (!health.ok) throw new Error('Server not ready');
-        } catch (e) {
-            statusText.innerHTML = `❌ Translation server not running. Please start <b>Translate-Server.cmd</b> in D:\\voice\\ then try again.`;
-            notifyTranslation('failed', `Translation server unavailable: ${e.message || e}`);
-            captionTranslationBusy = false;
-            publishCaptionLocalState();
-            return;
-        }
-
-        // Batch translate all caption texts
-        const texts = generatedCaptions.map(c => c.text);
-        try {
-            const resp = await fetch(`${TRANSLATE_SERVER}/api/translate/batch`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ texts, target: targetLang, source: 'auto' })
+            const output = await prepareCaptionOutput(generatedCaptions, target, {
+                sourceLanguage: item?.outputLanguage || item?.sourceLanguage,
+                timingSource: item?.timingSource, warnings: item?.warnings || [],
             });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
-            const results = data.results || [];
-
-            // Apply translations back into captions
-            results.forEach((translated, i) => {
-                if (generatedCaptions[i] && translated) {
-                    generatedCaptions[i].text = translated;
-                    // Rebuild word list for translated text (re-split by words)
-                    if (generatedCaptions[i].words) {
-                        const ts = generatedCaptions[i].timestamp;
-                        const dur = ts[1] - ts[0];
-                        const words = translated.split(/\s+/).filter(Boolean);
-                        generatedCaptions[i].words = words.map((w, wi) => ({
-                            text: w,
-                            timestamp: [ts[0] + (wi / words.length) * dur,
-                                        ts[0] + ((wi + 1) / words.length) * dur]
-                        }));
-                    }
-                }
-            });
-
-            if (pBar) pBar.style.width = '100%';
-            editorPanel.style.display = 'block';
-            commitCaptionLocalEdits({ timingSource: 'estimated', warnings: captionVideoQueue[captionQueueIndex]?.warnings || [] });
+            generatedCaptions = output.captions;
+            applyCaptionOutputMetadata(item, output);
+            commitCaptionLocalEdits({ timingSource: output.timingSource, warnings: output.warnings }, true, true);
             populateEditor();
-            statusText.innerHTML = `✅ Translated ${results.length} captions to ${langLabel}. Edit if needed, then Export.`;
-            notifyTranslation(results.length ? 'completed' : 'failed', results.length
-                ? `Translated ${results.length} captions to ${targetLang}.`
-                : 'Translation returned no caption results.');
-        } catch(e) {
-            notifyTranslation('failed', e);
-            statusText.innerHTML = `❌ Translation failed: ${e.message}`;
-            if (pBar) pBar.style.width = '0%';
+            updateCaptionStyleValueLabels();
+            statusText.textContent = `${generatedCaptions.length} captions ready in ${item?.captionLanguage || target}. Cue start and end times are unchanged. Review synchronization, then export.`;
+            notifyTranslation('completed', `${generatedCaptions.length} captions ready in ${item?.captionLanguage || target}.`);
+        } catch (error) {
+            statusText.textContent = captionTranscriptionCancelRequested ? 'Translation cancelled. Your previous captions are preserved.' : error.message;
+            notifyTranslation(captionTranscriptionCancelRequested ? 'cancelled' : 'failed', error);
         } finally {
-            captionTranslationBusy = false;
-            publishCaptionLocalState();
+            captionTranscriptionCancelRequested = false;
+            actionBtn.disabled = false;
+            actionBtn.textContent = 'Generate Captions';
+            renderCaptionQueue();
         }
     }
 
@@ -2285,6 +2482,12 @@ function bootCaptionStudio() {
     if (translateEnBtn) translateEnBtn.addEventListener('click', () => translateCaptionsTo('en'));
     if (translateHiBtn) translateHiBtn.addEventListener('click', () => translateCaptionsTo('hi'));
     if (translateTeBtn) translateTeBtn.addEventListener('click', () => translateCaptionsTo('te'));
+    document.getElementById('captionTranslateSelectedBtn')?.addEventListener('click', () => translateCaptionsTo(getCaptionOutputLanguage()));
+    document.getElementById('captionLanguage')?.addEventListener('change', () => {
+        const sample = document.getElementById('captionSizePreviewText');
+        if (sample) sample.textContent = { en: 'Caption size sample', te: 'ఉపశీర్షిక పరిమాణం', hi: 'कैप्शन आकार का नमूना' }[getCaptionOutputLanguage()];
+        updateCaptionStyleValueLabels();
+    });
 
     const CAPTION_LANGUAGE_TO_CODE = {
         English: 'en',
@@ -2294,14 +2497,7 @@ function bootCaptionStudio() {
 
     async function translateCaptionsForSelectedLanguage(language) {
         const target = CAPTION_LANGUAGE_TO_CODE[language || 'English'] || 'en';
-        if (target !== 'en') {
-            await translateCaptionsTo(target);
-            return;
-        }
-        ['En','Hi','Te'].forEach(l => {
-            const b = document.getElementById('captionTranslate' + l + 'Btn');
-            if (b) b.style.opacity = l === 'En' ? '1' : '0.5';
-        });
+        await translateCaptionsTo(target);
     }
 
     function openLocalAiVideoCaptioningSection() {
@@ -2338,6 +2534,8 @@ function bootCaptionStudio() {
             ...Array.from((detail && detail.files) || [])
         ].filter(file => file && file.type && file.type.startsWith('video/'));
         if (!files.length) return;
+        const selector = document.getElementById('captionLanguage');
+        if (selector) selector.value = normalizeCaptionOutputLanguage(detail.language);
         const readyCaptions = Array.isArray(detail.captions)
             ? detail.captions
                 .map(caption => {
@@ -2367,7 +2565,8 @@ function bootCaptionStudio() {
             captions: readyCaptions.length ? JSON.parse(JSON.stringify(readyCaptions)) : [],
             timingSource: detail.timingSource === 'word' ? 'word' : 'estimated',
             warnings: Array.isArray(detail.warnings) ? detail.warnings.map(String) : [],
-            captionLanguage: detail.language || 'English'
+            captionLanguage: detail.language || 'English',
+            outputLanguage: readyCaptions.length ? normalizeCaptionOutputLanguage(detail.language) : undefined,
         }));
         captionQueueIndex = 0;
         loadQueuedCaptionVideo(0);
@@ -2404,7 +2603,6 @@ function bootCaptionStudio() {
                 return;
             }
             await transcribeActiveCaptionVideo();
-            await translateCaptionsForSelectedLanguage(detail.language || 'English');
         }
     }
 
@@ -2493,7 +2691,16 @@ function bootCaptionStudio() {
     }
 
     async function transcribeActiveCaptionVideo() {
-        if (isErasingCaptions || isExtractingText) return;
+        if (captionLocalBusy()) return;
+        const transcriptionOptions = getCaptionTranscriptionOptions();
+        const outputLanguage = getCaptionOutputLanguage();
+        const engineLabel = getCaptionEngineLabel(transcriptionOptions);
+        const previousIndex = captionQueueIndex;
+        const previousCaptions = generatedCaptions.length ? JSON.parse(JSON.stringify(generatedCaptions)) : null;
+        const previousItem = previousCaptions && captionVideoQueue[previousIndex]
+            ? { ...captionVideoQueue[previousIndex], captions: JSON.parse(JSON.stringify(previousCaptions)), warnings: [...(captionVideoQueue[previousIndex].warnings || [])] }
+            : null;
+        let captionsReplaced = false;
         const notifyFallback = createCaptionWhatsAppJob('AI Captioning · fallback transcription');
         let notificationRoute = 'preparation';
         isExtractingText = true;
@@ -2522,7 +2729,7 @@ function bootCaptionStudio() {
         if (pBar) pBar.style.width = '1%';
         updateSingleProgress(1, 'Preparing captions', (activeFile && activeFile.name) || 'Current video');
 
-        function finaliseCaptions() {
+        async function finaliseCaptions() {
             if (!generatedCaptions.length) {
                 if (notificationRoute !== 'native') notifyFallback(captionTranscriptionCancelRequested ? 'cancelled' : 'failed', 'No speech was detected; no captions were generated.');
                 autoBurnRequested = false;
@@ -2535,6 +2742,16 @@ function bootCaptionStudio() {
                 hideSingleCaptionProgress();
                 return;
             }
+            const item = captionVideoQueue[captionQueueIndex];
+            const stagedCaptions = generatedCaptions;
+            generatedCaptions = previousCaptions || [];
+            const output = await prepareCaptionOutput(stagedCaptions, outputLanguage, {
+                sourceLanguage: item?.sourceLanguage,
+                timingSource: item?.timingSource, warnings: item?.warnings || [],
+            });
+            generatedCaptions = output.captions;
+            applyCaptionOutputMetadata(item, output);
+            captionsReplaced = true;
             editorPanel.classList.remove('hidden');
             populateEditor();
             actionBtn.classList.add('hidden');
@@ -2612,30 +2829,27 @@ function bootCaptionStudio() {
                                 if (!mergeResult || !mergeResult.ok) throw new Error(mergeResult && mergeResult.error || 'Merge failed');
                                 if (pBar) pBar.style.width = '50%';
                                 statusText.innerHTML = 'Merged! Transcribing with Whisper...';
-                                const ipc2 = await window.electronAPI.transcribeVideo({ videoPath: mergeResult.outputPath });
+                                const ipc2 = await window.electronAPI.transcribeVideo({ videoPath: mergeResult.outputPath, ...getCaptionTranscriptionOptions() });
                                 if (pBar) pBar.style.width = '100%';
                                 if (ipc2 && ipc2.ok && ipc2.text && ipc2.text.trim().length > 3) {
                                     const words2 = Array.isArray(ipc2.words) ? ipc2.words : [];
                                     const segs2 = Array.isArray(ipc2.segments) ? ipc2.segments : [];
                                     if (words2.length > 0) {
-                                        generatedCaptions = [];
-                                        for (let i = 0; i < words2.length; i += CAPTION_WORD_LIMIT) {
-                                            const sl = words2.slice(i, i + CAPTION_WORD_LIMIT);
-                                            const txt = sl.map(w => w.word).join(' ').trim();
-                                            if (txt) generatedCaptions.push({ text: txt, timestamp: [sl[0].start, sl[sl.length-1].end], words: sl.map(w => ({ text: w.word, timestamp: [w.start, w.end] })) });
-                                        }
+                                        generatedCaptions = buildSpeechBoundedCaptionChunks(words2);
                                     } else if (segs2.length > 0) {
                                         generatedCaptions = segs2.map(s => ({ text: s.text.trim(), timestamp: [s.start, s.end], words: [] }));
                                     } else {
                                         generatedCaptions = buildLinearCaptionChunks(ipc2.text, sourceVideo.duration || 60, { narrationDurationSec: sourceVideo.duration || 60 });
                                     }
                                     statusText.innerHTML = generatedCaptions.length + ' captions from narration audio (Whisper)';
-                                    finaliseCaptions();
+                                    captionMetadataFromTranscription(ipc2);
+                                    await finaliseCaptions();
                                 } else {
                                     statusText.innerHTML = 'Transcription returned no speech — type captions manually';
                                     showManualCaptionInput();
                                 }
                             } catch(mergeErr) {
+                                mergeErr = await explainCaptionTimingFailure(mergeErr, getCaptionTranscriptionOptions());
                                 statusText.innerHTML = 'Error: ' + mergeErr.message;
                                 console.error(mergeErr);
                             }
@@ -2644,7 +2858,7 @@ function bootCaptionStudio() {
                         box.appendChild(audioPickBtn);
             box.appendChild(lbl); box.appendChild(ta); box.appendChild(burnBtn);
             statusText.parentElement.insertBefore(box, statusText.nextSibling);
-            burnBtn.onclick = () => {
+            burnBtn.onclick = async () => {
                 const rawText = (ta.value || '').trim();
                 if (!rawText) { alert('Please type some caption text first.'); return; }
                 const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -2657,12 +2871,14 @@ function bootCaptionStudio() {
                 });
                 box.remove();
                 statusText.innerHTML = generatedCaptions.length + ' captions ready';
-                finaliseCaptions();
+                const item = captionVideoQueue[captionQueueIndex];
+                if (item) item.sourceLanguage = captionTextScriptLanguage(rawText) || 'en';
+                try { await finaliseCaptions(); } catch (error) { statusText.textContent = error.message; }
             };
         }
 
         try {
-            // PATH 1: Electron IPC — FFmpeg extracts audio, Whisper returns real word timestamps
+            // PATH 1: Electron IPC — use the selected caption engine and native audio extraction.
             const hasIpc = window.electronAPI && typeof window.electronAPI.transcribeVideo === 'function';
             const videoPath = activeFile
                 ? (activeFile.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
@@ -2675,7 +2891,7 @@ function bootCaptionStudio() {
 
             if (hasIpc && videoPath) {
                 const fileLangHint = likelyIndicCaptionFileName(activeFile);
-                if (!isSongCaptionMode() && fileLangHint && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
+                if (!engineSelect && !isSongCaptionMode() && fileLangHint && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
                     try {
                         const langName = fileLangHint === 'te' ? 'Telugu' : fileLangHint === 'hi' ? 'Hindi' : 'Auto-Detect';
                         notificationRoute = 'native';
@@ -2686,10 +2902,11 @@ function bootCaptionStudio() {
                             if (pBar) pBar.style.width = '100%';
                             updateSingleProgress(100, 'Captions ready', `${generatedCaptions.length} fast Groq captions generated`);
                             statusText.innerHTML = '\u2705 ' + generatedCaptions.length + ` captions generated with Groq API (Fast)`;
-                            finaliseCaptions(); return;
+                            await finaliseCaptions(); return;
                         }
                         throw new Error('Groq API returned no usable speech captions.');
                     } catch (groqFirstErr) {
+                        if (groqFirstErr.captionTranslationFailure || groqFirstErr.captionTimingFailure || captionTranscriptionCancelRequested) throw groqFirstErr;
                         const groqMessage = groqFirstErr && groqFirstErr.message
                             ? groqFirstErr.message
                             : String(groqFirstErr || 'Groq API is unavailable.');
@@ -2698,13 +2915,13 @@ function bootCaptionStudio() {
                         updateSingleProgress(0, 'Caption generation stopped', groqMessage);
                         throw new Error(`Caution: Groq API (Fast) is required. ${groqMessage}`);
                     }
-                } else if (!isSongCaptionMode() && fileLangHint) {
+                } else if (!engineSelect && !isSongCaptionMode() && fileLangHint) {
                     statusText.innerHTML = '&#9888; Caution: Groq API (Fast) is unavailable. Caption generation was stopped.';
                     updateSingleProgress(0, 'Caption generation stopped', 'Groq API is unavailable.');
                     throw new Error('Caution: Groq API (Fast) is unavailable.');
                 }
 
-                statusText.innerHTML = '\u23f3 Analysing video audio with Whisper AI (30\u201390s)...';
+                statusText.textContent = `Analysing video audio with ${engineLabel}...`;
                 if (pBar) pBar.style.width = '8%';
                 updateSingleProgress(8, 'Preparing audio', 'Checking video and audio stream...');
                 let ipcShownPct = 8;
@@ -2714,16 +2931,14 @@ function bootCaptionStudio() {
                     ipcShownPct = Math.min(95, ipcShownPct + (ipcShownPct < 20 ? 2 : ipcShownPct < 45 ? 4 : ipcShownPct < 75 ? 2 : 0.15));
                     const elapsedMinutes = Math.max(0, (Date.now() - ipcStartedAt) / 60000);
                     if (pBar) pBar.style.width = ipcShownPct + '%';
-                    statusText.innerHTML = `Whisper is actively transcribing (${elapsedMinutes.toFixed(1)} minutes elapsed). The percentage is estimated; click Cancel Transcription to stop safely.`;
-                    updateSingleProgress(ipcShownPct, ipcShownPct < 20 ? 'Extracting audio' : 'Transcribing captions', `Processing locally — ${elapsedMinutes.toFixed(1)} min elapsed (estimated progress)`);
+                    statusText.textContent = `${engineLabel} is actively transcribing (${elapsedMinutes.toFixed(1)} minutes elapsed). The percentage is estimated; click Cancel Transcription to stop safely.`;
+                    updateSingleProgress(ipcShownPct, ipcShownPct < 20 ? 'Preparing audio' : 'Transcribing captions', `${engineLabel} — ${elapsedMinutes.toFixed(1)} min elapsed (estimated progress)`);
                 }, 900);
                 let ipc = null;
                 try {
-                    const queueLanguage = String(captionVideoQueue[captionQueueIndex]?.captionLanguage || '').toLowerCase();
-                    const languageHint = queueLanguage.includes('telugu') ? 'te' : (queueLanguage.includes('hindi') ? 'hi' : (queueLanguage.includes('english') ? 'en' : 'auto'));
-                    activeCaptionTranscription = { videoPath, languageHint };
+                    activeCaptionTranscription = { videoPath, languageHint: 'auto', ...transcriptionOptions };
                     notificationRoute = 'native';
-                    ipc = await window.electronAPI.transcribeVideo({ videoPath, languageHint, ...getCaptionTranscriptionOptions() });
+                    ipc = await window.electronAPI.transcribeVideo(activeCaptionTranscription);
                 } finally {
                     clearInterval(ipcHeartbeat);
                     activeCaptionTranscription = null;
@@ -2740,6 +2955,10 @@ function bootCaptionStudio() {
                     return;
                 }
 
+                if (['CAPTION_RESOURCE_BUSY', 'CAPTION_TRANSCRIPTION_BUSY'].includes(ipc?.code)) {
+                    throw new Error(ipc.error || 'Wait for the active job to finish before generating captions.');
+                }
+
                 if (ipc && ipc.ok) {
                     captionMetadataFromTranscription(ipc);
                     if (isSongCaptionMode() && !ipc.words?.length) throw new Error('No timed lyrics detected. Clearer vocals are needed for synchronized song captions.');
@@ -2747,7 +2966,7 @@ function bootCaptionStudio() {
                     updateSingleProgress(100, 'Captions ready', 'Transcription finished');
 
                     // No speech/audio detected in this video
-                    if (!ipc.text || ipc.text.trim().length < 3) {
+                    if (!String(ipc.text || '').trim() && !ipc.words?.length && !ipc.segments?.length) {
                         statusText.innerHTML = 'No speech detected in this video audio. Upload a video with speech to auto-burn synced karaoke captions.';
                         autoBurnRequested = false;
                         actionBtn.textContent = 'Generate Captions';
@@ -2756,7 +2975,7 @@ function bootCaptionStudio() {
                     }
 
                     const localLangCode = normalizeCaptionLanguageCode(ipc.language) || inferCaptionLanguageCode(ipc.text);
-                    if (!isSongCaptionMode() && isIndicCaptionLanguage(localLangCode) && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
+                    if (!engineSelect && !isSongCaptionMode() && isIndicCaptionLanguage(localLangCode) && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
                         try {
                             const langName = localLangCode === 'te' ? 'Telugu' : localLangCode === 'hi' ? 'Hindi' : 'Indic';
                             statusText.innerHTML = `Local Whisper detected ${langName}; switching to high-accuracy captions...`;
@@ -2765,9 +2984,10 @@ function bootCaptionStudio() {
                             generatedCaptions = buildCaptionChunksFromTranscription(groq, sourceVideo.duration || 60);
                             if (generatedCaptions.length) {
                                 statusText.innerHTML = '\u2705 ' + generatedCaptions.length + ` ${langName} captions from high-accuracy Whisper`;
-                                finaliseCaptions(); return;
+                                await finaliseCaptions(); return;
                             }
                         } catch (groqErr) {
+                            if (groqErr.captionTranslationFailure || groqErr.captionTimingFailure || captionTranscriptionCancelRequested) throw groqErr;
                             console.warn('[Caption] High-accuracy Indic retry failed, using local result:', groqErr);
                         }
                     }
@@ -2786,14 +3006,20 @@ function bootCaptionStudio() {
                         const dur = sourceVideo.duration || 60;
                         generatedCaptions = buildLinearCaptionChunks(ipc.text, dur, { narrationDurationSec: dur });
                     }
-                    statusText.innerHTML = '\u2705 ' + generatedCaptions.length + ' captions from video audio (Whisper)';
-                    finaliseCaptions(); return;
+                    statusText.textContent = `${generatedCaptions.length} captions from video audio (${engineLabel})`;
+                    await finaliseCaptions(); return;
+                }
+                if (transcriptionOptions.engine !== 'local') {
+                    throw new Error(ipc?.error || `${engineLabel} could not generate captions. Check its API key and retry.`);
                 }
                 console.warn('[Caption] IPC failed:', ipc && ipc.error);
                 statusText.innerHTML = '\u26a0\ufe0f IPC failed \u2014 trying HTTP server...';
             }
 
             // PATH 2: HTTP transcription server (port 8428)
+            if (transcriptionOptions.engine !== 'local') {
+                throw new Error(`${engineLabel} captioning requires the desktop app and an accessible video file.`);
+            }
             if (isSongCaptionMode()) throw new Error('Song transcription failed. Check the selected song engine and retry.');
             notificationRoute = 'fallback';
             statusText.innerHTML = 'Extracting audio from video...';
@@ -2811,9 +3037,10 @@ function bootCaptionStudio() {
                     captionMetadataFromTranscription(svr);
                     generatedCaptions = svr.chunks;
                     statusText.innerHTML = generatedCaptions.length + ' captions from video audio';
-                    finaliseCaptions(); return;
+                    await finaliseCaptions(); return;
                 }
             } catch (svrErr) {
+                if (svrErr.captionTranslationFailure || svrErr.captionTimingFailure || captionTranscriptionCancelRequested) throw svrErr;
                 console.warn('[Caption] HTTP server failed:', svrErr.message);
                 statusText.innerHTML = 'Server unavailable - using browser AI...';
             }
@@ -2841,8 +3068,6 @@ function bootCaptionStudio() {
             if (pBar) pBar.style.width = '30%';
             updateSingleProgress(30, 'Generating captions', 'Browser AI is transcribing audio...');
             const opts = { chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'word' };
-            const translateCheck = document.getElementById('captionTranslateCheck');
-            if (translateCheck && translateCheck.checked) opts.task = 'translate';
             const workerResult = await new Promise((res, rej) => {
                 captionWorker.onerror = ev => rej(new Error('Worker crash: ' + (ev.message || 'unknown')));
                 captionWorker.onmessage = ev => {
@@ -2868,11 +3093,11 @@ function bootCaptionStudio() {
                     };
                 })
             );
-            captionMetadataFromTranscription({ words: workerResult.chunks || [], timingSource: 'word' });
+            captionMetadataFromTranscription({ words: workerResult.chunks || [], timingSource: 'word', language: 'en' });
             if (generatedCaptions.length === 0 && workerResult.text) {
                 const dur = sourceVideo.duration || 60;
                 generatedCaptions = buildLinearCaptionChunks(workerResult.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim(), dur, { narrationDurationSec: dur });
-                captionMetadataFromTranscription({ timingSource: 'estimated' });
+                captionMetadataFromTranscription({ timingSource: 'estimated', language: 'en' });
             }
             if (!generatedCaptions.length) {
                 statusText.innerHTML = 'No speech detected in this video audio. Upload a video with speech to auto-burn synced karaoke captions.';
@@ -2883,9 +3108,10 @@ function bootCaptionStudio() {
                 return;
             }
             statusText.innerHTML = generatedCaptions.length + ' captions from video audio';
-            finaliseCaptions();
+            await finaliseCaptions();
 
         } catch (error) {
+            error = await explainCaptionTimingFailure(error, transcriptionOptions);
             statusText.innerHTML = 'Error: ' + (error.message || 'Unknown error');
             if (notificationRoute !== 'native' && !captionTranscriptionCancelRequested) notifyFallback('failed', error);
             console.error('[Caption]', error);
@@ -2894,6 +3120,18 @@ function bootCaptionStudio() {
                 renderCaptionQueue();
             }
         } finally {
+            if (!captionsReplaced && !previousCaptions) generatedCaptions = [];
+            if (!captionsReplaced && previousCaptions && captionQueueIndex === previousIndex) {
+                generatedCaptions = previousCaptions;
+                if (previousItem) captionVideoQueue[previousIndex] = previousItem;
+                editorPanel.classList.remove('hidden');
+                editorPanel.style.display = 'block';
+                populateEditor();
+                actionBtn.classList.add('hidden');
+                exportBtn.classList.remove('hidden');
+                if (previewBtn) previewBtn.classList.remove('hidden');
+                renderPreviewNow(sourceVideo.currentTime || 0);
+            }
             isExtractingText = false;
             // Queue buttons were rebuilt while transcription was busy. Rebuild
             // them again after unlocking so videos remain selectable on cancel.
@@ -2918,12 +3156,13 @@ function bootCaptionStudio() {
 
     actionBtn.addEventListener('click', async () => {
         if (isErasingCaptions) return;
-        if (isExtractingText) {
+        if (isExtractingText || captionTranslationBusy) {
             if (captionTranscriptionCancelRequested) return;
             captionTranscriptionCancelRequested = true;
             actionBtn.disabled = true;
             actionBtn.textContent = 'Cancelling...';
-            statusText.innerHTML = 'Cancelling the active local Whisper job...';
+            statusText.textContent = captionTranslationBusy ? 'Cancelling translation…' : `Cancelling the active ${getCaptionEngineLabel()} job...`;
+            captionTranslationController?.abort(new Error('Caption translation cancelled.'));
             if (activeCaptionTranscription && window.electronAPI && typeof window.electronAPI.cancelTranscribeVideo === 'function') {
                 try {
                     await window.electronAPI.cancelTranscribeVideo(activeCaptionTranscription);
@@ -2939,14 +3178,15 @@ function bootCaptionStudio() {
     });
 
     if (cancelBtn) cancelBtn.addEventListener('click', async () => {
-        if (!isExtractingText || captionTranscriptionCancelRequested) return;
+        if ((!isExtractingText && !activeCaptionTranscription && !captionTranslationBusy) || captionTranscriptionCancelRequested) return;
         captionTranscriptionCancelRequested = true;
         cancelBtn.disabled = true;
         cancelBtn.textContent = 'Stopping...';
         actionBtn.disabled = true;
         actionBtn.textContent = 'Stopping...';
-        statusText.innerHTML = 'Stopping the active transcription safely...';
-        if (window.electronAPI && typeof window.electronAPI.cancelTranscribeVideo === 'function') {
+        statusText.textContent = captionTranslationBusy ? 'Stopping translation safely…' : 'Stopping the active transcription safely…';
+        captionTranslationController?.abort(new Error('Caption translation cancelled.'));
+        if (activeCaptionTranscription && window.electronAPI && typeof window.electronAPI.cancelTranscribeVideo === 'function') {
             try { await window.electronAPI.cancelTranscribeVideo(activeCaptionTranscription || {}); }
             catch (error) { console.error('[Caption] Cancel failed:', error); }
         }
@@ -3381,7 +3621,7 @@ function bootCaptionStudio() {
             const useEmoji = emojiCheck && emojiCheck.checked;
             if (useEmoji) targetEmoji = getEmojiForText(currentChunk.text);
 
-            const fontFamily = getCaptionFontFamily();
+            const fontFamily = getCaptionFontFamily(generatedCaptions.map(cue => cue.text || '').join(' '));
             ctx.font = `${boldCheck && !boldCheck.checked ? 400 : 900} ${fontSize}px ${fontFamily}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             const visibleCaptionText = getVisibleCaptionText(currentChunk.text.trim(), activeWordIndex, CAPTION_WORD_LIMIT);
             const wrappedLines = getWrappedCaptionLines(ctx, visibleCaptionText, maxWidth);
@@ -3562,8 +3802,10 @@ function bootCaptionStudio() {
         const sideMargin = Math.max(20, Math.round(width * (1 - widthMult) / 2));
         const marginV = CAPTION_BOTTOM_OFFSET_PX;
         const syncOffset = getCaptionSyncOffsetSeconds();
-        const browserFont = getCaptionFontFamily();
-        const requestedFont = String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
+        const captionText = generatedCaptions.map(cue => cue.text || '').join(' ');
+        const browserFont = getCaptionFontFamily(captionText);
+        const requestedFont = /[\u0900-\u097f\u0c00-\u0c7f]/u.test(captionText) ? 'Nirmala UI'
+            : String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
         const selectedBold = boldCheck && !boldCheck.checked ? 0 : -1;
         const selectedFont = requestedFont === 'Nunito' && selectedBold ? 'Nunito Black' : requestedFont;
         const selectedHeight = Math.max(70, Math.min(140, Number(heightSlider?.value || 100)));

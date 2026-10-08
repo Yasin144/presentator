@@ -6,7 +6,7 @@ caption track no output is created. Never guesses a fixed bottom rectangle.
 
 Windows OCR samples determine screen-aligned text tracks. Pixel masks include
 glyph outlines and shadows, and clean matching nearby frames supply background
-when available. Remaining holes use OpenCV Telea inpainting. This is a local
+when available. Remaining holes use LaMa AI or explicit Quick OpenCV inpainting. This is a local
 reconstruction, not a promise to recover scenery hidden in every frame.
 """
 import argparse
@@ -14,6 +14,7 @@ import bisect
 from collections import OrderedDict
 import difflib
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -24,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 try:
     import cv2
@@ -323,13 +325,19 @@ def line_detection(line, sample, width, height):
     right = max(word["box"][0] + word["box"][2] for word in words)
     bottom = max(word["box"][1] + word["box"][3] for word in words)
     box_width, box_height = right - left, bottom - top
+    word_height = float(np.median([word["box"][3] for word in words]))
+    bottoms = [word["box"][1] + word["box"][3] for word in words]
+    # Full-frame OCR sometimes hallucinates a sloping sentence across foliage.
+    # Prefer the focused crop's actual single baseline over that oversized line.
+    if len(words) > 1 and (box_height > word_height * 1.55 or max(bottoms) - min(bottoms) > word_height * 0.60):
+        return None
     centre = (left + right) / 2 / width
     text = line.get("text") or " ".join(word["text"] for word in words)
     # Short corner logos, tiny scenery labels, and very large slide titles are
     # not captions. Centre text elsewhere requires a changing temporal track.
-    if len(normalized_text(text)) < 4 or not 0.15 < centre < 0.85:
+    if len(normalized_text(text)) < 2 or not 0.15 < centre < 0.85:
         return None
-    if not 0.009 * height <= box_height <= 0.15 * height or box_width < 0.055 * width:
+    if not 0.009 * height <= box_height <= 0.15 * height or box_width < 0.028 * width:
         return None
     if left < 0 or top < 0 or right > width or bottom > height:
         return None
@@ -410,6 +418,9 @@ def select_caption_tracks(samples, width, height, interval=0.5):
             # each observation to qualify before it can extend a caption track.
             if y > height * 0.60 and detection["outlinedLetters"] < 2 and len(detection["words"]) < 3:
                 continue
+            if (y > height * 0.60 and len(detection["words"]) == 1 and
+                    detection["outlinedLetters"] < len(normalized_text(detection["text"])) * 0.55):
+                continue
             if y <= height * 0.60 and len(detection["words"]) >= 2:
                 bottoms = [word["box"][1] + word["box"][3] for word in detection["words"]]
                 if max(bottoms) - min(bottoms) > word_height * 0.50:
@@ -422,6 +433,17 @@ def select_caption_tracks(samples, width, height, interval=0.5):
                 if detection["time"] - previous["time"] > max(2.0, interval * 4):
                     continue
                 px, py, pw, ph = previous["box"]
+                baseline = float(np.median([word["box"][1] + word["box"][3] for word in detection["words"]]))
+                previous_baseline = float(np.median([word["box"][1] + word["box"][3] for word in previous["words"]]))
+                previous_font = float(np.median([word["box"][3] for word in previous["words"]]))
+                if abs(baseline - previous_baseline) > max(word_height, previous_font) * 0.30:
+                    continue
+                if (len(detection["words"]) == len(previous["words"]) == 1 and
+                        difflib.SequenceMatcher(None, normalized_text(detection["text"]),
+                                                normalized_text(previous["text"])).ratio() >= 0.78 and
+                        min(abs(x - px), abs(x + w - px - pw), abs(x + w / 2 - px - pw / 2)) >
+                        max(word_height, previous_font) * 0.50):
+                    continue
                 if any(item["sample"] == detection["sample"] for item in track["detections"][-4:]):
                     continue
                 if abs((y + h / 2) - (py + ph / 2)) <= max(h, ph) * 0.65 and 0.55 <= h / ph <= 1.85:
@@ -479,13 +501,20 @@ def select_caption_tracks(samples, width, height, interval=0.5):
         lower = float(np.median(ys)) > height * 0.60
         centred = float(np.median([abs(item["centre"] - 0.5) for item in detections])) <= 0.23
         substantial = float(np.median([item["box"][2] for item in detections])) >= width * 0.14
-        if len(strings) < 2 and not (lower and centred and substantial):
+        # Animal names and other single-word captions can be narrower than a
+        # sentence. Require repeated, large outlined text in the lower centre
+        # before admitting these; tiny physical signs still do not qualify.
+        short_label = (lower and centred and not single and len(detections) >= 2 and
+                       detections[-1]["time"] - detections[0]["time"] >= interval and
+                       font_height >= height * 0.02 and
+                       float(np.median([item.get("outlinedLetters", 0) for item in detections])) >= 2)
+        if len(strings) < 2 and not (lower and centred and (substantial or short_label)):
             continue
         if single and not (lower and centred and substantial and detections[0].get("outlinedLetters", 0) >= 2 and
                            len(normalized_text(detections[0]["text"])) >= 8 and len(detections[0]["words"]) >= 2):
             continue
         # A persistent small watermark that OCR jitters on should not qualify.
-        if not substantial and not any(len(item["words"]) >= 2 for item in detections):
+        if not substantial and not short_label and not any(len(item["words"]) >= 2 for item in detections):
             continue
         padding = max(4, round(font_height * 0.28))
         x1 = max(0, math.floor(min(item["box"][0] for item in detections)) - padding)
@@ -534,10 +563,12 @@ def choose_styles(tracks, samples):
     for track in tracks:
         scores = {}
         votes = {}
+        backplate_bounds = []
         indices = sorted(set(range(min(4, len(track["detections"])))) | set(np.linspace(0, len(track["detections"]) - 1, min(8, len(track["detections"]))).round().astype(int)))
         for index in indices:
             detection = track["detections"][index]
             frame = load_png(samples[detection["sample"]]["source"])
+            backplate_bounds.extend(discover_caption_backplate_bounds(frame, detection, track["height"]))
             for word in detection["words"]:
                 x, y, w, h = [round(value) for value in word["box"]]
                 roi = frame[y:y + h, x:x + w]
@@ -559,7 +590,8 @@ def choose_styles(tracks, samples):
                     seed = glyph_seed(roi, mode, track["height"])
                     fraction = float(np.count_nonzero(seed)) / max(1, roi.shape[0] * roi.shape[1])
                     # Filled letter strokes normally occupy 5–45% of an OCR word.
-                    if 0.04 <= fraction <= 0.55:
+                    maximum_fill = 0.80 if mode == "light" and track.get("outlined") else 0.55
+                    if 0.04 <= fraction <= maximum_fill:
                         count, labels, stats, _ = cv2.connectedComponentsWithStats(seed, 8)
                         letter_components = 0
                         for label in range(1, count):
@@ -583,7 +615,9 @@ def choose_styles(tracks, samples):
                         scores[mode] = scores.get(mode, 0) + score
                         word_scores[mode] = score
                 if word_scores:
-                    winner = max(word_scores, key=word_scores.get)
+                    foreground = {mode: score for mode, score in word_scores.items() if mode != "dark"}
+                    eligible = foreground if track.get("outlined") and foreground else word_scores
+                    winner = max(eligible, key=eligible.get)
                     votes[winner] = votes.get(winner, 0) + 1
         if not scores:
             track["modes"] = []
@@ -598,7 +632,33 @@ def choose_styles(tracks, samples):
                 track["modes"] = [mode for mode in bright if scores[mode] >= best * 0.04]
             else:
                 track["modes"] = [max(scores, key=scores.get)]
+        if track.get("modes") and backplate_bounds:
+            expand_caption_track_bounds(track, backplate_bounds, frame.shape[:2])
     return [track for track in tracks if track.get("modes")]
+
+
+def badge_row_regions(component, origin, width, height):
+    # Protect rounded badge artwork row by row. Its bounding rectangle includes
+    # exposed scenery beside the curved edge, where a caption can still sit.
+    ox, oy = (int(value) for value in origin)
+    envelope = np.zeros_like(component, np.uint8)
+    for row, pixels in enumerate(component):
+        columns = np.flatnonzero(pixels)
+        if len(columns):
+            envelope[row, columns[0]:columns[-1] + 1] = 255
+    envelope = cv2.dilate(envelope, np.ones((3, 3), np.uint8))
+    regions = []
+    for row, pixels in enumerate(envelope):
+        columns = np.flatnonzero(pixels)
+        if not len(columns):
+            continue
+        left, right = max(0, ox + int(columns[0])), min(width, ox + int(columns[-1]) + 1)
+        top, bottom = max(0, oy + row), min(height, oy + row + 1)
+        if regions and regions[-1][0] == left and regions[-1][2] == right and regions[-1][3] == top:
+            regions[-1][3] = bottom
+        else:
+            regions.append([left, top, right, bottom])
+    return regions
 
 
 def corner_protection(samples, width, height):
@@ -625,6 +685,7 @@ def corner_protection(samples, width, height):
             group["samples"].add(sample["index"])
     protected = []
     measured_badges = []
+    badge_shapes = {}
     for group in groups:
         if len(group["samples"]) < max(3, len(samples) * 0.20):
             continue
@@ -653,15 +714,22 @@ def corner_protection(samples, width, height):
                 if edge and w <= width * 0.40 and h <= height * 0.20:
                     region = [int(x), int(y + top), int(x + w), int(y + top + h)]
                     measured_badges.append(region)
+                    # Include a one-pixel border so compressed badge edges stay
+                    # intact while its empty rounded corner remains removable.
+                    left, upper = max(0, x - 1), max(0, y - 1)
+                    right, lower = min(width, x + w + 1), min(labels.shape[0], y + h + 1)
+                    component = labels[upper:lower, left:right] == label
+                    badge_shapes[tuple(region)] = badge_row_regions(component, (left, upper + top), width, height)
                     break
             if region[2] >= width - 1 or region[0] == 0:
                 break
         protected.append(region)
     # Focused OCR can include a surviving caption letter in the same line as
     # a logo. Prefer the measured badge boundary over that oversized OCR line.
-    return [region for region in protected if region in measured_badges or not any(
+    retained = [region for region in protected if region in measured_badges or not any(
         max(0, min(region[2], badge[2]) - max(region[0], badge[0])) > (region[2] - region[0]) * 0.6
         for badge in measured_badges)]
+    return [piece for region in retained for piece in badge_shapes.get(tuple(region), [region])]
 
 
 def residual_tracks(samples, tracks, width, height, protected, minimum_observations=2):
@@ -670,17 +738,44 @@ def residual_tracks(samples, tracks, width, height, protected, minimum_observati
         assign_recovery_exclusions(tracks)
         return []
     font_height = float(np.median([track["height"] for track in lower]))
+    # A proved caption colour elsewhere in the video does not make similarly
+    # coloured leaves into text. Bind residual glyphs to nearby OCR evidence in
+    # this scene, including short labels that have too few observations for a
+    # complete stable track.
+    anchors = []
+    for sample in samples:
+        for line in sample.get("lines", []):
+            detection = line_detection(line, sample, width, height)
+            if detection is None or detection["box"][1] <= height * 0.60:
+                continue
+            word_height = float(np.median([word["box"][3] for word in detection["words"]]))
+            if word_height >= height * 0.02 and abs(detection["centre"] - 0.5) <= 0.25:
+                anchors.append(detection)
     top = max(0, min(track["box"][1] for track in lower))
     bottom = min(height, max(track["box"][1] + track["box"][3] for track in lower))
     proved_modes = {mode for track in lower for mode in track["modes"] if mode != "dark"}
     fragments = []
+    anchor_cache = FrameCache(samples)
     for sample in samples:
         if sample["index"] % 50 == 0:
             emit("progress", phase="analyzing", pct=50,
                  message="Checking remaining caption letters (%d/%d frames)" % (sample["index"] + 1, len(samples)))
+        nearby_anchors = []
+        signature = anchor_cache.signature(sample["index"])
+        for anchor in anchors:
+            if abs(anchor["time"] - sample["time"]) > 2.0:
+                continue
+            if "outlinedLetters" not in anchor:
+                anchor["outlinedLetters"] = outlined_letters(anchor_cache.get(anchor["sample"]), anchor)
+            region = dict(box=anchor["box"], protected=protected)
+            start, end = sorted((sample["index"], anchor["sample"]))
+            same_shot = all(matching_scene(signature, anchor_cache.signature(index), (height, width, 3), region)
+                            for index in range(start, end + 1))
+            if same_shot and anchor["outlinedLetters"] >= max(2, len(normalized_text(anchor["text"])) * 0.55):
+                nearby_anchors.append(anchor)
         if sample["time"] < min(track["times"][0] for track in lower) - 3.0:
             continue
-        frame = load_png(sample["source"])
+        frame = anchor_cache.get(sample["index"])
         roi = frame[top:bottom]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
@@ -721,6 +816,20 @@ def residual_tracks(samples, tracks, width, height, protected, minimum_observati
                         w <= max(h * 2.0, font_height * 1.6) and area >= 8):
                     continue
                 cx, cy = x + w / 2, y + top + h / 2
+                near_badge = mode == "light" and any(
+                    px1 - font_height * 0.60 <= cx <= px1 + font_height * 0.15 and
+                    py1 - font_height * 0.75 <= cy <= py1 + font_height * 0.15
+                    for px1, py1, px2, py2 in protected)
+                thin_stroke = (mode != "light" and
+                               w <= max(1, round(font_height * 0.03)) and
+                               max(12, font_height * 0.25) <= h <= font_height * 0.75)
+                anchored = any(anchor["box"][0] - font_height * 0.75 <= cx <=
+                           anchor["box"][0] + anchor["box"][2] + font_height * 0.75 and
+                           anchor["box"][1] - font_height * 0.20 <= cy <=
+                           anchor["box"][1] + anchor["box"][3] + font_height * 0.20
+                           for anchor in nearby_anchors)
+                if not (near_badge or anchored or thin_stroke):
+                    continue
                 if any(px1 <= cx <= px2 and py1 <= cy <= py2 for px1, py1, px2, py2 in protected):
                     continue
                 # An OCR word box alone is not proof of pixel coverage: colour
@@ -743,6 +852,16 @@ def residual_tracks(samples, tracks, width, height, protected, minimum_observati
                 required_contrast = 140 if mode == "light" else (70 if relaxed else 80)
                 if dark_fraction < required_dark or contrast < required_contrast:
                     continue
+                if not (near_badge or anchored) and (dark_fraction < 0.40 or contrast < 150):
+                    continue
+                # A partly erased karaoke word can leave a one-pixel coloured
+                # edge whose hue never won an OCR word. Admit that independent
+                # stroke only with a continuous vertical fill and a strong dark
+                # outline; broad coloured scene objects still need an anchor.
+                if thin_stroke and mode not in proved_modes and not (near_badge or anchored):
+                    if (dark_fraction < 0.45 or contrast < 160 or
+                            np.mean(np.any(component_pixels, axis=1)) < 0.90):
+                        continue
                 if any(abs(cx - previous["box"][0] - previous["box"][2] / 2) < w * 0.5 and
                        abs(cy - previous["box"][1] - previous["box"][3] / 2) < h * 0.5 for previous in observations):
                     continue
@@ -753,6 +872,8 @@ def residual_tracks(samples, tracks, width, height, protected, minimum_observati
                               sample["time"] - track["detections"][-1]["time"] <= 1.0 and
                               not any(item["sample"] == sample["index"] for item in track["detections"]) and
                               abs(cx - track["cx"]) < max(w, track["w"], font_height * 0.4) and
+                              min(x + w, track["cx"] + track["w"] / 2) -
+                              max(x, track["cx"] - track["w"] / 2) >= min(w, track["w"]) * 0.35 and
                               abs(cy - track["cy"]) < font_height * 0.4), None)
                 if match is None:
                     match = dict(modes=[mode], cx=cx, cy=cy, w=w, detections=[])
@@ -807,14 +928,133 @@ def assign_recovery_exclusions(tracks):
         track["recoveryExclusions"] = {index: boxes for index, boxes in track["recoveryExclusions"].items() if boxes}
 
 
+def outlined_seed(roi, seed, font_height):
+    """Keep letter fills with a real dark outline, excluding scene highlights."""
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(seed, 8)
+    accepted = np.zeros_like(seed)
+    for label in range(1, count):
+        x, y, w, h, area = stats[label]
+        if h < max(4, font_height * 0.20) or area < 8:
+            continue
+        pad = 3
+        left, right = max(0, x - pad), min(seed.shape[1], x + w + pad)
+        top, bottom = max(0, y - pad), min(seed.shape[0], y + h + pad)
+        component = (labels[top:bottom, left:right] == label).astype(np.uint8)
+        ring = (cv2.dilate(component, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) > 0) & (component == 0)
+        values = gray[top:bottom, left:right]
+        if (not np.any(ring) or float(np.mean(values[ring] < 90)) < 0.35 or
+                float(np.median(values[component > 0])) - float(np.percentile(values[ring], 25)) < 70):
+            continue
+        accepted[top:bottom, left:right][component > 0] = 255
+    # Small dots and punctuation may not have enough height independently.
+    # Keep those only when they sit beside a proved letter stroke.
+    radius = max(2, round(font_height * 0.22))
+    support = cv2.dilate(accepted, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius * 2 + 1,) * 2))
+    return seed & support
+
+
+def caption_backplate_components(roi, detections, origin, font_height):
+    """Find complete solid boxes enclosing proved caption text in a bounded ROI."""
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    components = []
+    x, y = origin
+    for detection in detections:
+        wx, wy, ww, wh = detection["box"]
+        left, top = max(0, math.floor(wx - x)), max(0, math.floor(wy - y))
+        right, bottom = min(roi.shape[1], math.ceil(wx + ww - x)), min(roi.shape[0], math.ceil(wy + wh - y))
+        if left >= right or top >= bottom:
+            continue
+        # Include a small ring around the OCR box: dense letters can occupy most
+        # of the word, while the card colour remains clear just outside it.
+        ring = max(3, round(font_height * 0.15))
+        probe = hsv[max(0, top - ring):min(roi.shape[0], bottom + ring),
+                    max(0, left - ring):min(roi.shape[1], right + ring)].reshape(-1, 3)
+        bins = probe.astype(np.int32) // np.array([5, 32, 32])
+        codes = bins[:, 0] * 64 + bins[:, 1] * 8 + bins[:, 2]
+        counts = np.bincount(codes, minlength=2304)
+        for colour_bin in np.argsort(counts)[-3:]:
+            members = probe[codes == colour_bin]
+            if len(members) < len(probe) * 0.15:
+                continue
+            colour = np.median(members, axis=0)
+            delta = np.abs(hsv.astype(np.float32) - colour)
+            hue_delta = np.minimum(delta[:, :, 0], 180 - delta[:, :, 0])
+            hue_match = (hue_delta <= 4) if colour[1] >= 50 else np.ones(roi.shape[:2], bool)
+            selected = (hue_match & (delta[:, :, 1] <= 35) & (delta[:, :, 2] <= 30)).astype(np.uint8)
+            count, labels, stats, _ = cv2.connectedComponentsWithStats(selected, 8)
+            for label in range(1, count):
+                bx, by, bw, bh, area = (int(value) for value in stats[label])
+                # A clipped component may be a large patch of scenery, or the
+                # missing edge of a card. Neither is a complete proved box.
+                if bx < 2 or by < 2 or bx + bw > roi.shape[1] - 2 or by + bh > roi.shape[0] - 2:
+                    continue
+                if (bw < ww * 0.95 or bw > ww + font_height * 4 or
+                        bh < max(wh * 1.12, wh + 4) or bh > font_height * 3.5 or
+                        area < bw * bh * 0.40 or area < ww * wh * 0.65):
+                    continue
+                if not (bx <= left + ww * 0.15 and bx + bw >= right - ww * 0.15 and
+                        by <= top + wh * 0.15 and by + bh >= bottom - wh * 0.15):
+                    continue
+                component = (labels == label).astype(np.uint8)
+                contours, _ = cv2.findContours(component, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if sum(cv2.contourArea(contour) for contour in contours) < bw * bh * 0.85:
+                    continue
+                components.append((contours, [bx, by, bw, bh]))
+    return components
+
+
+def discover_caption_backplate_bounds(frame, detection, font_height):
+    """Search beyond glyph padding without allocating a guessed erasure band."""
+    wx, wy, ww, wh = detection["box"]
+    horizontal = max(8, math.ceil(font_height * 2)) + 4
+    vertical = max(8, math.ceil(font_height * 1.5)) + 4
+    left, top = max(0, math.floor(wx) - horizontal), max(0, math.floor(wy) - vertical)
+    right = min(frame.shape[1], math.ceil(wx + ww) + horizontal)
+    bottom = min(frame.shape[0], math.ceil(wy + wh) + vertical)
+    if left >= right or top >= bottom:
+        return []
+    components = caption_backplate_components(frame[top:bottom, left:right], [detection], (left, top), font_height)
+    # Leave room for the contour halo in the final track ROI. It must never clip
+    # panel edges and then feed their colour into the reconstructed interior.
+    halo = 4
+    bounds = []
+    for _, (x, y, width, height) in components:
+        bounds.append([max(0, left + x - halo), max(0, top + y - halo),
+                       min(frame.shape[1], left + x + width + halo),
+                       min(frame.shape[0], top + y + height + halo)])
+    return bounds
+
+
+def expand_caption_track_bounds(track, bounds, shape):
+    height, width = shape
+    x, y, w, h = track["box"]
+    left = max(0, min([x] + [box[0] for box in bounds]))
+    top = max(0, min([y] + [box[1] for box in bounds]))
+    right = min(width, max([x + w] + [box[2] for box in bounds]))
+    bottom = min(height, max([y + h] + [box[3] for box in bounds]))
+    track["box"] = [int(left), int(top), int(right - left), int(bottom - top)]
+
+
+def caption_backplate_mask(roi, detections, origin, font_height):
+    """Mask complete solid caption panels, including their letter-shaped holes."""
+    result = np.zeros(roi.shape[:2], np.uint8)
+    for contours, _ in caption_backplate_components(roi, detections, origin, font_height):
+        cv2.drawContours(result, contours, -1, 255, cv2.FILLED)
+    if np.any(result):
+        result = cv2.dilate(result, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    return result
+
+
 def track_mask(frame, track, timestamp=None):
     x, y, w, h = track["box"]
     if timestamp is not None and track.get("outlined") and not track.get("fragment"):
         # Expanding the first/last OCR timestamp is necessary for captions that
         # appear between samples. Bare scenery at either edge still needs actual
         # outlined letters before it can receive a mask.
-        if timestamp < track["times"][0] or timestamp > track["times"][-1]:
-            closest = min(track["detections"], key=lambda item: abs(item["time"] - timestamp))
+        closest = min(track["detections"], key=lambda item: abs(item["time"] - timestamp))
+        if (timestamp < track["times"][0] or timestamp > track["times"][-1] or
+                abs(closest["time"] - timestamp) > 0.30):
             if outlined_letters(frame, closest, stop_at=2) < 2:
                 return np.zeros((h, w), np.uint8)
     roi = frame[y:y + h, x:x + w]
@@ -838,13 +1078,17 @@ def track_mask(frame, track, timestamp=None):
             if left < right and top < bottom:
                 word_area[top:bottom, left:right] = 255
     seed &= word_area
+    if track.get("outlined") and "dark" not in track["modes"]:
+        seed = outlined_seed(roi, seed, track["height"])
     # Reject isolated scene highlights; caption lines have several letter strokes.
     if np.count_nonzero(seed) < max(12, track["height"] * 0.6):
         return np.zeros((h, w), np.uint8)
     # OCR boxes cover the bright fill; an outline plus drop shadow can extend
     # 6–8 pixels beyond a 30px glyph. Cover that halo without filling the band.
-    margin = max(3, round(track["height"] * 0.24))
+    margin = max(3, min(10, round(track["height"] * 0.24)))
     mask = cv2.dilate(seed, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin * 2 + 1,) * 2))
+    if not track.get("fragment"):
+        mask |= caption_backplate_mask(roi, near, (x, y), track["height"])
     for px1, py1, px2, py2 in track.get("protected", []):
         left, right = max(0, px1 - x), min(w, px2 - x)
         upper, lower = max(0, py1 - y), min(h, py2 - y)
@@ -858,12 +1102,23 @@ def active_track(track, timestamp, interval):
     neighbors = track["times"][max(0, index - 1):index + 1]
     # The first/last visible frame may lie almost one sampling interval from
     # the OCR observation. Pixel-level glyph detection gates the expanded edge.
-    return bool(neighbors) and min(abs(value - timestamp) for value in neighbors) <= interval + 0.02
+    if neighbors and min(abs(value - timestamp) for value in neighbors) <= interval + 0.02:
+        return True
+    # OCR sometimes misses a frame while the same outlined caption remains on
+    # screen. Bridge only the bounded gaps already allowed during tracking;
+    # track_mask still requires actual letters in the unsampled frame.
+    return (track.get("outlined", False) and not track.get("fragment", False) and
+            len(neighbors) == 2 and neighbors[0] <= timestamp <= neighbors[1] and
+            neighbors[1] - neighbors[0] <= max(2.0, interval * 4))
 
 
 class FrameCache:
     def __init__(self, samples, limit=20):
         self.samples, self.limit, self.frames = samples, limit, OrderedDict()
+        self.scene_signatures = {}
+        self.donor_masks = OrderedDict()
+        self.donor_mask_bytes = 0
+        self.donor_mask_budget = 32 * 1024 * 1024
 
     def get(self, index):
         if index in self.frames:
@@ -875,64 +1130,225 @@ class FrameCache:
             self.frames.popitem(last=False)
         return frame
 
+    def signature(self, index):
+        if index not in self.scene_signatures:
+            self.scene_signatures[index] = scene_signature(self.get(index))
+        return self.scene_signatures[index]
 
-def restore_region(frame, track, mask, timestamp, samples, cache):
+    def donor_mask(self, index, track):
+        key = (id(track), index)
+        if key in self.donor_masks:
+            self.donor_masks.move_to_end(key)
+            return self.donor_masks[key]
+        frame = self.get(index)
+        mask = track_mask(frame, track, self.samples[index]["time"])
+        x, y, w, h = track["box"]
+        # OCR may omit a moving karaoke word or record its previous position.
+        # Independently exclude outlined fills of every foreground colour from
+        # donor pixels; this guard never enlarges the output removal mask.
+        mask |= donor_caption_guard(frame[y:y + h, x:x + w], track["height"])
+        add_recovery_exclusions(mask, track, self.samples[index]["index"], track["box"][:2])
+        add_protected_regions(mask, track, track["box"][:2])
+        if mask.nbytes <= self.donor_mask_budget:
+            while self.donor_mask_bytes + mask.nbytes > self.donor_mask_budget:
+                _, expired = self.donor_masks.popitem(last=False)
+                self.donor_mask_bytes -= expired.nbytes
+            self.donor_masks[key] = mask
+            self.donor_mask_bytes += mask.nbytes
+        return mask
+
+
+def donor_caption_guard(roi, font_height):
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    saturated = hsv[(hsv[:, :, 1] > 65) & (hsv[:, :, 2] > 125), 0]
+    modes = ["light"]
+    if saturated.size:
+        bins = np.bincount((saturated // 10).astype(int), minlength=18)
+        modes += [str(index * 10 + 5) for index in range(18) if bins[index] >= 8]
+    guard = np.zeros(roi.shape[:2], np.uint8)
+    for mode in modes:
+        guard |= outlined_seed(roi, glyph_seed(roi, mode, font_height), font_height)
+    margin = max(4, min(12, round(font_height * 0.30)))
+    return cv2.dilate(guard, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin * 2 + 1,) * 2))
+
+
+def scene_signature(frame):
+    return cv2.resize(frame, (80, 45), interpolation=cv2.INTER_AREA)
+
+
+def matching_scene(reference, candidate, frame_shape, track):
+    difference = np.abs(reference.astype(np.int16) - candidate.astype(np.int16)).mean(axis=2)
+    visible = np.ones(difference.shape, bool)
+    height, width = frame_shape[:2]
+    x, y, w, h = track["box"]
+    for left, upper, right, lower in [[x, y, x + w, y + h]] + track.get("protected", []):
+        left, right = max(0, math.floor(left * 80 / width)), min(80, math.ceil(right * 80 / width))
+        upper, lower = max(0, math.floor(upper * 45 / height)), min(45, math.ceil(lower * 45 / height))
+        visible[upper:lower, left:right] = False
+    if np.count_nonzero(visible) < difference.size * 0.25:
+        return False
+    values = difference[visible]
+    return float(np.median(values)) <= 15 and float(np.mean(values)) <= 24
+
+
+def temporal_donor_candidates(samples, timestamp, cache, reference, track, max_distance=8.0):
+    times = [sample["time"] for sample in samples]
+    position = bisect.bisect_left(times, timestamp)
+    cursors = [position - 1, position]
+    enabled = [True, True]
+    signature = scene_signature(reference)
+    while any(enabled):
+        for side in range(2):
+            index = cursors[side]
+            if index < 0 or index >= len(times) or abs(times[index] - timestamp) > max_distance:
+                enabled[side] = False
+        available = [side for side in range(2) if enabled[side]]
+        if not available:
+            break
+        side = min(available, key=lambda value: abs(times[cursors[value]] - timestamp))
+        index = cursors[side]
+        cursors[side] += -1 if side == 0 else 1
+        # Stop at the first different shot in either direction. A later return
+        # to similar scenery must not supply a donor across the intervening cut.
+        if not matching_scene(signature, cache.signature(index), reference.shape, track):
+            enabled[side] = False
+            continue
+        yield index
+
+
+def add_recovery_exclusions(mask, track, sample_index, origin):
+    x, y = origin
+    h, w = mask.shape
+    for left, upper, right, lower in track.get("recoveryExclusions", {}).get(str(sample_index), []):
+        left, right = max(0, left - x), min(w, right - x)
+        upper, lower = max(0, upper - y), min(h, lower - y)
+        if left < right and upper < lower:
+            mask[upper:lower, left:right] = 255
+
+
+def add_protected_regions(mask, track, origin):
+    x, y = origin
+    h, w = mask.shape
+    for left, upper, right, lower in track.get("protected", []):
+        left, right = max(0, left - x), min(w, right - x)
+        upper, lower = max(0, upper - y), min(h, lower - y)
+        if left < right and upper < lower:
+            mask[upper:lower, left:right] = 255
+
+
+def supported_local_matches(difference, clear, font_height):
+    # Unknown pixels contribute no evidence, rather than a perfect match.
+    # Include visible pixels beyond the glyph halo, even for large bold text.
+    size = max(15, min(129, round(font_height * 1.4) | 1))
+    support = cv2.blur(clear.astype(np.float32), (size, size), borderType=cv2.BORDER_CONSTANT)
+    error_sum = cv2.blur(np.where(clear, difference, 0).astype(np.float32),
+                         (size, size), borderType=cv2.BORDER_CONSTANT)
+    bad_sum = cv2.blur((clear & (difference > 12)).astype(np.float32),
+                       (size, size), borderType=cv2.BORDER_CONSTANT)
+    denominator = np.maximum(support, 1e-6)
+    return ((support >= 0.20) & (support * size * size >= 32) &
+            (error_sum / denominator < 4) & (bad_sum / denominator < 0.10))
+
+
+def restore_region(frame, track, mask, timestamp, samples, cache, defer_fallback=False):
     x, y, w, h = track["box"]
     original = frame[y:y + h, x:x + w]
     region = original.copy()
     remaining = mask.copy()
-    sample_times = [sample["time"] for sample in samples]
-    position = bisect.bisect_left(sample_times, timestamp)
-    # Nearby frames from both sides can reveal pixels hidden under an earlier or
-    # later caption. Scene cuts/motion fail the surrounding-pixel match below.
-    candidates = sorted(range(max(0, position - 8), min(len(samples), position + 8)),
-                        key=lambda index: abs(samples[index]["time"] - timestamp))
+    # OCR word boxes can fill a narrow track. Include surrounding scene pixels
+    # in confidence checks without modifying any pixel outside the input mask.
+    padding = max(16, round(track["height"] * 0.75))
+    cx, cy = max(0, x - padding), max(0, y - padding)
+    right, bottom = min(frame.shape[1], x + w + padding), min(frame.shape[0], y + h + padding)
+    context = frame[cy:bottom, cx:right]
+    rx, ry = x - cx, y - cy
+    target_mask = np.zeros(context.shape[:2], np.uint8)
+    target_mask[ry:ry + h, rx:rx + w] = mask
+    if samples:
+        closest = min(samples, key=lambda sample: abs(sample["time"] - timestamp))
+        if abs(closest["time"] - timestamp) <= 0.27:
+            add_recovery_exclusions(target_mask, track, closest["index"], (cx, cy))
+    add_protected_regions(target_mask, track, (cx, cy))
+    # Sustained captions often cover every frame within two seconds. Search up
+    # to eight seconds on either side, stopping at a scene change.
+    candidates = temporal_donor_candidates(samples, timestamp, cache, frame, track)
     temporal_pixels = 0
     for index in candidates:
         if not np.any(remaining):
             break
+        donor_mask = cache.donor_mask(index, track)
+        if not np.any((remaining > 0) & (donor_mask == 0)):
+            continue
         candidate = cache.get(index)
         candidate_region = candidate[y:y + h, x:x + w]
-        candidate_mask = track_mask(candidate, track, samples[index]["time"])
-        for left, upper, right, lower in track.get("recoveryExclusions", {}).get(str(samples[index]["index"]), []):
-            left, right = max(0, left - x), min(w, right - x)
-            upper, lower = max(0, upper - y), min(h, lower - y)
-            if left < right and upper < lower:
-                candidate_mask[upper:lower, left:right] = 255
-        clear = (mask == 0) & (candidate_mask == 0)
-        if np.count_nonzero(clear) < w * h * 0.25:
+        candidate_context = candidate[cy:bottom, cx:right]
+        candidate_mask = np.zeros(context.shape[:2], np.uint8)
+        candidate_mask[ry:ry + h, rx:rx + w] = donor_mask
+        add_recovery_exclusions(candidate_mask, track, samples[index]["index"], (cx, cy))
+        add_protected_regions(candidate_mask, track, (cx, cy))
+        clear = (target_mask == 0) & (candidate_mask == 0)
+        if np.count_nonzero(clear) < clear.size * 0.25:
             continue
-        difference = np.abs(original.astype(np.int16) - candidate_region.astype(np.int16)).mean(axis=2)
+        difference = np.abs(context.astype(np.int16) - candidate_context.astype(np.int16)).mean(axis=2)
         # Require the visible background to agree. Never paste across a scene cut.
         if float(np.median(difference[clear])) > 5 or float(np.mean(difference[clear])) > 12:
             continue
-        # Each recovered pixel also needs a matching local neighborhood, avoiding
-        # copying a moving subject just because most of a backdrop is unchanged.
-        local_error = cv2.blur(np.where(clear, difference, 0).astype(np.float32), (15, 15))
-        usable = (remaining > 0) & (candidate_mask == 0) & (local_error < 4)
+        matches = supported_local_matches(difference, clear, track["height"])[ry:ry + h, rx:rx + w]
+        usable = (remaining > 0) & (donor_mask == 0) & matches
         region[usable] = candidate_region[usable]
         remaining[usable] = 0
         temporal_pixels += int(np.count_nonzero(usable))
-    if np.any(remaining):
-        fill_mask = remaining.copy()
-        # Keep a protected logo out of the inpaint donors too. Otherwise its
-        # pale panel can bleed into a removed terminal letter above the badge.
-        for px1, py1, px2, py2 in track.get("protected", []):
-            left, right = max(0, px1 - x), min(w, px2 - x)
-            upper, lower = max(0, py1 - y), min(h, py2 - y)
-            if left < right and upper < lower:
-                fill_mask[upper:lower, left:right] = 255
-        region = cv2.inpaint(region, fill_mask, max(3, round(track["height"] * 0.16)), cv2.INPAINT_TELEA)
+    if np.any(remaining) and not defer_fallback:
+        # A fragment's narrow crop can contain neighboring caption strokes
+        # outside its output mask. They must not feed the fill operation.
+        # Use surrounding scene context and exclude all proved caption pixels
+        # and logo artwork while preserving already recovered donor pixels.
+        fill_mask = target_mask.copy()
+        fill_mask |= donor_caption_guard(context, track["height"])
+        local_fill = fill_mask[ry:ry + h, rx:rx + w]
+        local_fill[(mask > 0) & (remaining == 0)] = 0
+        local_fill[remaining > 0] = 255
+        fill_context = context.copy()
+        fill_context[ry:ry + h, rx:rx + w] = region
+        filled = cv2.inpaint(fill_context, fill_mask, 3, cv2.INPAINT_TELEA)
+        local_result = filled[ry:ry + h, rx:rx + w]
+        region[remaining > 0] = local_result[remaining > 0]
     # Exact pixel preservation outside the glyph/shadow mask.
     original[mask > 0] = region[mask > 0]
-    return temporal_pixels
+    return (temporal_pixels, remaining) if defer_fallback else temporal_pixels
 
 
-def clean_frame(frame, tracks, timestamp, samples, cache, interval):
+def clean_frame(frame, tracks, timestamp, samples, cache, interval, repair=None):
     # Select every mask from the immutable decoded frame before modifying any
     # pixels. Overlapping tracks cannot manufacture new seeds in an earlier fill.
     masks = [(track, track_mask(frame, track, timestamp)) for track in tracks
              if active_track(track, timestamp, interval)]
+    if repair is not None:
+        output_mask = np.zeros(frame.shape[:2], np.uint8)
+        missing = np.zeros_like(output_mask)
+        recovered_mask = np.zeros_like(output_mask)
+        exclusions = np.zeros_like(output_mask)
+        nearest = min(samples, key=lambda item: abs(item["time"] - timestamp)) if samples else None
+        for track, mask in masks:
+            if not np.any(mask):
+                continue
+            x, y, w, h = track["box"]
+            output_mask[y:y + h, x:x + w] |= mask
+            _, remaining = restore_region(frame, track, mask, timestamp, samples, cache, defer_fallback=True)
+            missing[y:y + h, x:x + w] |= remaining
+            recovered_mask[y:y + h, x:x + w][(mask > 0) & (remaining == 0)] = 255
+            if nearest is not None and abs(nearest["time"] - timestamp) <= interval + 0.02:
+                add_recovery_exclusions(exclusions, track, nearest["index"], (0, 0))
+            add_protected_regions(exclusions, track, (0, 0))
+        missing[recovered_mask > 0] = 0
+        exclusions |= output_mask
+        # Real recovered background is valid context. Reconstruct all remaining
+        # caption holes together so other letters cannot contaminate each other.
+        exclusions[recovered_mask > 0] = 0
+        if np.any(missing):
+            repaired = repair.repair(frame, missing, exclusions)
+            frame[missing > 0] = repaired[missing > 0]
+        return int(np.count_nonzero(output_mask)), int(np.count_nonzero(recovered_mask))
     masked_pixels = temporal_pixels = 0
     for track, mask in masks:
         count = int(np.count_nonzero(mask))
@@ -994,7 +1410,7 @@ def read_exact(pipe, length):
     return b"".join(chunks)
 
 
-def render_video(filename, output, video, tracks, samples, interval, ffmpeg):
+def render_video(filename, output, video, tracks, samples, interval, ffmpeg, repair=None):
     width, height = video["width"], video["height"]
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     decoder = subprocess.Popen([ffmpeg, "-v", "error", "-i", filename,
@@ -1012,6 +1428,7 @@ def render_video(filename, output, video, tracks, samples, interval, ffmpeg):
         drain.start()
     cache = FrameCache(samples)
     processed = changed_frames = masked_pixels = temporal_pixels = 0
+    last_progress = time.monotonic()
     try:
         encoder.stdin.write(matroska_header(width, height, video["durations"][-1]))
         while True:
@@ -1022,15 +1439,16 @@ def render_video(filename, output, video, tracks, samples, interval, ffmpeg):
                 raise ValueError("The decoder produced more frames than the source timing records.")
             frame = np.frombuffer(raw, np.uint8).reshape(height, width, 3).copy()
             timestamp = video["times"][processed]
-            selected, recovered = clean_frame(frame, tracks, timestamp, samples, cache, interval)
+            selected, recovered = clean_frame(frame, tracks, timestamp, samples, cache, interval, repair)
             masked_pixels += selected
             temporal_pixels += recovered
             changed_frames += int(selected > 0)
             encoder.stdin.write(timestamped_frame(frame, timestamp, video["durations"][processed]))
             processed += 1
-            if processed % max(1, round(video["fps"])) == 0:
+            if processed % max(1, round(video["fps"])) == 0 or time.monotonic() - last_progress >= 3:
                 emit("progress", phase="erasing", pct=round(50 + 49 * processed / video["frameCount"], 1),
-                     framesProcessed=processed, message="Reconstructing backgrounds under detected captions")
+                     framesProcessed=processed, message=f"Reconstructing backgrounds: frame {processed} of {video['frameCount']}")
+                last_progress = time.monotonic()
         encoder.stdin.close()
         decoder_code = decoder.wait()
         encoder_code = encoder.wait()
@@ -1102,7 +1520,17 @@ def erase(args):
                         detectedRegions=regions, framesProcessed=0, **metadata)
         emit("progress", phase="erasing", pct=50, detectedRegions=regions,
              message="Detected caption positions; removing glyphs and their outlines")
-        stats = render_video(filename, output, video, tracks, samples, args.sample_interval, args.ffmpeg)
+        repair = None
+        if getattr(args, "ai_model", None):
+            helper_path = Path(__file__).with_name("caption-eraser-ai.py")
+            spec = importlib.util.spec_from_file_location("caption_eraser_ai", helper_path)
+            helper = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(helper)
+            repair = helper.CaptionAIRepair(args.ai_model, progress=lambda percent, message: emit(
+                "progress", phase="preparing-ai", pct=50,
+                message=f"{message} ({percent}%). First-time AI setup needs an internet connection."))
+            metadata["engine"] = "Windows OCR + temporal recovery + LaMa AI"
+        stats = render_video(filename, output, video, tracks, samples, args.sample_interval, args.ffmpeg, repair)
         return dict(ok=True, changed=stats["changedFrames"] > 0, noCaptionsDetected=stats["changedFrames"] == 0,
                     outputPath=output, detectedRegions=regions, **stats, **metadata)
 
@@ -1117,6 +1545,7 @@ def main():
     parser.add_argument("--work-dir")
     parser.add_argument("--sample-interval", type=float, default=0.25)
     parser.add_argument("--analysis-only", action="store_true", help="Write OCR/track diagnostics without rendering a video.")
+    parser.add_argument("--ai-model", help="Use checksum-verified local LaMa background reconstruction for remaining caption holes.")
     parser.add_argument("--reuse-samples", help="Reuse and verify source/ocr PNG samples from a prior invocation.")
     args = parser.parse_args()
     if not 0.1 <= args.sample_interval <= 2:

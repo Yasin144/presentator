@@ -16,22 +16,29 @@ function runFile(executable, args, options = {}) {
   });
 }
 
-async function findCaptionPython(root, execute = runFile) {
+async function findCaptionPython(root, execute = runFile, quality = 'ai') {
+  if (quality !== 'ai' && quality !== 'quick') throw new Error('Choose AI or Quick caption erasing quality.');
   const local = process.env.LOCALAPPDATA || '';
   const candidates = [
     process.env.CAPTION_ERASER_PYTHON,
-    ...['.caption-eraser-venv', '.voiceclone-venv', '.singing-venv'].map(name => path.join(root, name, 'Scripts', 'python.exe')),
+    path.join(root, '.caption-eraser-venv', 'Scripts', 'python.exe'),
+    path.join(os.homedir(), '.cache', 'pattan-caption-eraser', '.caption-eraser-venv', 'Scripts', 'python.exe'),
+    ...['.voiceclone-venv', '.singing-venv'].map(name => path.join(root, name, 'Scripts', 'python.exe')),
     ...['Python310', 'Python311', 'Python312', 'Python313', 'Python314'].map(name => path.join(local, 'Programs', 'Python', name, 'python.exe')),
     'python', 'python3',
   ].filter(Boolean);
   for (const executable of [...new Set(candidates)]) {
     if (path.isAbsolute(executable) && !fs.existsSync(executable)) continue;
     try {
-      await execute(executable, ['-I', '-c', 'import cv2, numpy; print("caption-eraser-ready")'], { timeout: 15000 });
+      const imports = quality === 'ai' ? 'import cv2, numpy, torch' : 'import cv2, numpy';
+      await execute(executable, ['-I', '-c', `${imports}; print("caption-eraser-ready")`], { timeout: 15000 });
       return executable;
     } catch (_) {}
   }
-  throw new Error('Caption erasing needs a local Python runtime with OpenCV and NumPy. Set CAPTION_ERASER_PYTHON to that Python executable.');
+  if (quality === 'ai') {
+    throw new Error('AI caption erasing needs a local Python runtime with PyTorch, OpenCV and NumPy. Run Setup-Caption-Eraser-AI.ps1, or set CAPTION_ERASER_PYTHON to a runtime with these packages. Quick quality remains available for OpenCV repair.');
+  }
+  throw new Error('Quick caption erasing needs a local Python runtime with OpenCV and NumPy. Run Setup-Caption-Eraser-AI.ps1, or set CAPTION_ERASER_PYTHON to that Python executable.');
 }
 
 function runCaptionWorker(executable, args, onProgress, options = {}) {
@@ -136,11 +143,15 @@ function createCaptionEraser(options = {}) {
   const getFFmpeg = options.getFFmpeg || (() => 'ffmpeg');
   const execute = options.execute || runFile;
   const worker = options.runWorker || runCaptionWorker;
-  const python = options.resolvePython || (() => findCaptionPython(root, execute));
+  const python = options.resolvePython || (quality => findCaptionPython(root, execute, quality));
   let active = false;
-  let pythonExecutable;
+  const pythonExecutables = new Map();
   return async function eraseCaptions(request = {}, onProgress = () => {}) {
     if (active) return { ok: false, error: 'Caption erasing is already running. Wait for it to finish.' };
+    const quality = request.quality === undefined ? 'ai' : request.quality;
+    if (quality !== 'ai' && quality !== 'quick') {
+      return { ok: false, error: 'Choose AI or Quick caption erasing quality.' };
+    }
     const filePath = request.filePath;
     if (typeof filePath !== 'string' || !path.isAbsolute(filePath) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
       return { ok: false, error: 'Select an existing local video file to erase captions.' };
@@ -162,22 +173,32 @@ function createCaptionEraser(options = {}) {
       const original = await probe(filePath);
       if (!(original.streams || []).some(s => s.codec_type === 'video')) throw new Error('The selected file has no video stream.');
       const subtitleCount = (original.streams || []).filter(s => s.codec_type === 'subtitle').length;
-      pythonExecutable = pythonExecutable || await python();
+      let pythonExecutable = pythonExecutables.get(quality);
+      if (!pythonExecutable) {
+        pythonExecutable = await python(quality);
+        pythonExecutables.set(quality, pythonExecutable);
+      }
       directory = await fsp.mkdtemp(path.join(options.tempPath || os.tmpdir(), 'caption-erase-'));
       const script = path.join(directory, 'caption-eraser-worker.py');
       const ocrScript = path.join(directory, 'caption-eraser-ocr.ps1');
       await fsp.copyFile(path.join(root, 'caption-eraser-worker.py'), script);
       await fsp.copyFile(path.join(root, 'scripts', 'caption-eraser-ocr.ps1'), ocrScript);
+      const aiArgs = [];
+      if (quality === 'ai') {
+        await fsp.copyFile(path.join(root, 'caption-eraser-ai.py'), path.join(directory, 'caption-eraser-ai.py'));
+        aiArgs.push('--ai-model', path.join(os.homedir(), '.cache', 'pattan-caption-eraser', 'big-lama.pt'));
+      }
       const silentVideo = path.join(directory, 'cleaned.mkv');
       progress({ pct: 3, phase: 'Detecting previous captions' });
       const detected = await worker(pythonExecutable, ['-I', '-u', script,
         '--input', filePath, '--output', silentVideo, '--ffmpeg', ffmpeg, '--ffprobe', ffprobe,
-        '--ocr-script', ocrScript, '--work-dir', directory], value => {
+        '--ocr-script', ocrScript, '--work-dir', directory, ...aiArgs], value => {
         progress({ ...value, pct: 3 + Math.min(100, Math.max(0, Number(value.pct ?? value.progress) || 0)) * .83 });
       });
+      const engine = detected.engine || (quality === 'ai' ? 'Windows OCR + temporal recovery + LaMa AI' : 'Windows OCR + temporal recovery + OpenCV');
       if (!detected.changed && !subtitleCount) {
         progress({ pct: 100, phase: 'No previous captions detected' });
-        return { ok: true, changed: false, noCaptionsDetected: true, detectedRegions: [], removedSubtitleTracks: 0 };
+        return { ok: true, changed: false, noCaptionsDetected: true, detectedRegions: [], removedSubtitleTracks: 0, quality, engine };
       }
       if (detected.changed && (!fs.existsSync(silentVideo) || !fs.statSync(silentVideo).size)) throw new Error('Caption cleanup did not produce a video.');
       outputPath = (options.allocateOutput || createVideoOutputPath)(options.downloadsPath || path.join(os.homedir(), 'Downloads'), filePath);
@@ -218,7 +239,7 @@ function createCaptionEraser(options = {}) {
       validateVideoResult(original, await probe(outputPath));
       succeeded = true;
       progress({ pct: 100, phase: 'Previous captions erased' });
-      return { ok: true, changed: true, noCaptionsDetected: false, outputPath,
+      return { ok: true, changed: true, noCaptionsDetected: false, outputPath, quality, engine,
         fileName: path.basename(outputPath), outputFileName: path.basename(outputPath),
         detectedRegions: detected.detectedRegions || [], removedSubtitleTracks: subtitleCount,
         cleanupMethod: detected.changed ? 'detected-text-inpainting' : 'subtitle-track-removal',

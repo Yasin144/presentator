@@ -44,6 +44,7 @@ const { createWhatsAppDrafts } = require('./whatsapp-drafts.cjs');
 const { originalVideoName, createVideoOutputPath } = require('./video-output-name.cjs');
 const { prepareCaptionEmojiExport } = require('./caption-emoji-export.cjs');
 const { createCaptionEraser } = require('./caption-eraser.cjs');
+const { prepareCaptionVoiceMemory } = require('./caption-resource-policy.cjs');
 const { createWhatsAppSession } = require('./whatsapp-session.cjs');
 const { createWhatsAppJobObserver } = require('./whatsapp-job-events.cjs');
 // Desktop-only PDF OCR: register before the generic mobile IPC bridge wrapper.
@@ -1482,26 +1483,42 @@ function spawnManaged(key, cmd, args, opts = {}) {
 
 async function pauseManagedServersForImage(keys) {
   const paused = [];
-  for (const key of keys) {
+  for (const key of new Set(keys)) {
+    if (isQuitting) break;
     const entry = servers[key];
-    if (!entry?.proc || entry.proc.killed) continue;
-    entry.stopped = true;
+    if (!entry?.proc) continue; // Leave externally managed workers running.
+    if (!entry.resourcePauseCount) {
+      if (entry.proc.killed || entry.stopped) continue;
+      entry.resourcePauseCount = 0;
+      entry.stopped = true;
+      const proc = entry.proc;
+      // All overlapping jobs wait for this same termination, then retain
+      // their own lease until their idempotent resume callback is called.
+      entry.resourcePausePromise = new Promise(resolve => {
+        if (process.platform !== 'win32') {
+          try { proc.kill('SIGKILL'); } catch (_) {}
+          resolve();
+          return;
+        }
+        execFile('taskkill.exe', ['/PID', String(proc.pid), '/T', '/F'], {
+          windowsHide: true,
+          timeout: 15000,
+        }, () => resolve());
+      }).then(() => new Promise(resolve => setTimeout(resolve, 1200)));
+    }
+    entry.resourcePauseCount += 1;
     paused.push(entry);
-    await new Promise(resolve => {
-      if (process.platform !== 'win32') {
-        try { entry.proc.kill('SIGKILL'); } catch (_) {}
-        resolve();
-        return;
-      }
-      execFile('taskkill.exe', ['/PID', String(entry.proc.pid), '/T', '/F'], {
-        windowsHide: true,
-        timeout: 15000,
-      }, () => resolve());
-    });
+    await entry.resourcePausePromise;
   }
-  if (paused.length) await new Promise(resolve => setTimeout(resolve, 1200));
+  let resumed = false;
   return () => {
+    if (resumed) return;
+    resumed = true;
     for (const entry of paused) {
+      entry.resourcePauseCount = Math.max(0, entry.resourcePauseCount - 1);
+      if (entry.resourcePauseCount) continue;
+      delete entry.resourcePausePromise;
+      if (isQuitting) continue;
       entry.stopped = false;
       entry.restartCount = 0;
       entry.lastRestartAt = 0;
@@ -1676,9 +1693,9 @@ async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 1
   throw friendly;
 }
 
-// ————————————— Edge TTS health-check watchdog —————————————————————————————————
-// Pings port 8426 every 20 seconds. If unreachable, kills the process so
-// the auto-restart watchdog in spawnManaged fires immediately.
+// ————————————— SC3 Chatterbox health-check watchdog ——————————————————————————
+// Pings port 8426 every 30 seconds. Thirty consecutive misses trigger recovery;
+// intentional resource pauses must leave the worker stopped until all jobs end.
 let anjaliHealthTimer = null;
 let anjaliHealthFailureCount = 0;
 
@@ -1686,7 +1703,16 @@ function startAnjaliWatchdog() {
   if (anjaliHealthTimer) clearInterval(anjaliHealthTimer);
   anjaliHealthTimer = setInterval(async () => {
     if (isQuitting) return;
+    if (servers.AnjaliAI?.stopped) {
+      anjaliHealthFailureCount = 0;
+      return;
+    }
     const alive = await pingPort(8426, '/health', 10000);
+    // A job may have paused the worker while the health request was pending.
+    if (isQuitting || servers.AnjaliAI?.stopped) {
+      anjaliHealthFailureCount = 0;
+      return;
+    }
     if (alive) {
       anjaliHealthFailureCount = 0;
       return;
@@ -1731,7 +1757,7 @@ function startAnjaliWatchdog() {
         });
       });
     }
-  }, 30000); // ping every 30s; restart only after 5 consecutive misses = 150s grace
+  }, 30000); // Thirty misses give approximately 15 minutes of grace.
 }
 
 // ————————————— Start individual servers ————————————————————————————————————————
@@ -4418,11 +4444,20 @@ ipcMain.handle('cancel-transcribe-video', async () => {
 //   3. Falls back to HTTP server (port 8428) if Python unavailable
 //   4. Returns { ok, text, segments, words } to renderer
 ipcMain.handle('transcribe-video', async (event, opts) => {
-  const { videoPath, languageHint, contentMode = 'speech', engine = 'local', audioMode = 'original', transcriptionHints = '' } = opts || {};
+  const { videoPath, languageHint, contentMode = 'speech', engine = 'local', audioMode = 'original', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
+  // The existing preload can query the loaded backend without sending audio
+  // or credentials. A stale main refuses this pathless request harmlessly.
+  if (opts?.capabilityProbe === true && opts.engine === 'groq' && opts.contentMode === 'speech') {
+    return { ok: true, capabilityProbe: true, groqSpeechTimingRepairVersion: 1 };
+  }
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
+  if (activeCaptionSongController || activeCaptionTranscribeProcess) {
+    return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+  }
+  if (!['local', 'groq', 'gemini'].includes(engine)) return { ok: false, error: 'Unknown caption transcription engine.' };
+  if (engine === 'gemini' && contentMode !== 'song') return { ok: false, error: 'Gemini captioning requires Song / lyrics mode.' };
   let resumePausedServers = () => {};
-  activeCaptionTranscribeCancelRequested = false;
 
   // Find FFmpeg
   function findFFmpeg() {
@@ -4445,6 +4480,8 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   };
   const reportTranscriptionProgress = raw => reportCaptionProgress(transcriptionProgressBase + (100 - transcriptionProgressBase) * Number(raw) / 100);
 
+  activeCaptionTranscribeCancelRequested = false;
+  activeCaptionSongController = new AbortController();
   try {
     // Step 1: Extract audio from video as 16kHz mono WAV
     console.log('[Caption] Extracting audio from:', path.basename(videoPath));
@@ -4460,10 +4497,11 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
       proc.on('exit', code => code === 0 ? resolve() : reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300))));
     });
+    activeCaptionTranscribeProcess = null;
+    if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
     console.log('[Caption] Audio extracted:', Math.round(fs.statSync(tmpWav).size / 1024), 'KB');
 
     if (contentMode === 'song' && audioMode === 'vocal-focus') {
-      activeCaptionSongController = new AbortController();
       if (activeCaptionTranscribeCancelRequested) activeCaptionSongController.abort();
       const { prepareCaptionAudio } = require('./caption-audio-preprocess.cjs');
       const prepared = await prepareCaptionAudio({
@@ -4476,6 +4514,19 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       enhancedAudioFiles = prepared.cleanupFiles || [];
       audioWarnings = prepared.warnings || [];
       transcriptionProgressBase = 30;
+    }
+
+    if (engine === 'groq') {
+      if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+      const result = await transcribeCaptionWavWithGroq({
+        audioBuffer: fs.readFileSync(transcriptionAudioPath),
+        apiKey: (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim(),
+        languageHint: languageHint || 'auto', contentMode, transcriptionHints,
+        signal: activeCaptionSongController.signal,
+        onProgress: reportTranscriptionProgress,
+      });
+      if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+      return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
     }
 
     if (engine === 'gemini' && contentMode === 'song') {
@@ -4494,9 +4545,8 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
     }
 
-    // Whisper-small needs roughly 1.5–2 GB during decoding. Release cached
-    // diffusion/Ollama weights and temporarily stop the two largest voice
-    // workers so captioning cannot silently fail under memory pressure.
+    // Reclaim unused image/planner weights first. Keep the SC3 voice model
+    // warm when Whisper has enough memory, rather than reloading it every time.
     await fetch('http://127.0.0.1:8432/api/unload', { method: 'POST' }).catch(() => {});
     try {
       for (const model of [PRESENTATOR_LOCAL_MODEL, PRESENTATOR_FAST_MODEL]) {
@@ -4507,7 +4557,19 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
         });
       }
     } catch (_) {}
-    resumePausedServers = await pauseManagedServersForImage(['AnjaliAI', 'Sc3Singing']);
+    resumePausedServers = await prepareCaptionVoiceMemory({
+      freeMemoryBytes: () => os.freemem(),
+      getNarrationProgress: async () => {
+        const response = await fetch('http://127.0.0.1:8426/api/narrate/progress', {
+          signal: AbortSignal.timeout(2500),
+        });
+        if (!response.ok) throw new Error('SC3 progress check failed.');
+        return response.json();
+      },
+      pauseVoice: () => pauseManagedServersForImage(['AnjaliAI']),
+      isCancelled: () => activeCaptionTranscribeCancelRequested,
+      onDecision: decision => console.log('[Caption] Voice memory policy:', decision),
+    });
     reportTranscriptionProgress(3);
 
     // Step 2: Run Whisper directly via Python (no HTTP server needed)
@@ -4559,20 +4621,28 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
       proc.on('exit', code => {
         clearTimeout(timer);
+        if (activeCaptionTranscribeCancelRequested) {
+          reject(new Error('Transcription cancelled.'));
+          return;
+        }
         try {
-          const lastLine = stdout.trim().split('\n').pop() || '{}';
+          const lastLine = stdout.trim().split('\n').pop() || '';
           const json = JSON.parse(lastLine);
           if (json.error) reject(new Error('Whisper: ' + json.error));
+          else if (code !== 0) reject(new Error('Whisper exited with code ' + code + ': ' + stderr.slice(-300)));
           else {
             reportTranscriptionProgress(100);
             resolve(json);
           }
         } catch(e) {
-          reject(new Error('Whisper parse failed. stderr: ' + stderr.slice(0, 200)));
+          reject(new Error(code !== 0
+            ? 'Whisper exited with code ' + code + ': ' + stderr.slice(-300)
+            : 'Whisper parse failed. stderr: ' + stderr.slice(0, 200)));
         }
       });
     });
 
+    if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
     console.log('[Caption] Whisper done. Text:', (whisperResult.text || '').length, 'chars,', (whisperResult.words || []).length, 'words');
     return {
       ok:       true,
@@ -4588,6 +4658,9 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     if (activeCaptionTranscribeCancelRequested) {
       return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
     }
+    if (err.code === 'CAPTION_RESOURCE_CANCELLED') return { ok: false, cancelled: true, error: err.message };
+    if (err.code === 'CAPTION_RESOURCE_BUSY') return { ok: false, code: err.code, error: err.message };
+    if (engine === 'groq') return { ok: false, engine: 'groq', error: `Groq caption transcription failed: ${err.message}` };
     if (contentMode === 'song') return { ok: false, error: `${engine === 'gemini' ? 'Gemini' : 'Local'} song transcription failed: ${err.message}` };
     // Fallback: HTTP transcription server (port 8428)
     console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
@@ -4610,7 +4683,6 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     return { ok: false, error: err.message };
   } finally {
     activeCaptionTranscribeProcess = null;
-    activeCaptionSongController = null;
     for (const generatedFile of enhancedAudioFiles) {
       const absolute = path.resolve(generatedFile);
       const relative = path.relative(path.join(ROOT, 'caption-work', 'vocal-focus'), absolute);
@@ -4618,9 +4690,12 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
         try { fs.unlinkSync(absolute); } catch (_) {}
       }
     }
-    activeCaptionTranscribeCancelRequested = false;
     console.log('[Caption] Kept transcription WAV:', tmpWav);
-    resumePausedServers();
+    try { await resumePausedServers(); }
+    finally {
+      activeCaptionSongController = null;
+      activeCaptionTranscribeCancelRequested = false;
+    }
   }
 
 });
@@ -4643,45 +4718,316 @@ function buildWavChunkBuffer(pcmBuffer, sampleRate = 16000) {
   return Buffer.concat([header, pcmBuffer]);
 }
 
-async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint) {
+function throwIfCaptionTranscriptionCancelled(signal) {
+  if (!signal?.aborted) return;
+  const error = new Error('Transcription cancelled.');
+  error.name = 'AbortError';
+  throw error;
+}
+
+function waitForGroqCaptionRetry(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(Object.assign(new Error('Transcription cancelled.'), { name: 'AbortError' })); return; }
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      reject(Object.assign(new Error('Transcription cancelled.'), { name: 'AbortError' }));
+    };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, milliseconds);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint, signal, transcriptionHints = '') {
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    throwIfCaptionTranscriptionCancelled(signal);
     const form = new FormData();
     form.append('model', 'whisper-large-v3');
     form.append('response_format', 'verbose_json');
     form.append('temperature', '0');
     form.append('timestamp_granularities[]', 'word');
     form.append('timestamp_granularities[]', 'segment');
-    // Do not send an instruction prompt to Whisper. On noisy or silent clips the
-    // model can hallucinate that prompt verbatim and it then gets burned as captions.
+    // Send only an explicitly entered vocabulary/lyric reference. Canned
+    // instructions can be hallucinated verbatim on noisy or silent clips.
+    const vocabularyHint = typeof transcriptionHints === 'string' ? transcriptionHints.trim().slice(0, 1000) : '';
+    if (vocabularyHint) form.append('prompt', vocabularyHint);
     if (languageHint && languageHint !== 'auto') form.append('language', languageHint);
     form.append('file', new Blob([audioBuffer], { type: 'audio/wav' }), 'caption-audio.wav');
 
-    const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
-    });
-    if (resp.ok) return resp.json();
-
-    const errorText = await resp.text();
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 180000);
+    let resp;
+    try {
+      throwIfCaptionTranscriptionCancelled(signal);
+      resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: controller.signal,
+      });
+      if (resp.ok) {
+        const json = await resp.json();
+        throwIfCaptionTranscriptionCancelled(signal);
+        return json;
+      }
+      await resp.body?.cancel?.().catch(() => {});
+    } catch (_) {
+      throwIfCaptionTranscriptionCancelled(signal);
+      throw new Error(timedOut ? 'Groq transcription timed out. Retry with a shorter video.' : 'Could not connect to Groq for caption transcription. Check the connection and retry.');
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+    }
     if (resp.status !== 429 || attempt === 2) {
-      throw new Error(`Groq API ${resp.status}: ${errorText.slice(0, 300)}`);
+      // Remote error bodies can echo request data; expose only the status.
+      throw new Error(resp.status === 429 ? 'Groq quota is exhausted or requests are limited. Check the Groq quota, then retry.' : `Groq caption API returned HTTP ${resp.status}. Check the API key, permissions and connection.`);
     }
     const retryAfter = Number(resp.headers.get('retry-after'));
     const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-      ? Math.ceil(retryAfter * 1000)
+      ? Math.min(60000, Math.ceil(retryAfter * 1000))
       : 32000;
     console.warn(`[CaptionGroq] Rate limited; retrying in ${Math.ceil(waitMs / 1000)} seconds.`);
-    await new Promise(resolve => setTimeout(resolve, waitMs));
+    await waitForGroqCaptionRetry(waitMs, signal);
   }
   throw new Error('Groq API rate limit retry failed.');
 }
 
+function readGroqCaptionWav(audioBuffer) {
+  if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length < 44
+      || audioBuffer.toString('ascii', 0, 4) !== 'RIFF' || audioBuffer.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('Groq captioning needs valid extracted WAV audio.');
+  }
+  let format;
+  const data = [];
+  for (let offset = 12; offset + 8 <= audioBuffer.length;) {
+    const kind = audioBuffer.toString('ascii', offset, offset + 4);
+    const size = audioBuffer.readUInt32LE(offset + 4);
+    const start = offset + 8;
+    if (start + size > audioBuffer.length) throw new Error('Extracted caption WAV audio is incomplete.');
+    if (kind === 'fmt ' && size >= 16) {
+      format = {
+        code: audioBuffer.readUInt16LE(start), channels: audioBuffer.readUInt16LE(start + 2),
+        sampleRate: audioBuffer.readUInt32LE(start + 4), blockAlign: audioBuffer.readUInt16LE(start + 12),
+        bits: audioBuffer.readUInt16LE(start + 14),
+        subformat: size >= 40 ? audioBuffer.readUInt16LE(start + 24) : undefined,
+      };
+    } else if (kind === 'data') data.push(audioBuffer.subarray(start, start + size));
+    offset = start + size + (size % 2);
+  }
+  if (!format || (format.code !== 1 && !(format.code === 0xfffe && format.subformat === 1))
+      || format.channels !== 1 || format.sampleRate !== 16000 || format.bits !== 16 || format.blockAlign !== 2) {
+    throw new Error('Groq captioning needs 16 kHz mono PCM WAV audio.');
+  }
+  const pcm = Buffer.concat(data);
+  if (!pcm.length || pcm.length % 2 !== 0) throw new Error('Extracted caption WAV audio is empty or invalid.');
+  return { pcm, sampleRate: format.sampleRate, duration: pcm.length / (format.sampleRate * 2) };
+}
+
+function assertGroqCaptionWordTimeline(words) {
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index], previous = words[index - 1];
+    if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start
+        || (previous && word.start < previous.end)) {
+      throw new Error('Groq returned conflicting caption word timestamps. Generate captions again or use the Local engine.');
+    }
+  }
+}
+
+function groqCaptionTimingWindows(words, duration) {
+  const conflicts = new Set(), candidates = [];
+  for (let index = 1; index < words.length; index += 1) {
+    if (words[index].start < words[index - 1].end) {
+      conflicts.add(index - 1); conflicts.add(index);
+    }
+  }
+  const conflictingIndices = [...conflicts].sort((left, right) => left - right);
+  for (let cursor = 0; cursor < conflictingIndices.length;) {
+    const core = [conflictingIndices[cursor++]];
+    while (cursor < conflictingIndices.length && conflictingIndices[cursor] === core.at(-1) + 1) {
+      core.push(conflictingIndices[cursor++]);
+    }
+    const start = Math.max(0, Math.floor(Math.min(...core.map(index => words[index].start))) - 2);
+    let end = Math.min(duration, Math.ceil(Math.max(...core.map(index => words[index].end))) + 4);
+    end = Math.min(duration, Math.max(end, start + 10));
+    candidates.push({ start, end, core, focused: false });
+  }
+  for (let index = 0; index < words.length; index += 1) {
+    if (conflicts.has(index)) continue;
+    const word = words[index], previous = words[index - 1], next = words[index + 1];
+    const isolated = (!previous || word.start - previous.end >= 0.35)
+      && (!next || next.start - word.end >= 0.35);
+    if (word.end - word.start <= 1.5 || !isolated || String(word.word).trim().split(/\s+/).length !== 1) continue;
+    // Long music/silence before an isolated label can give Whisper an early
+    // start. Re-recognize the actual tail audio rather than imposing a delay.
+    candidates.push({ start: Math.max(0, word.end - 2), end: Math.min(duration, word.end + 2),
+      core: [index], wide: [index], focused: true });
+  }
+  for (const window of candidates) {
+    // Do not ask ASR to recognize half of a neighboring word. Focused windows
+    // deliberately crop a suspect target's wide prefix, never its neighbors.
+    for (let pass = 0; pass < words.length; pass += 1) {
+      let moved = false;
+      for (let index = 0; index < words.length; index += 1) {
+        if (window.core.includes(index)) continue;
+        const word = words[index];
+        if (word.start < window.start && word.end > window.start) {
+          window.start = window.focused ? word.end + 0.05 : Math.max(0, word.start - 0.2); moved = true;
+        }
+        if (word.start < window.end && word.end > window.end) {
+          window.end = window.focused ? word.start - 0.05 : Math.min(duration, word.end + 0.2); moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    if (!(window.end > window.start) || window.end - window.start > 20) {
+      throw new Error('Groq returned caption timing that could not be verified in a short audio window. Generate captions again or use the Local engine.');
+    }
+  }
+  candidates.sort((left, right) => left.start - right.start);
+  const windows = [];
+  for (const window of candidates) {
+    const previous = windows.at(-1);
+    if (previous && window.start <= previous.end && Math.max(previous.end, window.end) - previous.start <= 20) {
+      previous.end = Math.max(previous.end, window.end);
+      previous.core = [...new Set([...previous.core, ...window.core])];
+      previous.wide = [...new Set([...(previous.wide || []), ...(window.wide || [])])];
+    } else windows.push({ ...window });
+  }
+  if (windows.length > 8) {
+    throw new Error('Groq returned too many uncertain caption timestamps for automatic verification. Try a shorter video or the Local engine.');
+  }
+  return windows;
+}
+
+async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress }) {
+  const windows = groqCaptionTimingWindows(words, duration);
+  if (!windows.length) { assertGroqCaptionWordTimeline(words); return { words, verifiedTimingWindows: 0 }; }
+  const repaired = words.map(word => ({ ...word }));
+  const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+  const failure = () => new Error('Groq could not verify the caption words and timing on a short audio window. Generate captions again or use the Local engine.');
+  for (let index = 0; index < windows.length; index += 1) {
+    throwIfCaptionTranscriptionCancelled(signal);
+    const window = windows[index];
+    const startSample = Math.max(0, Math.floor(window.start * sampleRate));
+    const endSample = Math.min(pcm.length / 2, Math.ceil(window.end * sampleRate));
+    const offset = startSample / sampleRate, length = (endSample - startSample) / sampleRate;
+    const expectedIndices = words.flatMap((word, wordIndex) => window.core.includes(wordIndex)
+      || (word.start >= offset && word.end <= endSample / sampleRate) ? [wordIndex] : []);
+    const expected = expectedIndices.map(wordIndex => words[wordIndex]);
+    const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
+    throwIfCaptionTranscriptionCancelled(signal);
+    const fresh = Array.isArray(json?.words) ? json.words.filter(word => String(word?.word || word?.text || '').trim()) : [];
+    if (fresh.length !== expected.length || fresh.some((word, wordIndex) =>
+      normalized(word.word || word.text) !== normalized(expected[wordIndex].word)
+      || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || word.end > length + 0.05)) throw failure();
+    if (String(json?.text || '').trim() && normalized(json.text) !== fresh.map(word => normalized(word.word || word.text)).join('')) throw failure();
+    try { assertGroqCaptionWordTimeline(fresh); } catch (_) { throw failure(); }
+    for (let wordIndex = 0; wordIndex < fresh.length; wordIndex += 1) {
+      const originalIndex = expectedIndices[wordIndex], word = fresh[wordIndex];
+      // A second broad interval is still uncertain, even if its transcript is
+      // correct. Never report an unchanged early label as verified timing.
+      if ((window.wide || []).includes(originalIndex) && word.end - word.start > 1.5) throw failure();
+      repaired[originalIndex] = { ...words[originalIndex], start: offset + word.start, end: Math.min(duration, offset + word.end) };
+    }
+    try { onProgress?.(80 + Math.round((index + 1) / windows.length * 18)); } catch (_) {}
+  }
+  assertGroqCaptionWordTimeline(repaired);
+  return { words: repaired, verifiedTimingWindows: windows.length };
+}
+
+async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', signal, onProgress }) {
+  throwIfCaptionTranscriptionCancelled(signal);
+  if (!apiKey) throw new Error('Groq API key is missing. Enter it under Caption engine or configure the saved key.');
+  const { pcm, sampleRate, duration } = readGroqCaptionWav(audioBuffer);
+  const bytesPerSecond = sampleRate * 2;
+  // Nine-minute chunks fit the Groq upload limit; an overlapping second on
+  // each side protects words at the boundary without deleting repeated lyrics.
+  const chunkSeconds = 540, overlapSeconds = 2;
+  const chunkBytes = chunkSeconds * bytesPerSecond;
+  const stepBytes = (chunkSeconds - overlapSeconds) * bytesPerSecond;
+  const totalChunks = Math.max(1, Math.ceil(Math.max(0, pcm.length - overlapSeconds * bytesPerSecond) / stepBytes));
+  const allSegments = [], allWords = [];
+  let detectedLanguage = languageHint !== 'auto' ? languageHint : '';
+  let missingWordTiming = false;
+  const report = value => { try { onProgress?.(value); } catch (_) {} };
+  report(3);
+  for (let i = 0; i < totalChunks; i += 1) {
+    throwIfCaptionTranscriptionCancelled(signal);
+    const startByte = i * stepBytes;
+    const endByte = Math.min(pcm.length, startByte + chunkBytes);
+    const timeOffset = startByte / bytesPerSecond;
+    const chunkDuration = (endByte - startByte) / bytesPerSecond;
+    const ownedStart = timeOffset + (i > 0 ? overlapSeconds / 2 : 0);
+    const ownedEnd = timeOffset + chunkDuration - (i + 1 < totalChunks ? overlapSeconds / 2 : 0);
+    const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startByte, endByte), sampleRate), apiKey, languageHint, signal, transcriptionHints);
+    throwIfCaptionTranscriptionCancelled(signal);
+    if (typeof json?.language === 'string' && json.language.trim() && !detectedLanguage) detectedLanguage = json.language.trim();
+    const validInterval = item => Number.isFinite(item?.start) && Number.isFinite(item?.end)
+      && item.start >= 0 && item.end > item.start && item.end <= chunkDuration + 0.05;
+    const accepted = item => {
+      if (!validInterval(item)) return null;
+      const { start, end } = item;
+      const absoluteStart = start + timeOffset, absoluteEnd = Math.min(end + timeOffset, duration);
+      const midpoint = (absoluteStart + absoluteEnd) / 2;
+      if (midpoint < ownedStart || (i + 1 < totalChunks ? midpoint >= ownedEnd : midpoint > ownedEnd)) return null;
+      return { start: absoluteStart, end: absoluteEnd };
+    };
+    const chunkSegments = (Array.isArray(json?.segments) ? json.segments : []).flatMap(segment => {
+      const interval = accepted(segment), text = String(segment?.text || '').trim();
+      return interval && text ? [{ ...interval, text }] : [];
+    });
+    const providedWords = Array.isArray(json?.words) ? json.words : [];
+    const chunkWords = providedWords.flatMap(word => {
+      const interval = accepted(word), text = String(word?.word || word?.text || '').trim();
+      return interval && text ? [{ ...interval, word: text }] : [];
+    });
+    const invalidWordTiming = providedWords.some(word => String(word?.word || word?.text || '').trim() && !validInterval(word));
+    // A partial set of word intervals would hide segment-only captions in the
+    // renderer. Retain the complete segment timeline and disclose estimation.
+    if (chunkSegments.length && (!chunkWords.length || invalidWordTiming)) missingWordTiming = true;
+    if (invalidWordTiming && !chunkSegments.length) throw new Error('Groq returned incomplete caption timestamps. Generate captions again.');
+    if (String(json?.text || '').trim() && !chunkSegments.length && !chunkWords.length) {
+      throw new Error('Groq returned text without usable caption timestamps. Generate captions again.');
+    }
+    allSegments.push(...(chunkSegments.length ? chunkSegments : chunkWords.map(({ start, end, word }) => ({ start, end, text: word }))));
+    allWords.push(...chunkWords);
+    report(Math.round((i + 1) / totalChunks * 80));
+  }
+  let words = missingWordTiming ? [] : allWords;
+  let verifiedTimingWindows = 0;
+  if (words.length) {
+    if (contentMode === 'song') assertGroqCaptionWordTimeline(words);
+    else {
+      const verified = await verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress: report });
+      words = verified.words; verifiedTimingWindows = verified.verifiedTimingWindows;
+    }
+  }
+  // Original segment boundaries can conflict with corrected word intervals.
+  // Keep only real verified word ranges after a repair, with no stale fallback.
+  const segments = verifiedTimingWindows ? words.map(({ start, end, word }) => ({ start, end, text: word })) : allSegments;
+  const text = (words.length ? words.map(word => word.word) : segments.map(segment => segment.text)).join(' ').replace(/\s+/g, ' ').trim();
+  if (!text) throw new Error('Groq returned no recognizable words.');
+  const timingSource = words.length ? 'word' : 'estimated';
+  const warnings = timingSource === 'estimated' ? ['Groq returned segment timing only. Word highlighting is estimated; review synchronization before exporting.'] : [];
+  if (verifiedTimingWindows) warnings.push(`Groq caption timing was verified against ${verifiedTimingWindows} short audio ${verifiedTimingWindows === 1 ? 'window' : 'windows'}.`);
+  throwIfCaptionTranscriptionCancelled(signal);
+  report(100);
+  return {
+    text, segments, words, language: detectedLanguage || 'auto', duration,
+    engine: 'groq', contentMode: contentMode === 'song' ? 'song' : 'speech', timingSource,
+    ...(verifiedTimingWindows ? { timingVerification: 'short-audio', verifiedTimingWindows } : {}), warnings,
+  };
+}
+
 ipcMain.handle('transcribe-video-groq', async (event, opts) => {
-  const { videoPath, languageHint = 'auto' } = opts || {};
+  const { videoPath, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
-  const apiKey = process.env.GROQ_API_KEY || '';
-  if (!apiKey) return { ok: false, error: 'Groq API key is missing.' };
+  if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
+  if (activeCaptionSongController || activeCaptionTranscribeProcess) {
+    return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+  }
+  const apiKey = (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim();
+  if (!apiKey) return { ok: false, engine: 'groq', error: 'Groq API key is missing. Enter it under Caption engine or configure the saved key.' };
 
   function findFFmpeg() {
     try { const r = require('child_process').execSync('where ffmpeg', {encoding:'utf8',timeout:3000}).trim().split('\n')[0].trim(); if (r && fs.existsSync(r)) return r; } catch(_){}
@@ -4693,6 +5039,8 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
   const stamp = Date.now();
   const tmpWav = path.join(ensureCaptionWorkDir('transcribe-audio'), 'groq-caption-' + stamp + '.wav');
 
+  activeCaptionTranscribeCancelRequested = false;
+  activeCaptionSongController = new AbortController();
   try {
     console.log('[CaptionGroq] Extracting audio from:', path.basename(videoPath));
     await new Promise((resolve, reject) => {
@@ -4701,80 +5049,29 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
         '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
         tmpWav
       ], { stdio: 'pipe', windowsHide: true });
+      activeCaptionTranscribeProcess = proc;
       let stderr = '';
       proc.stderr && proc.stderr.on('data', d => { stderr += d.toString(); });
       proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
       proc.on('exit', code => code === 0 ? resolve() : reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300))));
     });
 
-    const wav = fs.readFileSync(tmpWav);
-    const pcm = wav.slice(44);
-    const sampleRate = 16000;
-    const bytesPerSecond = sampleRate * 2;
-    // A 16 kHz mono WAV is about 1.9 MB/minute. Large chunks keep normal
-    // lesson videos within Groq's upload limit and avoid low-tier RPM limits.
-    const chunkSeconds = 540;
-    const overlapSeconds = 2;
-    const chunkBytes = chunkSeconds * bytesPerSecond;
-    const stepBytes = (chunkSeconds - overlapSeconds) * bytesPerSecond;
-    const totalChunks = Math.max(1, Math.ceil(Math.max(0, pcm.length - overlapSeconds * bytesPerSecond) / stepBytes));
-    const allSegments = [];
-    const allWords = [];
-    const allText = [];
-    let detectedLanguage = languageHint !== 'auto' ? languageHint : '';
-    let lastSegmentEnd = 0;
-    let lastWordEnd = 0;
-
-    for (let i = 0; i < totalChunks; i += 1) {
-      const startByte = i * stepBytes;
-      const endByte = Math.min(pcm.length, startByte + chunkBytes);
-      if (endByte <= startByte) continue;
-      const chunkBuffer = buildWavChunkBuffer(pcm.slice(startByte, endByte), sampleRate);
-      const timeOffset = startByte / bytesPerSecond;
-      const json = await callGroqWhisperForBuffer(chunkBuffer, apiKey, languageHint);
-      if (json.language && !detectedLanguage) detectedLanguage = json.language;
-      const segments = Array.isArray(json.segments) ? json.segments : [];
-      const words = Array.isArray(json.words) ? json.words : [];
-      const instructionLeak = /transcribe every spoken|keep\s+(?:telugu|hindi)|hindi\s*,?\s*and\s*english|do not translate|do not summarize|invent words/i;
-      const leakedRanges = [];
-      for (const seg of segments) {
-        const text = String(seg.text || '').trim();
-        const start = Number(seg.start || 0) + timeOffset;
-        const end = Number(seg.end || start + 0.5) + timeOffset;
-        if (!text) continue;
-        if (instructionLeak.test(text)) {
-          leakedRanges.push({ start, end });
-          continue;
-        }
-        if (start < lastSegmentEnd - 0.35) continue;
-        lastSegmentEnd = Math.max(lastSegmentEnd, end);
-        allSegments.push({ start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100, text });
-        allText.push(text);
-      }
-      for (const word of words) {
-        const text = String(word.word || word.text || '').trim();
-        if (!text) continue;
-        const start = Number(word.start || 0) + timeOffset;
-        const end = Number(word.end || start + 0.25) + timeOffset;
-        const midpoint = (start + end) / 2;
-        if (leakedRanges.some(range => midpoint >= range.start - 0.15 && midpoint <= range.end + 0.15)) continue;
-        if (start < lastWordEnd - 0.2) continue;
-        lastWordEnd = Math.max(lastWordEnd, end);
-        allWords.push({ start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100, word: text });
-      }
-    }
-
-    return {
-      ok: true,
-      text: allText.join(' ').replace(/\s+/g, ' ').trim(),
-      segments: allSegments,
-      words: allWords,
-      language: detectedLanguage || languageHint || 'auto',
-    };
+    activeCaptionTranscribeProcess = null;
+    const result = await transcribeCaptionWavWithGroq({
+      audioBuffer: fs.readFileSync(tmpWav), apiKey, languageHint, contentMode, transcriptionHints,
+      signal: activeCaptionSongController.signal,
+      onProgress: value => { try { event.sender.send('caption-transcribe-progress', value); } catch (_) {} },
+    });
+    if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+    return { ok: true, ...result };
   } catch (err) {
+    if (activeCaptionTranscribeCancelRequested) return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
     console.error('[CaptionGroq] Failed:', err.message);
-    return { ok: false, error: err.message };
+    return { ok: false, engine: 'groq', error: err.message };
   } finally {
+    activeCaptionTranscribeProcess = null;
+    activeCaptionSongController = null;
+    activeCaptionTranscribeCancelRequested = false;
     console.log('[CaptionGroq] Kept transcription WAV:', tmpWav);
   }
 });
@@ -6041,7 +6338,10 @@ setInterval(() => {
 
 
 // ————————————— My Exporter: native timeline renderer ————————————————————————
-const myExporterProcesses = new Map();
+const myExporterEngine = require('./my-exporter-engine.cjs').createMyExporterEngine({
+  findFFmpeg: findMyExporterFFmpeg, probe: myExporterProbePath,
+  defaultOutputDirectory: () => path.join(os.homedir(), 'Downloads'),
+});
 
 function myExporterSafeName(value, fallback = 'my-export.mp4') {
   const clean = String(value || fallback).replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim();
@@ -6330,59 +6630,19 @@ function findMyExporterFFmpeg() {
 }
 
 function validateMyExporterJob(opts) {
-  const warnings = [];
-  const errors = [];
-  const scenes = Array.isArray(opts?.scenes) ? opts.scenes : [];
-  if (!scenes.length) errors.push('Add at least one video or image scene.');
-  for (const [index, scene] of scenes.entries()) {
-    const label = scene?.name || `Scene ${index + 1}`;
-    if (!scene?.path || !fs.existsSync(scene.path)) { errors.push(`${label}: source file is missing or was moved.`); continue; }
-    try {
-      const meta = myExporterProbePath(scene.path);
-      if (!meta.hasVideo && scene.kind !== 'image') errors.push(`${label}: no usable video stream was found.`);
-      if (meta.duration > 0 && Number(scene.trimStart || 0) >= meta.duration) errors.push(`${label}: trim start is beyond the end of the file.`);
-    } catch (error) { errors.push(`${label}: cannot read this media (${error.message}).`); }
-  }
-  for (const track of Array.isArray(opts?.audioTracks) ? opts.audioTracks : []) {
-    if (!track?.muted && (!track?.path || !fs.existsSync(track.path))) errors.push(`${track?.name || 'Audio track'}: audio file is missing or was moved.`);
-  }
-  for (const [label, filePath] of [['Background music', opts?.musicPath], ['Watermark', opts?.watermarkPath]]) {
-    if (filePath && !fs.existsSync(filePath)) errors.push(`${label}: selected file is missing or was moved.`);
-  }
-  try { findMyExporterFFmpeg(); } catch (error) { errors.push(error.message); }
-  return { ok: errors.length === 0, errors, warnings };
+  return myExporterEngine.preflight(opts);
 }
 
-function runMyExporterFFmpeg(ffmpeg, args, event, phase, progressStart, progressSpan, durationSeconds, jobId) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
-    if (jobId) myExporterProcesses.set(jobId, proc);
-    let stderr = '';
-    proc.stderr.on('data', chunk => {
-      const text = chunk.toString();
-      stderr = (stderr + text).slice(-12000);
-      const matches = [...text.matchAll(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/g)];
-      if (matches.length && durationSeconds > 0) {
-        const match = matches[matches.length - 1];
-        const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-        const pct = Math.min(99, Math.round(progressStart + (seconds / durationSeconds) * progressSpan));
-        event.sender.send('my-exporter-progress', { jobId, pct, phase });
-      }
-    });
-    proc.on('error', reject);
-    proc.on('exit', code => {
-      if (jobId) myExporterProcesses.delete(jobId);
-      if (code === 0) resolve();
-      else if (code === null || code === 255) reject(new Error('Export cancelled.'));
-      else reject(new Error(`${phase} failed: ${stderr.slice(-900)}`));
-    });
-  });
+function myExporterAssColor(value) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(value || ''));
+  const hex = match ? match[1].toUpperCase() : 'FFFFFF';
+  return `&H00${hex.slice(4, 6)}${hex.slice(2, 4)}${hex.slice(0, 2)}`;
 }
 
 // IPC handles
 ipcMain.handle('my-exporter-probe', async (_event, opts) => {
   try {
-    const meta = myExporterProbePath(opts.filePath || opts.path);
+    const meta = await myExporterEngine.probeMedia(opts.filePath || opts.path);
     return { ok: true, ...meta };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -6390,11 +6650,11 @@ ipcMain.handle('my-exporter-probe', async (_event, opts) => {
 });
 
 ipcMain.handle('my-exporter-waveform', async (_event, opts) => {
-  const peaks = [];
-  for (let i = 0; i < (opts.bars || 120); i++) {
-    peaks.push(0.15 + Math.random() * 0.75);
+  try {
+    return { ok: true, ...await myExporterEngine.waveform(opts) };
+  } catch (error) {
+    return { ok: false, error: error.message };
   }
-  return { ok: true, peaks };
 });
 
 ipcMain.handle('my-exporter-preflight', async (_event, opts) => {
@@ -6460,181 +6720,23 @@ ipcMain.handle('sing-song-pick-video-folder', async (_event, options = {}) => {
   }
 });
 
-ipcMain.handle('my-exporter-crop-save', async (event, opts) => {
-  const { inputPath, outputPath, crop, start, end } = opts;
-  if (path.resolve(inputPath).toLowerCase() === path.resolve(outputPath).toLowerCase())
-    return { ok: false, error: 'Choose a different folder; the original uploaded video cannot be overwritten.' };
-  const ffmpeg = findMyExporterFFmpeg();
-  const args = ['-y'];
-  if (start > 0) args.push('-ss', String(start));
-  if (end > 0) args.push('-to', String(end));
-  args.push('-i', inputPath);
-  if (crop && typeof crop.width === 'number') {
-    args.push('-vf', `crop=${Math.round(crop.width)}:${Math.round(crop.height)}:${Math.round(crop.x)}:${Math.round(crop.y)}`);
-  }
-  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-c:a', 'copy', outputPath);
-  try {
-    const { spawn } = require('child_process');
-    await new Promise((resolve, reject) => {
-      const proc = spawn(ffmpeg, args, { windowsHide: true });
-      let stderr = '';
-      proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('error', reject);
-      proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Crop exit ${code}: ${stderr.slice(-300)}`)));
-    });
-    return { ok: true, outputPath };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-});
+ipcMain.handle('my-exporter-crop-save', async (event, opts) => myExporterEngine.exportCrop(opts, {
+  onProgress: progress => event.sender.send('my-exporter-progress', progress),
+}));
 
 ipcMain.handle('my-exporter-caption-cache-load', async (_event, { key }) => {
-  const cacheDir = path.join(os.tmpdir(), 'pattan-caption-cache');
-  const cacheFile = path.join(cacheDir, `${encodeURIComponent(key)}.json`);
-  try {
-    if (fs.existsSync(cacheFile)) {
-      return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-    }
-  } catch (_) {}
-  return null;
+  return myExporterEngine.loadCaptionCache(key);
 });
 
 ipcMain.handle('my-exporter-caption-cache-save', async (_event, { key, data }) => {
-  const cacheDir = path.join(os.tmpdir(), 'pattan-caption-cache');
-  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-  const cacheFile = path.join(cacheDir, `${encodeURIComponent(key)}.json`);
-  try {
-    fs.writeFileSync(cacheFile, JSON.stringify(data), 'utf8');
-    return true;
-  } catch (_) {}
-  return false;
+  return myExporterEngine.saveCaptionCache(key, data);
 });
 
-ipcMain.handle('my-exporter-export', async (event, opts) => {
-  const jobId = opts?.jobId || `job-${Date.now()}`;
-  const validation = validateMyExporterJob(opts);
-  if (!validation.ok) return { ok: false, error: `Export check failed:\n${validation.errors.join('\n')}`, warnings: validation.warnings };
-  const scenes = (Array.isArray(opts?.scenes) ? opts.scenes : []).filter(scene => scene?.path && fs.existsSync(scene.path));
-  if (opts?.outputPath && scenes.some(scene => path.resolve(scene.path).toLowerCase() === path.resolve(opts.outputPath).toLowerCase()))
-    return { ok: false, error: 'Choose a different export folder; an uploaded source cannot be overwritten.' };
-  if (!scenes.length) return { ok: false, error: 'Add at least one video or image scene.' };
-  const resolutionMap = { '1080p': [1920, 1080], '1440p': [2560, 1440], '4k': [3840, 2160], vertical: [1080, 1920], square: [1080, 1080] };
-  const [width, height] = resolutionMap[opts?.resolution] || resolutionMap['1080p'];
-  const fps = [24, 25, 30, 50, 60].includes(Number(opts?.fps)) ? Number(opts.fps) : 30;
-  const ffmpeg = findMyExporterFFmpeg();
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pattan-my-exporter-'));
-  
-  // Resolve unique output path in downloads folder if not specified
-  let outputPath = opts?.outputPath;
-  if (!outputPath) {
-    const downloadsFolder = path.join(os.homedir(), 'Downloads');
-    const baseName = myExporterSafeName(opts?.outputName || 'My-Exporter');
-    const parsedPath = path.parse(path.join(downloadsFolder, baseName));
-    let finalPath = path.join(downloadsFolder, baseName);
-    let counter = 0;
-    while (fs.existsSync(finalPath)) {
-      counter++;
-      finalPath = path.join(downloadsFolder, `${parsedPath.name} (${counter})${parsedPath.ext}`);
-    }
-    outputPath = finalPath;
-  }
-
-  const totalDuration = scenes.reduce((sum, scene) => {
-    const duration = Math.max(0.1, Number(scene.duration) || 3);
-    const speed = scene.kind === 'image' ? 1 : Math.max(0.5, Math.min(2, Number(scene.speed) || 1));
-    return sum + duration / speed;
-  }, 0);
-  const preset = opts?.quality === 'maximum' ? 'slow' : opts?.quality === 'small' ? 'veryfast' : 'medium';
-  const crf = opts?.quality === 'maximum' ? '16' : opts?.quality === 'small' ? '23' : '19';
-  const segmentPaths = [];
-  try {
-    event.sender.send('my-exporter-progress', { jobId, pct: 1, phase: 'Preparing timeline' });
-    for (let index = 0; index < scenes.length; index += 1) {
-      const scene = scenes[index];
-      const meta = myExporterProbePath(scene.path);
-      const isImage = scene.kind === 'image' || !meta.hasVideo;
-      const trimStart = Math.max(0, Number(scene.trimStart) || 0);
-      const requestedDuration = Math.max(0.1, Number(scene.duration) || (meta.duration - trimStart) || 3);
-      const duration = meta.duration > 0 && !isImage ? Math.min(requestedDuration, Math.max(0.1, meta.duration - trimStart)) : requestedDuration;
-      const speed = isImage ? 1 : Math.max(0.5, Math.min(2, Number(scene.speed) || 1));
-      const outputDuration = duration / speed;
-      const segmentPath = path.join(workDir, `segment-${String(index).padStart(3, '0')}.mp4`);
-      const args = ['-y'];
-      if (isImage) args.push('-loop', '1', '-t', duration.toFixed(3), '-i', scene.path);
-      else args.push('-ss', trimStart.toFixed(3), '-i', scene.path); // Remove -t duration from before -i for accurate non-truncating seek
-      const useSourceAudio = !isImage && meta.hasAudio && !scene.muted;
-      if (!useSourceAudio) args.push('-f', 'lavfi', '-t', duration.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo');
-      const rotation = [90, 180, 270].includes(Number(scene.rotation)) ? Number(scene.rotation) : 0;
-      const rotationFilter = rotation === 90 ? 'transpose=1,' : rotation === 270 ? 'transpose=2,' : rotation === 180 ? 'hflip,vflip,' : '';
-      const framingFilter = scene.fit === 'fill'
-        ? `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`
-        : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`;
-      const brightness = Math.max(-1, Math.min(1, Number(scene.brightness) || 0));
-      const contrast = Math.max(0, Math.min(2, Number(scene.contrast) || 1));
-      const saturation = Math.max(0, Math.min(3, Number(scene.saturation) || 1));
-      const fadeDuration = Math.min(1.5, outputDuration / 3, Math.max(0, Number(scene.fade) || 0));
-      const fades = fadeDuration > 0.02
-        ? `,fade=t=in:st=0:d=${fadeDuration.toFixed(2)},fade=t=out:st=${Math.max(0, outputDuration - fadeDuration).toFixed(2)}:d=${fadeDuration.toFixed(2)}`
-        : '';
-      const speedFilter = speed !== 1 ? `setpts=PTS/${speed.toFixed(3)},` : '';
-      const videoFilter = `${rotationFilter}${framingFilter},setsar=1,eq=brightness=${brightness.toFixed(2)}:contrast=${contrast.toFixed(2)}:saturation=${saturation.toFixed(2)},${speedFilter}fps=${fps},format=yuv420p${fades}`;
-      args.push('-map', '0:v:0', '-map', useSourceAudio ? '0:a:0' : '1:a:0', '-vf', videoFilter);
-      if (useSourceAudio) {
-        const safeVolume = Number.isFinite(Number(scene.volume)) ? Number(scene.volume) : 1;
-        const audioFilters = [`volume=${Math.max(0, Math.min(2, safeVolume)).toFixed(2)}`];
-        if (speed !== 1) audioFilters.push(`atempo=${speed.toFixed(3)}`);
-        if (scene.noiseReduction) audioFilters.push('highpass=f=80', 'lowpass=f=14000', 'afftdn=nf=-25');
-        if (scene.normalizeAudio) audioFilters.push('loudnorm=I=-16:TP=-1.5:LRA=11');
-        if (fadeDuration > 0.02) audioFilters.push(`afade=t=in:st=0:d=${fadeDuration.toFixed(2)}`, `afade=t=out:st=${Math.max(0, outputDuration - fadeDuration).toFixed(2)}:d=${fadeDuration.toFixed(2)}`);
-        audioFilters.push('apad'); // Pad audio with silence to prevent early end
-        args.push('-af', audioFilters.join(','));
-      }
-      args.push('-c:v', 'libx264', '-preset', preset, '-crf', crf, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', '-t', outputDuration.toFixed(3), '-movflags', '+faststart', segmentPath);
-      const base = 3 + (index / scenes.length) * 54;
-      await runMyExporterFFmpeg(ffmpeg, args, event, `Rendering scene ${index + 1} of ${scenes.length}`, base, 54 / scenes.length, outputDuration, jobId);
-      segmentPaths.push(segmentPath);
-    }
-    const concatList = path.join(workDir, 'timeline.txt');
-    fs.writeFileSync(concatList, segmentPaths.map(file => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'), 'utf8');
-    const joinedPath = path.join(workDir, 'joined.mp4');
-    event.sender.send('my-exporter-progress', { jobId, pct: 58, phase: 'Joining scenes' });
-    await runMyExporterFFmpeg(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', concatList, '-c', 'copy', '-movflags', '+faststart', joinedPath], event, 'Joining scenes', 58, 8, totalDuration, jobId);
-
-    let mixedPath = joinedPath;
-    const musicPath = String(opts?.musicPath || '');
-    const positionedAudio = (Array.isArray(opts?.audioTracks) ? opts.audioTracks : [])
-      .filter(track => track?.path && fs.existsSync(track.path) && track.muted !== true);
-    if ((musicPath && fs.existsSync(musicPath)) || positionedAudio.length) {
-      mixedPath = path.join(workDir, 'mixed.mp4');
-      const musicVolume = Math.max(0, Math.min(1.5, Number(opts?.musicVolume) || 0.18));
-      const mixArgs = ['-y', '-i', joinedPath];
-      const chains = ['[0:a]volume=1[base]'];
-      const labels = ['[base]'];
-      let inputIndex = 1;
-      for (const track of positionedAudio) {
-        mixArgs.push('-i', track.path);
-        const trimStart = Math.max(0, Number(track.trimStart) || 0);
-        const duration = Math.max(0.1, Math.min(totalDuration, Number(track.duration) || totalDuration));
-        const trackSpeed = Math.max(0.5, Math.min(2, Number(track.speed) || 1));
-        const delayMs = Math.max(0, Math.round((Number(track.start) || 0) * 1000));
-        const volume = Math.max(0, Math.min(2, Number.isFinite(Number(track.volume)) ? Number(track.volume) : 1));
-        const speedFilter = trackSpeed !== 1 ? `,atempo=${trackSpeed.toFixed(3)}` : '';
-        chains.push(`[${inputIndex}:a]atrim=start=${trimStart.toFixed(3)}:duration=${(duration * trackSpeed).toFixed(3)},asetpts=PTS-STARTPTS${speedFilter},volume=${volume.toFixed(2)},adelay=${delayMs}:all=1[a${inputIndex}]`);
-        labels.push(`[a${inputIndex}]`);
-        inputIndex += 1;
-      }
-      if (musicPath && fs.existsSync(musicPath)) {
-        mixArgs.push('-stream_loop', '-1', '-i', musicPath);
-        chains.push(`[${inputIndex}:a]volume=${musicVolume.toFixed(2)},afade=t=out:st=${Math.max(0, totalDuration - 2).toFixed(2)}:d=2[music]`);
-        labels.push('[music]');
-        inputIndex += 1;
-      }
-      chains.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=2[a]`);
-      mixArgs.push('-filter_complex', chains.join(';'), '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k', '-t', totalDuration.toFixed(3), mixedPath);
-      await runMyExporterFFmpeg(ffmpeg, mixArgs, event, 'Mixing audio tracks', 67, 10, totalDuration, jobId);
-    }
-
-    const captions = (Array.isArray(opts?.captions) ? opts.captions : []).filter(item => String(item.text || '').trim() && Number(item.end) > Number(item.start));
+ipcMain.handle('my-exporter-export', async (event, opts) => myExporterEngine.exportVideo(opts, {
+  onProgress: progress => event.sender.send('my-exporter-progress', progress),
+  finish: async ({ inputPath, stagedPath, workDir, width, height, preset, crf, totalDuration, run }) => {
+    const mixedPath = inputPath;
+    const captions = (opts?.burnCaptions === false ? [] : Array.isArray(opts?.captions) ? opts.captions : []).filter(item => String(item.text || '').trim() && Number(item.end) > Number(item.start));
     const textOverlays = (Array.isArray(opts?.textOverlays) ? opts.textOverlays : []).filter(item => String(item.text || '').trim());
     const watermarkPath = String(opts?.watermarkPath || '');
     const hasWatermark = Boolean(watermarkPath && fs.existsSync(watermarkPath));
@@ -6655,7 +6757,7 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
       const baseFontSize = Math.max(24, Math.min(84, Number(opts?.captionFontSize) || 42));
       const fontSize = Math.round(baseFontSize * height / 1080);
       const maxChars = Math.max(16, Math.min(60, Number(opts?.captionMaxChars) || 36));
-      const customCaptionColor = assColor(opts?.captionColor || '#ffffff');
+      const customCaptionColor = myExporterAssColor(opts?.captionColor || '#ffffff');
       const style = {
         classic: { primary: customCaptionColor, secondary: customCaptionColor, back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: opts?.captionBold === false ? 0 : -1 },
         box: { primary: '&H00FFFFFF', secondary: '&H00FFFFFF', back: '&H50000000', border: 3, outline: 0, shadow: 0, bold: -1 },
@@ -6675,13 +6777,24 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
           else line = line ? `${line} ${word}` : word;
         }
         if (line) lines.push(line);
-        return lines.join('\\\\N');
+        return lines.join('\\N');
       };
       const dialogues = captions.map(item => {
         const words = String(item.text || '').replace(/[{}]/g, '').replace(/\r?\n/g, ' ').trim().split(/\s+/).filter(Boolean);
         let text = wrapText(item.text);
+        let dialogueStart = Number(item.start), leadingDialogue = '';
         if (styleName.startsWith('karaoke') && words.length) {
-          const timedWords = Array.isArray(item.words) && item.words.length ? item.words : null;
+          let previousEnd = Number(item.start);
+          const timedWords = Array.isArray(item.words) && item.words.length === words.length && item.words.every(timing => {
+            const valid = typeof timing.start === 'number' && typeof timing.end === 'number' && Number.isFinite(timing.start)
+              && Number.isFinite(timing.end) && timing.start >= previousEnd && timing.end > timing.start && timing.end <= Number(item.end);
+            previousEnd = timing.end;
+            return valid;
+          }) ? item.words : null;
+          if (timedWords && timedWords[0].start > dialogueStart) {
+            leadingDialogue = `Dialogue: 0,${assTime(dialogueStart)},${assTime(timedWords[0].start)},Caption,,0,0,0,,{\\c${style.secondary}}${text}\n`;
+            dialogueStart = timedWords[0].start;
+          }
           const totalCs = Math.max(words.length, Math.round((Number(item.end) - Number(item.start)) * 100));
           const each = Math.max(1, Math.floor(totalCs / words.length));
           let lineLength = 0;
@@ -6689,15 +6802,16 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
             const breakLine = lineLength && lineLength + word.length + 1 > maxChars;
             lineLength = breakLine ? word.length : lineLength + word.length + (lineLength ? 1 : 0);
             const timing = timedWords?.[index];
-            const durationCs = timing ? Math.max(1, Math.round((Number(timing.end) - Number(timing.start)) * 100)) : each;
-            return `${breakLine ? '\\\\N' : ''}{\\\\k${durationCs}}${word}`;
+            const durationCs = timing ? Math.max(1, Math.round(((timedWords[index + 1]?.start ?? Number(item.end)) - timing.start) * 100)) : each;
+            return `${breakLine ? '\\N' : ''}{\\k${durationCs}}${word}`;
           }).join(' ');
         }
-        return `Dialogue: 0,${assTime(item.start)},${assTime(item.end)},Caption,,0,0,0,,${text}`;
+        return `${leadingDialogue}Dialogue: 0,${assTime(dialogueStart)},${assTime(item.end)},Caption,,0,0,0,,${text}`;
       }).join('\n');
-      const safeFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS']);
+      const safeFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS', 'Nirmala UI']);
       const textStyles = textOverlays.map((item, index) => {
-        const font = safeFonts.has(item.fontFamily) ? item.fontFamily : 'Arial';
+        const preferredFont = safeFonts.has(item.fontFamily) ? item.fontFamily : 'Arial';
+        const font = /[\u0900-\u0dff]/.test(String(item.text || '')) && ['Arial', 'Segoe UI'].includes(preferredFont) ? 'Nirmala UI' : preferredFont;
         const size = Math.round(Math.max(20, Math.min(180, Number(item.fontSize) || 64)) * height / 1080);
         const boxed = item.shape && item.shape !== 'none';
         const depth = Math.round(Math.max(0, Math.min(16, Number(item.depth) || 0)) * height / 1080);
@@ -6706,14 +6820,16 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
       const textDialoguesFixed = textOverlays.map((item, index) => {
         const x = Math.round(width * Math.max(0, Math.min(100, Number(item.x) || 0)) / 100);
         const y = Math.round(height * Math.max(0, Math.min(100, Number(item.y) || 0)) / 100);
-        const alpha = Math.round((1 - Math.max(0, Math.min(1, Number(item.opacity) || .8))) * 255).toString(16).padStart(2, '0').toUpperCase();
+        const alpha = Math.round((1 - Math.max(0, Math.min(1, (Number.isFinite(Number(item.opacity)) ? Number(item.opacity) : .8)))) * 255).toString(16).padStart(2, '0').toUpperCase();
         const start = Math.max(0, Number(item.start) || 0);
         const end = Math.max(start + .1, Number(item.end) || totalDuration);
-        const text = String(item.text).replace(/[{}]/g, '').replace(/\r?\n/g, '\\\\N');
-        return `Dialogue: 1,${assTime(start)},${assTime(end)},Text${index},,0,0,0,,{\\an5\\pos(${x},${y})\\alpha&H${alpha}&\\c${assColor(item.color)}}${text}`;
+        const text = String(item.text).replace(/[{}]/g, '').replace(/\r?\n/g, '\\N');
+        return `Dialogue: 1,${assTime(start)},${assTime(end)},Text${index},,0,0,0,,{\\an5\\pos(${x},${y})\\alpha&H${alpha}&\\c${myExporterAssColor(item.color)}}${text}`;
       }).join('\n');
-      const captionFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS']);
-      const captionFont = captionFonts.has(opts?.captionFontFamily) ? opts.captionFontFamily : 'Arial';
+      const captionFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS', 'Nirmala UI']);
+      const preferredCaptionFont = captionFonts.has(opts?.captionFontFamily) ? opts.captionFontFamily : 'Arial';
+      const hasIndicCaptions = captions.some(item => /[\u0900-\u0dff]/.test(String(item.text || '')));
+      const captionFont = hasIndicCaptions && ['Arial', 'Segoe UI'].includes(preferredCaptionFont) ? 'Nirmala UI' : preferredCaptionFont;
       const captionScaleX = Math.max(30, Math.min(100, Number(opts?.captionWidth) || 100));
       const captionScaleY = Math.max(70, Math.min(140, Number(opts?.captionHeight) || 100));
       const ass = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,${captionFont},${fontSize},${style.primary},${style.secondary},&H00000000,${style.back},${style.bold},0,0,0,${captionScaleX},${captionScaleY},0,0,${style.border},0,0,${alignment},60,60,${Math.round(height * .055)},1\n${textStyles}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${dialogues}\n${textDialoguesFixed}\n`;
@@ -6752,16 +6868,10 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
     } else {
       finalArgs.push('-c:v', 'copy');
     }
-    finalArgs.push('-c:a', 'copy', '-t', totalDuration.toFixed(3), '-movflags', '+faststart', outputPath);
-    await runMyExporterFFmpeg(ffmpeg, finalArgs, event, captions.length ? 'Burning captions and finishing' : 'Finishing MP4', 78, 21, totalDuration, jobId);
-    event.sender.send('my-exporter-progress', { jobId, pct: 100, phase: 'Export complete', outputPath });
-    return { ok: true, jobId, outputPath, fileName: path.basename(outputPath), width, height, duration: totalDuration };
-  } catch (error) {
-    return { ok: false, error: error.message };
-  } finally {
-    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
-  }
-});
+    finalArgs.push('-c:a', 'copy', '-t', totalDuration.toFixed(6), '-movflags', '+faststart', stagedPath);
+    await run(finalArgs, captions.length ? 'Burning captions and finishing' : 'Finishing MP4', 78, 20, totalDuration);
+  },
+}));
 
 // ── Multi-voice pool: female & male EdgeTTS voices per language ─────────────
 const MY_EXPORTER_VOICE_POOL = {
@@ -6927,8 +7037,8 @@ function assignSegmentVoices(segments, detectedGenders, voicePool) {
 //   5. Mix all TTS clips at their exact timestamps into a single audio track
 //   6. Mux new audio into original video (copy video stream – no re-encode)
 ipcMain.handle('export-synced-translated-video', async (event, opts) => {
-  const { videoPath, segments, voice, outputName, targetLanguage, singleVoice = false, voiceMode = singleVoice ? 'female' : 'both', audioOnly = false } = opts || {};
-  if (!videoPath || !Array.isArray(segments) || !segments.length)
+  const { videoPath, segments: requestedSegments, voice, outputName, targetLanguage, singleVoice = false, voiceMode = singleVoice ? 'female' : 'both', audioOnly = false } = opts || {};
+  if (!videoPath || !Array.isArray(requestedSegments) || !requestedSegments.length)
     return { ok: false, error: 'videoPath and segments are required.' };
   if (!fs.existsSync(videoPath))
     return { ok: false, error: `Source video not found: ${videoPath}` };
@@ -6947,7 +7057,11 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     // STEP 1: Probe duration
     send(3, 'Reading source video…');
     const meta          = myExporterProbePath(videoPath);
-    const totalDuration = meta.duration || 300;
+    const totalDuration = meta.duration;
+    const { validateSyncedNarrationSegments, trimGeneratedNarrationClip } = require('./synced-narration-timing.cjs');
+    // Validate the entire timeline before generating even the first voice clip.
+    // A conflicting timestamp is actionable; it must never be silently moved.
+    const segments = validateSyncedNarrationSegments(requestedSegments, totalDuration);
 
     // STEP 2: Detect gender per segment
     send(8, `Detecting speakers in ${segments.length} segments…`);
@@ -6973,8 +7087,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     const clipPaths = [];
     for (let i = 0; i < segments.length; i++) {
       const seg  = segments[i];
-      const text = String(seg.translatedText || seg.text || '').trim();
-      if (!text) continue;
+      const text = seg.narrationText;
 
       const segVoice = segmentVoices[i] || voice || 'hi-IN-SwaraNeural';
       send(
@@ -6990,22 +7103,16 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
       }
 
       fs.writeFileSync(clipPath, ttsResp.buffer);
-      const startSec = Math.max(0, Number(seg.start || 0));
-      const endSec = Math.max(startSec + 0.12, Number(seg.end || startSec + 0.12));
-      const generatedDuration = Math.max(0.01, Number(myExporterProbePath(clipPath).duration) || (endSec - startSec));
-      clipPaths.push({ path: clipPath, startSec, endSec, generatedDuration });
+      const preparedPath = path.join(workDir, `clip_${String(i).padStart(4, '0')}_speech.wav`);
+      await trimGeneratedNarrationClip(ffmpeg, clipPath, preparedPath);
+      const generatedDuration = myExporterProbePath(preparedPath).duration;
+      if (!Number.isFinite(generatedDuration) || generatedDuration <= 0) {
+        throw new Error(`Narration segment ${i + 1} generated no audible speech. Try generating its voice again.`);
+      }
+      clipPaths.push({ path: preparedPath, startSec: seg.start, endSec: seg.end, generatedDuration });
     }
 
     if (!clipPaths.length) throw new Error('No TTS audio was generated — check that translated segments have text.');
-
-    // Whisper timestamps can themselves touch or overlap slightly. Give every
-    // clip an exclusive boundary at the next clip's start as a second guard.
-    for (let i = 0; i < clipPaths.length - 1; i++) {
-      clipPaths[i].endSec = Math.max(
-        clipPaths[i].startSec + 0.12,
-        Math.min(clipPaths[i].endSec, clipPaths[i + 1].startSec)
-      );
-    }
 
     // STEP 5: Mix TTS clips into one full-length audio track
     // Write filter to FILE to avoid Windows 32,767-char CLI limit (ENAMETOOLONG)
@@ -7019,13 +7126,13 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     const mixFilterParts = [`[0:a]apad=whole_dur=${totalDuration}[base]`];
     for (let i = 0; i < clipPaths.length; i++) {
       const clip = clipPaths[i];
-      const delayMs = Math.round(clip.startSec * 1000);
-      const slotDuration = Math.max(0.12, clip.endSec - clip.startSec);
+      const delaySamples = Math.round(clip.startSec * 44100);
+      const slotDuration = clip.endSec - clip.startSec;
       // A generated sentence can be longer than its Whisper time slot. Fit it
       // into that slot and trim at the boundary so adjacent voices never overlap.
       const tempo = Math.max(1, clip.generatedDuration / slotDuration);
       const tempoFilter = buildAtempoChain(tempo);
-      mixFilterParts.push(`[${i + 1}:a]${tempoFilter}atrim=duration=${slotDuration.toFixed(6)},asetpts=PTS-STARTPTS,adelay=${delayMs}|${delayMs}[c${i}]`);
+      mixFilterParts.push(`[${i + 1}:a]${tempoFilter}atrim=duration=${slotDuration.toFixed(6)},asetpts=PTS-STARTPTS,adelay=${delaySamples}S:all=1[c${i}]`);
     }
     const mixLabels = ['[base]', ...clipPaths.map((_, i) => `[c${i}]`)].join('');
     mixFilterParts.push(`${mixLabels}amix=inputs=${clipPaths.length + 1}:normalize=0,atrim=end=${totalDuration}[aout]`);
@@ -7229,26 +7336,7 @@ ipcMain.handle('video-resizer-cancel', async (_event, opts = {}) => {
   return { ok: true, cancelled: true };
 });
 
-ipcMain.handle('my-exporter-cancel', async (event, opts) => {
-  const jobId = opts?.jobId;
-  if (jobId) {
-    const proc = myExporterProcesses.get(jobId);
-    if (proc) {
-      try { proc.kill('SIGTERM'); } catch (_) {}
-      myExporterProcesses.delete(jobId);
-      return { ok: true, cancelled: true };
-    }
-    return { ok: true, cancelled: false };
-  } else {
-    let killed = false;
-    for (const [id, proc] of myExporterProcesses.entries()) {
-      try { proc.kill('SIGTERM'); } catch (_) {}
-      killed = true;
-    }
-    myExporterProcesses.clear();
-    return { ok: true, cancelled: killed };
-  }
-});
+ipcMain.handle('my-exporter-cancel', async (_event, opts) => myExporterEngine.cancel(opts?.jobId));
 
 ipcMain.handle('my-exporter-delete-project', async (_event, opts) => {
   const filePath = path.resolve(String(opts?.filePath || ''));

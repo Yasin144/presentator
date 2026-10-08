@@ -1177,6 +1177,17 @@ _progress = {
 _progress_lock = threading.Lock()
 _current_synth_text = ""
 
+def _get_voice_progress_snapshot():
+    with _progress_lock:
+        snapshot = dict(_progress)
+    # A completed progress label can precede the actual lock release. Voice
+    # conversion also uses the model without updating narration progress.
+    if _synth_lock.locked() or _CONVERTER_LOCK.locked():
+        if not snapshot.get("active"):
+            snapshot["stage"] = "SC3 voice model is working"
+        snapshot["active"] = True
+    return snapshot
+
 STAGES = [
     ("Cleaning text…",               5),
     ("Preparing voice embeddings…",  15),
@@ -1646,9 +1657,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/narrate/progress"):
-            with _progress_lock:
-                snap = dict(_progress)
-            self._json(snap)
+            self._json(_get_voice_progress_snapshot())
             return
         self._json({"error": "Route not found."}, 404)
 
@@ -1697,9 +1706,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/narrate/progress"):
-            with _progress_lock:
-                snap = dict(_progress)
-            self._json(snap)
+            self._json(_get_voice_progress_snapshot())
             return
 
         if not self.path.startswith("/api/narrate"):

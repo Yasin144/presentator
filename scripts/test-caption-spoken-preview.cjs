@@ -9,6 +9,7 @@ const parser = require('@babel/parser');
 const traverse = require('@babel/traverse').default;
 const root = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+const localPanel = read('src/components/LocalCaptionPanel.jsx');
 const legacy = read('caption-script.js');
 const ast = parser.parse(legacy);
 function fn(name) { let result; traverse(ast, { FunctionDeclaration(p) { if (p.node.id?.name === name) result = legacy.slice(p.node.start, p.node.end); } }); assert.ok(result, name); return result; }
@@ -74,8 +75,8 @@ test('preview stays available without blocking Caption Burner exports', () => {
 
 test('local captions default to bottom and export without repeated confirmation', () => {
   assert.match(legacy, /let captionPosY = 0\.90;/);
-  assert.match(read('src/components/InputPanel.jsx'), /id="captionPositionPreset" defaultValue="bottom"/);
-  assert.match(read('src/components/InputPanel.jsx'), /id="captionPositionY"[^>]+defaultValue="90"/);
+  assert.match(localPanel, /id="captionPositionPreset"[^>]*defaultValue="bottom"/);
+  assert.match(localPanel, /id="captionPositionY"[^>]+defaultValue="90"/);
   const preview = fn('confirmCaptionExportPreview');
   assert.doesNotMatch(preview, /window\.(confirm|alert|prompt)\(/);
   assert.match(preview, /return true;/);
@@ -256,7 +257,7 @@ test('size samples update immediately, queues preserve selection, and old burned
   assert.doesNotMatch(screen, /fontSize: QUEUE_EXPORT_FONT_SIZE \}/);
   assert.doesNotMatch(fn('forceQueueExportFontSize'), /sizeSlider.value\s*=/);
   assert.match(fn('updateCaptionStyleValueLabels'), /sample.style.fontSize/);
-  assert.match(read('src/components/InputPanel.jsx'), /id="captionSizeSlider" min="20" max="140"/);
+  assert.match(localPanel, /id="captionSizeSlider"[^>]*min="20"[^>]*max="140"/);
   const python = read('whisper-transcribe-caption.py');
   assert.doesNotMatch(python, /= repair_known_nursery_lyrics\(/);
 });

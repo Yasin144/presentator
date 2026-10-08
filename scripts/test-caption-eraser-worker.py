@@ -256,7 +256,10 @@ class CaptionRemovalTests(unittest.TestCase):
                         x, y, width, height = track["box"]
                         mask[y:y + height, x:x + width] |= worker.track_mask(frame, track, second)
                 self.assertGreater(np.count_nonzero(mask[top:bottom, left:right]), 100, second)
-                self.assertEqual(np.count_nonzero(mask[985:1076, 1635:1920]), 0, second)
+                # The empty corner beside a rounded badge can contain a real
+                # caption letter. Preserve its measured artwork, not that wedge.
+                for left, top, right, bottom in protection:
+                    self.assertEqual(np.count_nonzero(mask[top:bottom, left:right]), 0, second)
                 self.assertEqual(np.count_nonzero(mask[:850]), 0, second)
 
     def test_h_sample_cache_binding_and_tamper(self):

@@ -407,8 +407,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   myExporterExport: (opts) =>
     ipcRenderer.invoke('my-exporter-export', opts),
 
-  myExporterCancel: () =>
-    ipcRenderer.invoke('my-exporter-cancel'),
+  myExporterCancel: (opts) =>
+    ipcRenderer.invoke('my-exporter-cancel', opts),
 
   myExporterDeleteProject: (filePath) =>
     ipcRenderer.invoke('my-exporter-delete-project', { filePath }),

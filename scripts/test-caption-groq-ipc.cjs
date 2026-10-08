@@ -1,0 +1,444 @@
+'use strict';
+
+// Run the actual native callbacks and Groq helpers against memory-only audio,
+// fake child processes and mocked HTTP. These tests never load models or keys.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { EventEmitter } = require('node:events');
+const { test } = require('node:test');
+const acorn = require('acorn');
+
+const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8');
+const ast = acorn.parse(source, { ecmaVersion: 'latest', allowReturnOutsideFunction: true });
+const callbacks = new Map(), helperSources = [];
+const helperNames = new Set(['buildWavChunkBuffer', 'throwIfCaptionTranscriptionCancelled', 'waitForGroqCaptionRetry', 'callGroqWhisperForBuffer', 'readGroqCaptionWav', 'assertGroqCaptionWordTimeline', 'groqCaptionTimingWindows', 'verifyGroqCaptionSpeechTimings', 'transcribeCaptionWavWithGroq']);
+(function visit(node) {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'FunctionDeclaration' && helperNames.has(node.id?.name)) helperSources.push(source.slice(node.start, node.end));
+  if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression'
+      && node.callee.object.name === 'ipcMain' && node.callee.property.name === 'handle') {
+    const [channel, callback] = node.arguments;
+    if (['transcribe-video', 'transcribe-video-groq', 'cancel-transcribe-video'].includes(channel?.value)) callbacks.set(channel.value, source.slice(callback.start, callback.end));
+  }
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) value.forEach(visit);
+    else if (value && typeof value === 'object') visit(value);
+  }
+})(ast);
+assert.equal(helperSources.length, helperNames.size);
+assert.equal(callbacks.size, 3);
+const plain = value => JSON.parse(JSON.stringify(value));
+const recognized = {
+  text: 'Jingle bells Jingle bells', language: 'english',
+  segments: [{ text: 'Jingle bells', start: 0.2, end: 1.2 }, { text: 'Jingle bells', start: 2.2, end: 3.2 }],
+  words: [{ word: 'Jingle', start: 0.2, end: 0.7 }, { word: 'bells', start: 0.7, end: 1.2 }, { word: 'Jingle', start: 2.2, end: 2.7 }, { word: 'bells', start: 2.7, end: 3.2 }],
+};
+
+test('timing verification retains Indic vowel marks when checking unchanged words', async () => {
+  const original = { language: 'hindi', text: 'कल अब',
+    segments: [{ text: 'कल अब', start: 1, end: 2.5 }],
+    words: [{ word: 'कल', start: 1, end: 2 }, { word: 'अब', start: 1.5, end: 2.5 }] };
+  const changed = { text: 'काल अब',
+    words: [{ word: 'काल', start: 1, end: 1.4 }, { word: 'अब', start: 2, end: 2.4 }] };
+  const f = fixture({ duration: 10, responses: [original, changed] });
+  const result = await f.invoke({ languageHint: 'hi' });
+  f.assertReleased();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /could not verify/);
+});
+
+function fixture(options = {}) {
+  const root = path.resolve('caption-groq-fixture'), videoPath = path.join(root, 'song.mp4');
+  const ffmpegPath = path.join(root, 'ffmpeg.exe');
+  const files = new Map([[videoPath, Buffer.from('fixture video')]]);
+  const timers = new Set(), calls = { spawn: [], fetch: [], kills: [], progress: [], policy: 0, fallback: 0 };
+  let cancel, releaseExtraction, requestStarted;
+  const requested = new Promise(resolve => { requestStarted = resolve; });
+  const context = vm.createContext({
+    Buffer, path, AbortController, AbortSignal, FormData, Blob,
+    ROOT: root, process: { env: { GROQ_API_KEY: options.missingKey ? '' : 'fixture-token' } },
+    activeCaptionTranscribeProcess: null, activeCaptionSongController: null, activeCaptionTranscribeCancelRequested: false,
+    ensureCaptionWorkDir: (...parts) => path.join(root, 'caption-work', ...parts),
+    console: { log() {}, warn() {}, error() {} },
+    setTimeout: (fn, ms) => { const timer = setTimeout(fn, ms); timers.add(timer); return timer; },
+    clearTimeout: timer => { timers.delete(timer); clearTimeout(timer); },
+    fs: {
+      existsSync: name => files.has(name) || name === ffmpegPath,
+      statSync: name => ({ size: files.get(name).length }),
+      readFileSync: name => { assert.ok(files.has(name), 'No real files or credentials may be read'); return files.get(name); },
+      unlinkSync: name => files.delete(name),
+    },
+    require: name => {
+      if (name === 'child_process') return { execSync: () => ffmpegPath };
+      if (name === './caption-audio-preprocess.cjs') return { prepareCaptionAudio: async () => {
+        const audioPath = path.join(root, 'caption-work', 'vocal-focus', 'fixture.wav');
+        files.set(audioPath, context.buildWavChunkBuffer(Buffer.alloc(5 * 32000)));
+        return { audioPath, cleanupFiles: [audioPath], warnings: ['Fixture vocal focus'] };
+      } };
+      throw new Error('Unexpected module: ' + name);
+    },
+    prepareCaptionVoiceMemory: async () => { calls.policy++; throw new Error('Cloud engine must not request local model memory'); },
+    postJsonForBufferWithRecovery: async () => { calls.fallback++; throw new Error('Explicit Groq must not fall back'); },
+    fetch: async (url, init) => {
+      assert.equal(url, 'https://api.groq.com/openai/v1/audio/transcriptions', 'Cloud captioning must not unload or contact local models');
+      calls.fetch.push({ url, init }); requestStarted();
+      if (options.pendingRequest || options.pendingRequestAt === calls.fetch.length) return new Promise((resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(Object.assign(new Error('Fixture abort'), { name: 'AbortError' })), { once: true });
+      });
+      if (options.networkFails) throw new Error('Fixture network failure');
+      if (options.status) return { ok: false, status: options.status, headers: { get: () => null }, body: { cancel: async () => {} } };
+      const json = options.responses?.[calls.fetch.length - 1] || options.response || recognized;
+      return { ok: true, json: async () => { if (options.cancelAtJson) await cancel(); return plain(json); } };
+    },
+    killProcessTree: proc => {
+      calls.kills.push(proc.pid);
+      if (!proc.finished) setImmediate(() => { proc.finished = true; proc.emit('exit', 1); });
+    },
+    spawn: (command, args) => {
+      assert.ok(args.includes('-vn'), 'Explicit Groq must not spawn Python/Whisper');
+      const proc = new EventEmitter(); proc.stderr = new EventEmitter(); proc.pid = 100 + calls.spawn.length; proc.finished = false;
+      calls.spawn.push({ command, args: plain(args) });
+      releaseExtraction = () => {
+        if (proc.finished) return;
+        files.set(args.at(-1), options.wav || context.buildWavChunkBuffer(Buffer.alloc((options.duration || 5) * 32000)));
+        proc.finished = true; proc.emit('exit', 0);
+      };
+      setImmediate(async () => {
+        if (options.cancelExtraction) await cancel();
+        else if (!options.holdExtraction) releaseExtraction();
+      });
+      return proc;
+    },
+  });
+  vm.runInContext(helperSources.join('\n'), context);
+  cancel = vm.runInContext('(' + callbacks.get('cancel-transcribe-video') + ')', context);
+  const native = vm.runInContext('(' + callbacks.get('transcribe-video') + ')', context);
+  const legacy = vm.runInContext('(' + callbacks.get('transcribe-video-groq') + ')', context);
+  const event = { sender: { send: (channel, value) => calls.progress.push({ channel, value }) } };
+  return {
+    context, calls, files, root, cancel, requested,
+    release: () => releaseExtraction(),
+    invoke: (overrides = {}, useLegacy = false) => (useLegacy ? legacy : native)(event, { videoPath, engine: 'groq', contentMode: 'speech', languageHint: 'auto', ...overrides }),
+    assertReleased() {
+      assert.equal(context.activeCaptionTranscribeProcess, null);
+      assert.equal(context.activeCaptionSongController, null);
+      assert.equal(context.activeCaptionTranscribeCancelRequested, false);
+      assert.equal(timers.size, 0, 'Network timeout/retry timers must be released');
+      assert.equal(calls.policy, 0); assert.equal(calls.fallback, 0);
+    },
+  };
+}
+
+test('explicit native Groq uses large-v3 and genuine word intervals without local model activity', async () => {
+  const f = fixture(); const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.engine, 'groq'); assert.equal(result.timingSource, 'word');
+  assert.deepEqual(result.words, recognized.words); assert.equal(result.text, recognized.text);
+  assert.equal(f.calls.spawn.length, 1); assert.equal(f.calls.fetch.length, 1);
+  const form = f.calls.fetch[0].init.body;
+  assert.equal(form.get('model'), 'whisper-large-v3');
+  assert.equal(form.get('response_format'), 'verbose_json'); assert.equal(form.get('temperature'), '0');
+  assert.deepEqual(form.getAll('timestamp_granularities[]'), ['word', 'segment']);
+  assert.equal(form.has('prompt'), false);
+  assert.deepEqual(result.warnings, []); assert.equal(f.calls.progress.at(-1).value, 100);
+});
+
+test('loaded Groq speech capability can be probed without video, audio, key or filesystem access', async () => {
+  const f = fixture({ missingKey: true });
+  for (const method of ['existsSync', 'statSync', 'readFileSync']) {
+    f.context.fs[method] = () => { throw new Error('Capability probe must not inspect files or keys'); };
+  }
+  const result = plain(await f.invoke({ videoPath: undefined, engine: 'groq', contentMode: 'speech', capabilityProbe: true }));
+  assert.deepEqual(result, { ok: true, capabilityProbe: true, groqSpeechTimingRepairVersion: 1 });
+  assert.equal(f.calls.spawn.length, 0); assert.equal(f.calls.fetch.length, 0);
+  assert.equal(f.calls.progress.length, 0); f.assertReleased();
+});
+
+test('read-only timing capability does not reset, cancel or steal an unrelated running caption job', async () => {
+  const f = fixture({ holdExtraction: true });
+  const pending = f.invoke();
+  const controller = f.context.activeCaptionSongController, process = f.context.activeCaptionTranscribeProcess;
+  assert.ok(controller); assert.ok(process);
+  const probe = plain(await f.invoke({ videoPath: undefined, engine: 'groq', contentMode: 'speech', capabilityProbe: true }));
+  assert.equal(probe.groqSpeechTimingRepairVersion, 1);
+  assert.equal(f.context.activeCaptionSongController, controller);
+  assert.equal(f.context.activeCaptionTranscribeProcess, process);
+  assert.equal(controller.signal.aborted, false);
+  assert.equal(f.context.activeCaptionTranscribeCancelRequested, false);
+  assert.equal(f.calls.spawn.length, 1); assert.equal(f.calls.fetch.length, 0); assert.equal(f.calls.kills.length, 0);
+  f.release(); assert.equal((await pending).ok, true); f.assertReleased();
+});
+
+test('capability response is restricted to an explicit Groq speech probe', async () => {
+  for (const options of [
+    { engine: 'local', contentMode: 'speech', capabilityProbe: true },
+    { engine: 'groq', contentMode: 'song', capabilityProbe: true },
+    { engine: 'groq', contentMode: undefined, capabilityProbe: true },
+    { engine: 'groq', contentMode: 'speech', capabilityProbe: 'true' },
+  ]) {
+    const f = fixture({ missingKey: true });
+    const result = plain(await f.invoke({ videoPath: undefined, ...options })); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(result.capabilityProbe, undefined);
+    assert.match(result.error, /No video path/);
+    assert.equal(f.calls.spawn.length, 0); assert.equal(f.calls.fetch.length, 0);
+  }
+});
+
+test('Groq song mode retains repeated lyrics and actual word intervals', async () => {
+  const f = fixture(); const result = plain(await f.invoke({ contentMode: 'song' })); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.contentMode, 'song'); assert.equal(result.timingSource, 'word');
+  assert.equal(result.text, 'Jingle bells Jingle bells'); assert.deepEqual(result.words, recognized.words);
+});
+
+test('Groq vocabulary hints contain only explicitly supplied user content and are bounded', async () => {
+  const f = fixture(); const hints = 'Jingle, sleigh, Telugu '.repeat(100);
+  assert.equal((await f.invoke({ transcriptionHints: '  ' + hints + '  ' })).ok, true); f.assertReleased();
+  assert.equal(f.calls.fetch[0].init.body.get('prompt'), hints.trim().slice(0, 1000));
+  assert.equal(f.calls.fetch[0].init.body.get('prompt').length, 1000);
+});
+
+test('explicit Groq errors and missing keys never fall back to local or HTTP transcription', async () => {
+  for (const options of [{ status: 401 }, { networkFails: true }, { missingKey: true }]) {
+    const f = fixture(options); const result = plain(await f.invoke()); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(result.engine, 'groq'); assert.match(result.error, /Groq/);
+    assert.equal(f.calls.spawn.length, 1); assert.equal(f.calls.fetch.length, options.missingKey ? 0 : 1);
+  }
+});
+
+test('a transient user-supplied Groq key overrides the configured key without persisting it', async () => {
+  for (const useLegacy of [false, true]) {
+    const f = fixture({ missingKey: true });
+    const result = plain(await f.invoke({ apiKey: '  fixture-manual-token  ' }, useLegacy)); f.assertReleased();
+    assert.equal(result.ok, true);
+    assert.equal(f.calls.fetch[0].init.headers.Authorization, 'Bearer fixture-manual-token');
+    assert.equal(f.context.process.env.GROQ_API_KEY, '');
+    assert.equal(JSON.stringify(result).includes('fixture-manual-token'), false);
+  }
+});
+
+test('segment-only Groq result discloses estimated highlighting', async () => {
+  const f = fixture({ response: { ...recognized, words: [] } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.timingSource, 'estimated'); assert.deepEqual(result.words, []);
+  assert.deepEqual(result.segments, recognized.segments); assert.match(result.warnings.join(' '), /estimated/);
+});
+
+test('malformed word intervals use the complete segment timeline instead of hiding words', async () => {
+  const f = fixture({ response: { ...recognized, words: [{ word: 'Jingle', start: 0.2, end: 0.7 }, { word: 'bells', start: null, end: 1.2 }] } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.timingSource, 'estimated'); assert.deepEqual(result.words, []);
+  assert.equal(result.text, recognized.text); assert.deepEqual(result.segments, recognized.segments);
+});
+
+test('WAV metadata chunks are parsed without shifting the audio payload', async () => {
+  const f = fixture(); const pcm = Buffer.alloc(5 * 32000, 37);
+  const basic = f.context.buildWavChunkBuffer(pcm);
+  const metadata = Buffer.from([74, 85, 78, 75, 1, 0, 0, 0, 7, 0]); // odd JUNK chunk + padding
+  const wav = Buffer.concat([basic.subarray(0, 12), metadata, basic.subarray(12)]);
+  wav.writeUInt32LE(wav.length - 8, 4);
+  const result = await f.context.transcribeCaptionWavWithGroq({ audioBuffer: wav, apiKey: 'fixture-token' });
+  assert.equal(result.timingSource, 'word');
+  const uploaded = Buffer.from(await f.calls.fetch[0].init.body.get('file').arrayBuffer());
+  assert.deepEqual(uploaded.subarray(44), pcm); f.assertReleased();
+});
+
+test('overlapping Groq chunks shift real timestamps and retain each boundary word once', async () => {
+  const responses = [
+    { language: 'english', text: 'bells bells', segments: [], words: [{ word: 'bells', start: 538.2, end: 538.8 }, { word: 'bells', start: 539.2, end: 539.8 }] },
+    { text: 'bells bells bells', segments: [], words: [{ word: 'bells', start: 0.2, end: 0.8 }, { word: 'bells', start: 1.2, end: 1.8 }, { word: 'bells', start: 3, end: 3.5 }] },
+  ];
+  const f = fixture({ duration: 542, responses }); const result = plain(await f.invoke({ contentMode: 'song' })); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(f.calls.fetch.length, 2);
+  assert.deepEqual(result.words, [{ word: 'bells', start: 538.2, end: 538.8 }, { word: 'bells', start: 539.2, end: 539.8 }, { word: 'bells', start: 541, end: 541.5 }]);
+  assert.equal(result.text, 'bells bells bells'); assert.equal(result.timingSource, 'word');
+});
+
+test('mixed word and segment chunks retain the entire transcript with honest timing metadata', async () => {
+  const f = fixture({ duration: 542, responses: [recognized, { text: 'Ending verse', segments: [{ text: 'Ending verse', start: 2, end: 3 }], words: [] }] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.timingSource, 'estimated'); assert.deepEqual(result.words, []);
+  assert.equal(result.text, 'Jingle bells Jingle bells Ending verse'); assert.equal(result.segments.at(-1).start, 540);
+});
+
+test('word-only chunks remain represented when another chunk has segment-only timing', async () => {
+  const f = fixture({ duration: 542, responses: [{ ...recognized, segments: [] }, { text: 'Ending verse', segments: [{ text: 'Ending verse', start: 2, end: 3 }], words: [] }] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.timingSource, 'estimated'); assert.deepEqual(result.words, []);
+  assert.equal(result.text, 'Jingle bells Jingle bells Ending verse');
+});
+
+test('real cancellation IPC aborts a Groq request and releases the caption job', async () => {
+  const f = fixture({ pendingRequest: true }); const pending = f.invoke(); await f.requested; await f.cancel();
+  const result = plain(await pending); f.assertReleased();
+  assert.equal(result.ok, false); assert.equal(result.cancelled, true); assert.equal(f.calls.kills.length, 0);
+  assert.equal(f.calls.fetch[0].init.signal.aborted, true);
+});
+
+test('real cancellation IPC interrupts rate-limit retry without another paid request', async () => {
+  const f = fixture({ status: 429 }); const pending = f.invoke(); await f.requested;
+  await new Promise(resolve => setImmediate(resolve)); // enter the rate-limit wait
+  await f.cancel();
+  const result = plain(await pending); f.assertReleased();
+  assert.equal(result.cancelled, true); assert.equal(f.calls.fetch.length, 1);
+});
+
+test('late cancellation during the final Groq response cannot become successful captions', async () => {
+  const f = fixture({ cancelAtJson: true }); const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false); assert.equal(result.cancelled, true); assert.equal(f.calls.fetch.length, 1);
+});
+
+test('cancelling native extraction prevents any Groq request', async () => {
+  const f = fixture({ cancelExtraction: true }); const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.cancelled, true); assert.equal(f.calls.fetch.length, 0); assert.equal(f.calls.kills.length, 1);
+});
+
+test('native and legacy caption IPC share a guard that cannot reset or steal the running job', async () => {
+  const f = fixture({ holdExtraction: true }); const pending = f.invoke();
+  const controller = f.context.activeCaptionSongController;
+  const nativeBusy = plain(await f.invoke({ engine: 'local' }));
+  const legacyBusy = plain(await f.invoke({}, true));
+  assert.equal(nativeBusy.code, 'CAPTION_TRANSCRIPTION_BUSY'); assert.equal(legacyBusy.code, 'CAPTION_TRANSCRIPTION_BUSY');
+  assert.equal(f.context.activeCaptionSongController, controller); assert.equal(f.calls.spawn.length, 1);
+  f.release(); assert.equal((await pending).ok, true); f.assertReleased();
+});
+
+test('caption work-directory failure cannot acquire a stale shared transcription guard', async () => {
+  for (const useLegacy of [false, true]) {
+    const f = fixture(); const original = f.context.ensureCaptionWorkDir;
+    f.context.ensureCaptionWorkDir = () => { throw new Error('Fixture directory failure'); };
+    await assert.rejects(f.invoke({}, useLegacy), /Fixture directory failure/); f.assertReleased();
+    f.context.ensureCaptionWorkDir = original;
+    assert.equal((await f.invoke({}, useLegacy)).ok, true); f.assertReleased();
+  }
+});
+
+test('legacy Indic Groq IPC uses the same model, cancellation and timing metadata', async () => {
+  const f = fixture(); const result = plain(await f.invoke({ languageHint: 'hi' }, true)); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.engine, 'groq'); assert.equal(result.language, 'hi');
+  assert.deepEqual(result.words, recognized.words); assert.equal(f.calls.fetch[0].init.body.get('language'), 'hi');
+});
+
+test('Groq song vocal focus shares extracted audio preparation and keeps its warnings', async () => {
+  const f = fixture(); const result = plain(await f.invoke({ contentMode: 'song', audioMode: 'vocal-focus' })); f.assertReleased();
+  assert.equal(result.ok, true); assert.deepEqual(result.warnings, ['Fixture vocal focus']);
+  assert.equal(f.files.has(path.join(f.root, 'caption-work', 'vocal-focus', 'fixture.wav')), false);
+});
+
+test('no usable timestamp response and malformed WAV fail instead of fabricating synchronization', async () => {
+  for (const options of [{ response: { text: 'words without intervals' } }, { wav: Buffer.from('invalid WAV') }]) {
+    const f = fixture(options); const result = plain(await f.invoke()); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(result.engine, 'groq'); assert.match(result.error, /timestamps|WAV/);
+  }
+});
+
+test('sparse speech repair uses source PCM offsets and keeps original words while fixing Fox overlap', async () => {
+  const original = [
+    { word: 'InfoKids', start: 0, end: 6.24 },
+    { word: 'Wild', start: 8.82, end: 9.16 }, { word: 'Animals', start: 9.16, end: 9.76 },
+    { word: 'Lion', start: 19.22, end: 20.06 }, { word: 'Elephant', start: 21.5, end: 24.12 },
+    { word: 'Bear', start: 26.78, end: 27.64 }, { word: 'Giraffe.', start: 34.96, end: 35.5 },
+    { word: 'Tiger.', start: 38.6, end: 38.94 }, { word: 'Fox.', start: 38.48, end: 40.46 },
+    { word: 'Hippopotamus.', start: 47.04, end: 47.92 }, { word: 'Rhinoceros.', start: 48.7, end: 51.44 },
+    { word: 'Wolf.', start: 54.68, end: 55.04 }, { word: 'Zebra', start: 58.76, end: 59.1 },
+  ];
+  const response = words => ({ words, text: words.map(word => word.word).join(' '), segments: [] });
+  const options = { duration: 64, responses: [response(original),
+    response([{ word: 'infokids', start: .76, end: 1.88 }]),
+    response([{ word: 'Elephant', start: .62, end: 1 }]),
+    response([{ word: 'tiger', start: 2.64, end: 3.06 }, { word: 'fox', start: 6.18, end: 7.24 }]),
+    response([{ word: 'rhinoceros', start: 1.26, end: 2.08 }]),
+  ] };
+  const f = fixture(options);
+  const pcm = Buffer.alloc(64 * 32000);
+  for (let sample = 0; sample < pcm.length / 2; sample++) pcm.writeInt16LE(sample % 32767, sample * 2);
+  options.wav = f.context.buildWavChunkBuffer(pcm);
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.timingSource, 'word');
+  assert.equal(result.timingVerification, 'short-audio'); assert.equal(result.verifiedTimingWindows, 4);
+  assert.equal(f.calls.fetch.length, 5);
+  assert.deepEqual(result.words.map(word => word.word), original.map(word => word.word), 'Timing repair must preserve original spelling and punctuation');
+  for (const [word, expected] of [['InfoKids', 5], ['Elephant', 22.74], ['Tiger.', 38.64], ['Fox.', 42.18], ['Rhinoceros.', 50.7]]) {
+    assert.ok(Math.abs(result.words.find(item => item.word === word).start - expected) < 1e-9, word);
+  }
+  for (let index = 1; index < result.words.length; index++) assert.ok(result.words[index].start >= result.words[index - 1].end);
+  assert.deepEqual(result.segments, result.words.map(({ start, end, word }) => ({ start, end, text: word })), 'No stale Fox segment may survive repaired word timing');
+  const windows = [[4.24, 8.24], [22.12, 26.12], [36, 46], [49.44, 53.44]];
+  for (let index = 0; index < windows.length; index++) {
+    const [start, end] = windows[index];
+    const upload = Buffer.from(await f.calls.fetch[index + 1].init.body.get('file').arrayBuffer());
+    assert.deepEqual(upload.subarray(44), pcm.subarray(Math.floor(start * 16000) * 2, Math.ceil(end * 16000) * 2));
+    assert.equal(f.calls.fetch[index + 1].init.body.has('prompt'), false);
+  }
+  const progress = f.calls.progress.map(item => item.value);
+  assert.ok(progress.slice(0, -1).every(value => value < 100), 'Completion must wait for verification');
+  assert.ok(progress.every((value, index) => index === 0 || value >= progress[index - 1]));
+  assert.equal(progress.at(-1), 100);
+});
+
+test('short audio verification refuses changed, missing, backward or still-wide words', async () => {
+  const original = { text: 'Elephant', segments: [], words: [{ word: 'Elephant', start: 2, end: 4 }] };
+  for (const fresh of [
+    { text: 'Zebra', words: [{ word: 'Zebra', start: .7, end: 1.1 }] },
+    { text: '', words: [] },
+    { text: 'Elephant', words: [{ word: 'Elephant', start: 0, end: 2 }] },
+    { text: 'Elephant', words: [{ word: 'Elephant', start: 1, end: .8 }] },
+    { text: 'Elephant Bear', words: [{ word: 'Elephant', start: .7, end: 1.1 }] },
+  ]) {
+    const f = fixture({ duration: 10, responses: [original, fresh] });
+    const result = plain(await f.invoke()); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(result.engine, 'groq'); assert.match(result.error, /verify/);
+    assert.equal(f.calls.fetch.length, 2); assert.equal(result.words, undefined);
+    assert.ok(f.calls.progress.every(item => item.value < 100));
+  }
+});
+
+test('a repeated conflicting short-window timeline fails instead of sorting or using old segments', async () => {
+  const bad = { text: 'Tiger Fox', segments: [{ text: 'Tiger Fox', start: 2, end: 5 }],
+    words: [{ word: 'Tiger', start: 3, end: 4 }, { word: 'Fox', start: 2.8, end: 4.5 }] };
+  const f = fixture({ duration: 15, responses: [bad, bad] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false); assert.match(result.error, /verify/); assert.equal(f.calls.fetch.length, 2);
+});
+
+test('song timestamps never trigger speech verification and conflicting song words fail directly', async () => {
+  for (const words of [
+    [{ word: 'bells', start: .2, end: 4 }],
+    [{ word: 'Tiger', start: 3, end: 4 }, { word: 'Fox', start: 2.8, end: 4.5 }],
+  ]) {
+    const f = fixture({ response: { words, text: words.map(word => word.word).join(' '), segments: [] } });
+    const result = plain(await f.invoke({ contentMode: 'song' })); f.assertReleased();
+    assert.equal(f.calls.fetch.length, 1);
+    if (words.length === 1) { assert.equal(result.ok, true); assert.deepEqual(result.words, words); }
+    else {
+      assert.equal(result.ok, false); assert.match(result.error, /conflicting/);
+      assert.ok(f.calls.progress.every(item => item.value < 100));
+    }
+  }
+});
+
+test('continuous speech and ordinary narrow words keep their original timestamps without verification', async () => {
+  const words = [{ word: 'Long', start: .2, end: 2.5 }, { word: 'sentence', start: 2.5, end: 3.1 }];
+  const f = fixture({ response: { text: 'Long sentence', segments: [], words } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(f.calls.fetch.length, 1); assert.deepEqual(result.words, words);
+  assert.equal(result.timingVerification, undefined);
+});
+
+test('automatic verification request count is bounded before paying for any repair calls', async () => {
+  const words = Array.from({ length: 9 }, (_, index) => ({ word: 'label' + index, start: index * 6, end: index * 6 + 2 }));
+  const f = fixture({ duration: 60, response: { text: words.map(word => word.word).join(' '), words, segments: [] } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false); assert.match(result.error, /too many uncertain/); assert.equal(f.calls.fetch.length, 1);
+});
+
+test('cancelling short-window verification aborts its request and releases the shared job', async () => {
+  const response = { text: 'Elephant', words: [{ word: 'Elephant', start: 2, end: 4 }], segments: [] };
+  const f = fixture({ duration: 10, response, pendingRequestAt: 2 });
+  const pending = f.invoke(); await f.requested; await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.calls.fetch.length, 2);
+  const busy = plain(await f.invoke()); assert.equal(busy.code, 'CAPTION_TRANSCRIPTION_BUSY');
+  await f.cancel(); const result = plain(await pending); f.assertReleased();
+  assert.equal(result.cancelled, true); assert.equal(f.calls.fetch[1].init.signal.aborted, true);
+  assert.equal(f.calls.fetch.length, 2); assert.ok(f.calls.progress.every(item => item.value < 100));
+});
