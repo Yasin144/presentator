@@ -14,7 +14,7 @@ const functions = new Map();
 traverse(parser.parse(script), { FunctionDeclaration(p) {
   functions.set(p.node.id.name, script.slice(p.node.start, p.node.end));
 } });
-const names = ['getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd',
+const names = ['getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
   'getCaptionActiveWordIndex', 'getVisibleCaptionText', 'getWrappedCaptionLines', 'drawWrappedText',
   'getCaptionEmojiBitmap', 'addCaptionEmojiOverlay', 'buildPreviewMatchedExport',
   'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp',
@@ -23,6 +23,7 @@ const production = names.map(name => { assert.ok(functions.has(name), name); ret
 function harness(overrides = {}) {
   const context = {
     CAPTION_WORD_LIMIT: 8, CAPTION_BOTTOM_OFFSET_PX: 80, SHORT_CAPTION_GAP_SECONDS: .75,
+    CAPTION_PREVIEW_MAX_DIM: 1920, QUEUE_EXPORT_FONT_SIZE: 50,
     sourceVideo: { videoWidth: 1920, videoHeight: 1080, duration: 10 }, renderCanvas: {},
     sizeSlider: { value: 50 }, styleSelect: { value: 'white-yellow' }, colorPicker: { value: '#fde047' },
     strokeSlider: { value: 0 }, captionPosX: .5, captionPosY: .9, gapSlider: { value: 120 },
@@ -89,13 +90,14 @@ test('caption-specific edited colors survive export', () => {
   ] }).buildPreviewMatchedAss();
   assert.match(lines(ass)[0], /1c&H00eed322/i);
 });
-test('4K preview uses source-pixel size and position on the reduced canvas', () => {
+test('4K preview retains the old 50-pixel appearance using 100-pixel source captions', () => {
   const calls = [], scales = [];
   const noop = () => {};
   const ctx = { save: noop, restore: noop, drawImage: noop, imageSmoothingEnabled: true,
     scale: (...args) => scales.push(args), measureText: text => ({ width: text.length * 20 }) };
   const context = {
     CAPTION_WORD_LIMIT: 8, SHORT_CAPTION_GAP_SECONDS: .75, window: {},
+    CAPTION_PREVIEW_MAX_DIM: 1920, QUEUE_EXPORT_FONT_SIZE: 50, renderCanvas: {},
     sourceVideo: { videoWidth: 3840, videoHeight: 2160, readyState: 2 }, filterSelect: { value: 'none' },
     syncSlider: { value: 0 }, generatedCaptions: [{ text: 'Hello', timestamp: [0, 2] }],
     bgMusicAudio: null, bgMusicCheck: null, getBrollForText: () => null, sizeSlider: { value: 50 },
@@ -105,14 +107,65 @@ test('4K preview uses source-pixel size and position on the reduced canvas', () 
     styleSelect: { value: 'white-yellow' }, sharedWatermarkImage: null, progressCheck: { checked: false },
     drawWrappedText: (...args) => calls.push(args),
   };
-  const code = ['getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd',
+  const code = ['getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
     'getCaptionActiveWordIndex', 'getVisibleCaptionText', 'getWrappedCaptionLines', 'renderCaptionFrame'].map(name => functions.get(name)).join('\n');
   vm.runInNewContext(code + '\nrenderCaptionFrame', context)(ctx, 1920, 1080, .5);
   assert.deepEqual(scales, [[.5, .5]]);
   assert.equal(calls.length, 1);
   assert.equal(calls[0][2], 1920);
   assert.equal(calls[0][3], 1944);
-  assert.equal(calls[0][10], 50);
+  assert.equal(calls[0][10], 100);
+  assert.equal(calls[0][10] * scales[0][0], 50, 'Effective caption size on the capped preview stays 50px');
+  assert.equal(calls[0][5] * scales[0][1], 60, 'Effective line spacing retains the old preview spacing');
+  assert.equal(context.sizeSlider.value, 50, 'Resolving source pixels must not overwrite the selected slider');
+});
+
+test('source caption size preserves landscape, portrait, small-video and mixed-resolution queue choices', () => {
+  const context = { CAPTION_PREVIEW_MAX_DIM: 1920, QUEUE_EXPORT_FONT_SIZE: 50,
+    sizeSlider: { value: 50 }, sourceVideo: {}, renderCanvas: {} };
+  const code = ['getCaptionSourceFontSize', 'selectedQueueFontSize'].map(name => functions.get(name)).join('\n');
+  const api = vm.runInNewContext(code + '\n({ getCaptionSourceFontSize, selectedQueueFontSize })', context);
+  for (const [width, height, expected] of [[1920, 1080, 50], [1080, 1920, 50], [640, 360, 50],
+    [3840, 2160, 100], [2160, 3840, 100], [2560, 1440, 200 / 3], [7680, 4320, 200]]) {
+    context.sourceVideo.videoWidth = width;
+    context.sourceVideo.videoHeight = height;
+    assert.ok(Math.abs(api.getCaptionSourceFontSize() - expected) < 1e-9, `${width}×${height}`);
+    assert.ok(Math.abs(api.selectedQueueFontSize() - expected) < 1e-9, 'Queue export resolves the active video size');
+    assert.equal(context.sizeSlider.value, 50, 'Mixed-resolution queues retain the user selection');
+  }
+  context.sourceVideo.videoWidth = 3840;
+  context.sourceVideo.videoHeight = 2160;
+  for (const selected of [20, 80, 140]) {
+    context.sizeSlider.value = selected;
+    assert.equal(api.selectedQueueFontSize(), selected * 2, 'Source output is not capped at the slider maximum');
+    assert.equal(context.sizeSlider.value, selected);
+  }
+});
+
+test('4K ASS export preserves the capped preview proportions for wrapping and line spacing', () => {
+  const build = (width, height) => {
+    const measureCtx = { font: '', measureText(text) {
+      const fontSize = Number(/([\d.]+)px/.exec(this.font)[1]);
+      return { width: text.length * fontSize * .6 };
+    } };
+    return harness({ sourceVideo: { videoWidth: width, videoHeight: height, duration: 10 },
+      fontSelect: { value: 'Arial' }, widthSlider: { value: 10 },
+      document: { createElement: () => ({ getContext: () => measureCtx }) } }).buildPreviewMatchedAss();
+  };
+  const hd = build(1920, 1080), uhd = build(3840, 2160);
+  assert.match(hd, /Style: Preview,Arial,50,/);
+  assert.match(uhd, /Style: Preview,Arial,100,/);
+  const hdLines = lines(hd), uhdLines = lines(uhd);
+  assert.equal(hdLines.length, 4, 'Two wrapped lines remain visible through both word intervals');
+  assert.equal(uhdLines.length, hdLines.length);
+  hdLines.forEach((line, index) => {
+    const hdPosition = /\\pos\(([\d.]+),([\d.]+)\)/.exec(line);
+    const uhdPosition = /\\pos\(([\d.]+),([\d.]+)\)/.exec(uhdLines[index]);
+    assert.equal(Number(uhdPosition[1]) / 2, Number(hdPosition[1]));
+    assert.equal(Number(uhdPosition[2]) / 2, Number(hdPosition[2]));
+    const plainText = value => value.split(',').slice(9).join(',').replace(/\{[^}]*\}/g, '');
+    assert.equal(plainText(uhdLines[index]), plainText(line), 'Word wrapping is resolution-independent');
+  });
 });
 test('export wrapping uses the same gap and height controls without stretching glyphs', () => {
   const measureCtx = { measureText: text => ({ width: text.length * 30 }) };
@@ -151,13 +204,16 @@ test('real canvas and FFmpeg captions match size, placement and highlight', {
   try {
     const page = await browser.newPage();
     const fonts = ['Regular', 'Black'].map(name => fs.readFileSync(path.join(root, 'public', 'caption-fonts', `Nunito-${name}.ttf`)).toString('base64'));
-    const fixture = await page.evaluate(async ({ production, fonts }) => {
+    const ffmpeg = execFileSync('where.exe', ['ffmpeg'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
+    for (const scenario of [{ name: 'hd', width: 1920, height: 1080 }, { name: '4k', width: 3840, height: 2160 }]) {
+    const fixture = await page.evaluate(async ({ production, fonts, width, height }) => {
       for (const [index, data] of fonts.entries()) {
         const face = new FontFace('Pattan Caption Nunito', `url(data:font/ttf;base64,${data})`, { weight: index ? '900' : '400' });
         document.fonts.add(await face.load());
       }
-      const CAPTION_WORD_LIMIT = 8, CAPTION_BOTTOM_OFFSET_PX = 80, SHORT_CAPTION_GAP_SECONDS = .75;
-      const sourceVideo = { videoWidth: 1920, videoHeight: 1080, duration: 2 }, renderCanvas = {};
+      const CAPTION_WORD_LIMIT = 8, CAPTION_BOTTOM_OFFSET_PX = 80, SHORT_CAPTION_GAP_SECONDS = .75,
+        CAPTION_PREVIEW_MAX_DIM = 1920, QUEUE_EXPORT_FONT_SIZE = 50;
+      const sourceVideo = { videoWidth: width, videoHeight: height, duration: 2 }, renderCanvas = {};
       const sizeSlider = { value: 50 }, styleSelect = { value: 'white-yellow' }, colorPicker = { value: '#fde047' },
         strokeSlider = { value: 0 }, gapSlider = { value: 120 }, widthSlider = { value: 85 },
         fontSelect = { value: 'Nunito, sans-serif' }, boldCheck = { checked: true }, heightSlider = { value: 100 },
@@ -167,16 +223,17 @@ test('real canvas and FFmpeg captions match size, placement and highlight', {
       const api = eval(production + '\n({ buildPreviewMatchedAss, drawWrappedText, getCaptionFontFamily })');
       const canvas = document.createElement('canvas'); canvas.width = 1920; canvas.height = 1080;
       const ctx = canvas.getContext('2d'); ctx.fillStyle = '#477788'; ctx.fillRect(0, 0, 1920, 1080);
+      // Golden preview is the original 50px appearance on the capped canvas.
+      // UHD ASS must reproduce that appearance when the exported frame is reduced.
       ctx.font = `900 50px ${api.getCaptionFontFamily()}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       api.drawWrappedText(ctx, generatedCaptions[0].text, 960, 540, 1920 * .85, 60, 0, 'white-yellow', 0, null, 50, null, true);
       return { ass: api.buildPreviewMatchedAss(), preview: canvas.toDataURL('image/png') };
-    }, { production, fonts });
-    const assPath = path.join(temp, 'fixture.ass'), framePath = path.join(temp, 'export.png');
+    }, { production, fonts, width: scenario.width, height: scenario.height });
+    const assPath = path.join(temp, `fixture-${scenario.name}.ass`), framePath = path.join(temp, `export-${scenario.name}.png`);
     fs.writeFileSync(assPath, fixture.ass);
     const escaped = value => value.replace(/\\/g, '/').replace(/:/g, '\\:');
-    const ffmpeg = execFileSync('where.exe', ['ffmpeg'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
-    execFileSync(ffmpeg, ['-v', 'info', '-f', 'lavfi', '-i', 'color=c=0x477788:s=1920x1080:r=25:d=1',
-      '-vf', `subtitles='${escaped(assPath)}':fontsdir='${escaped(path.join(root, 'public', 'caption-fonts'))}'`,
+    execFileSync(ffmpeg, ['-v', 'info', '-f', 'lavfi', '-i', `color=c=0x477788:s=${scenario.width}x${scenario.height}:r=25:d=1`,
+      '-vf', `subtitles='${escaped(assPath)}':fontsdir='${escaped(path.join(root, 'public', 'caption-fonts'))}'${scenario.name === '4k' ? ',scale=1920:1080' : ''}`,
       '-frames:v', '1', '-y', framePath], { timeout: 30000, stdio: 'pipe' });
     const exported = 'data:image/png;base64,' + fs.readFileSync(framePath).toString('base64');
     const bounds = await page.evaluate(async sources => {
@@ -199,14 +256,16 @@ test('real canvas and FFmpeg captions match size, placement and highlight', {
       }
       return results;
     }, [fixture.preview, exported]);
-    console.log('Canvas/FFmpeg bounds:', JSON.stringify(bounds));
+    console.log(`${scenario.name} Canvas/FFmpeg bounds:`, JSON.stringify(bounds));
     for (const kind of ['text', 'yellow']) for (const edge of ['left', 'top', 'right', 'bottom']) {
       assert.ok(Number.isFinite(bounds[0][kind][edge]) && Number.isFinite(bounds[1][kind][edge]));
       assert.ok(Math.abs(bounds[0][kind][edge] - bounds[1][kind][edge]) <= 4,
-        `${kind} ${edge}: canvas=${bounds[0][kind][edge]}, FFmpeg=${bounds[1][kind][edge]}`);
+        `${scenario.name} ${kind} ${edge}: canvas=${bounds[0][kind][edge]}, FFmpeg=${bounds[1][kind][edge]}`);
     }
-    fs.writeFileSync(path.join(root, 'temp', 'caption-parity-preview.png'), Buffer.from(fixture.preview.split(',')[1], 'base64'));
-    fs.copyFileSync(framePath, path.join(root, 'temp', 'caption-parity-export.png'));
+    const artifactPrefix = scenario.name === 'hd' ? 'caption-parity' : 'caption-parity-4k';
+    fs.writeFileSync(path.join(root, 'temp', `${artifactPrefix}-preview.png`), Buffer.from(fixture.preview.split(',')[1], 'base64'));
+    fs.copyFileSync(framePath, path.join(root, 'temp', `${artifactPrefix}-export.png`));
+    }
   } finally {
     await browser.close();
     fs.rmSync(temp, { recursive: true, force: true });

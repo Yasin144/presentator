@@ -17,6 +17,7 @@ audio_path = sys.argv[1]
 lang_hint  = sys.argv[2] if len(sys.argv) > 2 else None  # None = auto-detect language
 context_hint = sys.argv[3] if len(sys.argv) > 3 else ""
 song_mode = len(sys.argv) > 4 and sys.argv[4] == "song"
+decoder_hint = sys.argv[5][:1000] if len(sys.argv) > 5 else ""
 
 if not os.path.exists(audio_path):
     print(json.dumps({"error": f"File not found: {audio_path}", "text": "", "words": [], "segments": []}))
@@ -102,9 +103,11 @@ def clean(text: str) -> str:
 
 def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False, clip_timestamps="0"):
     """Run faster-whisper with speech and confidence filtering using a preloaded model."""
+    lenient = lenient or song_mode
     segs, info = m.transcribe(
         audio_path,
         language=lang,
+        initial_prompt=globals().get('decoder_hint') or None,
         beam_size=5,
         best_of=5,
         temperature=[0.0, 0.2, 0.4, 0.6],           # try multiple temperatures to avoid loops
@@ -112,6 +115,9 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False,
         compression_ratio_threshold=2.4 if lenient else 2.0,
         condition_on_previous_text=False,           # prevent runaway loops
         word_timestamps=True,                      # real word-level timestamps
+        # Long repeated choruses can derail a 30-second decode and collapse
+        # word times at the end. Short windows keep lyrics anchored to audio.
+        chunk_length=10 if song_mode else 30,
         clip_timestamps=clip_timestamps,
         # The retry pass disables VAD because short child words over music are
         # commonly classified as non-speech before Whisper can decode them.
@@ -140,7 +146,7 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False,
             continue
         if getattr(s, "avg_logprob", 0.0) < logprob_limit:
             continue
-        if is_repetition_loop(t):
+        if not song_mode and is_repetition_loop(t):
             continue
         parts.append(t)
         seg_list.append({"start": round(s.start, 2), "end": round(s.end, 2), "text": t})
@@ -220,7 +226,7 @@ def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current):
             midpoint = (start + end) / 2.0
             if gap_start <= midpoint <= gap_end:
                 accepted.append(word)
-        if not accepted or is_repetition_loop(gap_text):
+        if not accepted or (not song_mode and is_repetition_loop(gap_text)):
             continue
         accepted.sort(key=lambda w: float(w.get("start", 0.0)))
         recovered_count += len(accepted)
@@ -289,7 +295,7 @@ def retry_sparse_with_child_speech_mode(m, audio_path: str, lang: str, current):
     print(f"[Whisper] Incomplete result ({reason}); retrying without VAD...", flush=True)
     retry = run_whisper_with_model(m, audio_path, lang, lenient=True)
     retry_text, _, _, retry_words = retry
-    if not is_repetition_loop(retry_text) and len(retry_words) > len(words):
+    if (song_mode or not is_repetition_loop(retry_text)) and len(retry_words) > len(words):
         print(
             f"[Whisper] Coverage repair accepted: {len(words)} -> {len(retry_words)} words.",
             flush=True,

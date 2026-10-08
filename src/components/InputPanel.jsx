@@ -1,5 +1,6 @@
 import React from "react";
 import { useStore } from "../store/useStore";
+import LocalCaptionWorkbench from "../caption/LocalCaptionWorkbench";
 
 function InputPanel() {
   const actionLocks = useStore((state) => state.actionLocks);
@@ -1731,8 +1732,8 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         <div className="section-content caption-burner-body">
           <div className="upload-block">
             <label className="field-label" htmlFor="captionVideoInput">Source Video</label>
-            <p className="upload-copy">Upload an `mp4` or `webm`. The AI will extract the audio and generate TikTok-style
-              dynamic captions completely offline.</p>
+            <p className="upload-copy">Upload an MP4 or WebM. Choose local Song / lyrics to process music on this computer.
+              Optional Gemini song recognition sends audio to Google and uses estimated timing.</p>
             <input id="captionVideoInput" className="image-input" type="file" accept="video/*" multiple />
 
             <div id="captionQueuePanel" className="hidden" style={{"marginTop": "10px", "padding": "10px", "borderRadius": "8px", "background": "rgba(255,255,255,0.05)", "border": "1px solid rgba(255,255,255,0.1)"}}>
@@ -1829,7 +1830,11 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 <div style={{"flex": "1"}}>
                   <span className="style-label" style={{"color": "#aaa"}}>Visual Master Theme</span>
                   <label htmlFor="captionContentMode">Audio content</label>
-                  <select id="captionContentMode" className="theme-select" defaultValue="speech"><option value="speech">Speech</option><option value="song">Song / lyrics — local word timing</option></select>
+                  <select id="captionContentMode" className="theme-select" defaultValue="speech"><option value="speech">Speech</option><option value="song">Song / lyrics — local word timing</option><option value="song-gemini">Song / lyrics — Gemini accuracy (Google)</option></select>
+                  <p className="text-xs text-slate-400">Gemini sends audio to Google to recover sung lyrics. Timing is estimated; review lyrics and synchronization before export.</p>
+                  <label className="text-xs text-slate-300"><input id="captionVocalFocus" type="checkbox" /> Reduce background music before song transcription</label>
+                  <label htmlFor="captionVocabularyHints">Names or vocabulary to recognize</label>
+                  <textarea id="captionVocabularyHints" maxLength={1000} rows={2} placeholder="Optional names, spellings, or short phrases heard in this recording" className="theme-input" />
                   <select id="captionStyleSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="white-yellow">
                     <option value="white-yellow">White + Yellow (Bold & Outline)</option>
                     <option value="tiktok">Viral Pop (Bold & Shadow)</option>
@@ -1870,10 +1875,10 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 <label className="style-field">
                   <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
                     <span className="style-label">Caption Font Size</span>
-                    <span id="captionSizeValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>43% · 50px</span>
+                    <span id="captionSizeValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>25% · 50px</span>
                   </div>
                   <input type="range" id="captionSizeSlider" min="20" max="140" defaultValue="50" />
-                  <span style={{ display: 'block', marginTop: 8, color: '#cbd5e1', fontSize: 12 }}>Caption size preview · output pixels at 50% viewing scale (sample only)</span>
+                  <span style={{ display: 'block', marginTop: 8, color: '#cbd5e1', fontSize: 12 }}>Caption size sample · 50% viewing scale. High-resolution exports keep the same caption proportions as the video preview.</span>
                   <span style={{ display: 'block', maxHeight: 220, overflow: 'auto', marginTop: 6, padding: 12, background: '#15232d', border: '1px solid #526571', borderRadius: 8, zoom: 0.5 }}><span id="captionSizePreviewText" style={{ fontSize: 50, fontWeight: 900, lineHeight: 1.2, color: '#fff', overflowWrap: 'anywhere' }}>Caption size sample</span></span>
                 </label>
                 <div style={{ gridColumn: '1 / -1' }}><button id="captionSizePreviewBtn" className="ghost-btn" type="button" disabled>Preview caption on video</button><p style={{ fontSize: 12 }}>Generate captions first. Then check their size on the original video before exporting. Existing burned-in text cannot be changed by this preview.</p></div>
@@ -1956,6 +1961,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <video id="captionSourceVideo" hidden playsInline crossOrigin="anonymous"></video>
             </div>
 
+            <LocalCaptionWorkbench />
             <div id="captionEditorPanel" className="tool-card hidden" style={{"marginTop": "1rem"}}>
               <div className="tool-card-head">
                 <span className="module-icon">EDT</span>

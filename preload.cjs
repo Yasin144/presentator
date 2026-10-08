@@ -3,6 +3,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const burnProgressHandlers = new Map();
+const captionEraseProgressHandlers = new Map();
 const translateDubProgressHandlers = new Map();
 const myExporterProgressHandlers = new Map();
 const agentProgressHandlers = new Map();
@@ -471,9 +472,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFile: (filePath) =>
     ipcRenderer.invoke('open-file', filePath),
 
-  // Erase hardcoded captions from the bottom of the video using delogo filter
+  // Detect and erase previous captions, with real analysis/render progress.
   eraseCaptions: (opts) =>
     ipcRenderer.invoke('erase-captions', opts),
+
+  onCaptionEraseProgress: (callback) => {
+    const previous = captionEraseProgressHandlers.get(callback);
+    if (previous) ipcRenderer.removeListener('caption-erase-progress', previous);
+    const handler = (_, data) => callback(data);
+    captionEraseProgressHandlers.set(callback, handler);
+    ipcRenderer.on('caption-erase-progress', handler);
+    return () => {
+      ipcRenderer.removeListener('caption-erase-progress', handler);
+      if (captionEraseProgressHandlers.get(callback) === handler) captionEraseProgressHandlers.delete(callback);
+    };
+  },
+
+  offCaptionEraseProgress: (callback) => {
+    const handler = captionEraseProgressHandlers.get(callback);
+    if (handler) {
+      ipcRenderer.removeListener('caption-erase-progress', handler);
+      captionEraseProgressHandlers.delete(callback);
+    }
+  },
 
   // Real-time FFmpeg burn progress (0-94) sent from main while burning captions
   onBurnProgress: (callback) => {

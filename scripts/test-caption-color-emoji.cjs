@@ -12,7 +12,7 @@ const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'caption-script.js'), 'utf8');
 const functions = new Map();
 traverse(parser.parse(source), { FunctionDeclaration(p) { functions.set(p.node.id.name, source.slice(p.node.start, p.node.end)); } });
-const names = ['getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd',
+const names = ['getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
   'getCaptionActiveWordIndex', 'getVisibleCaptionText', 'getWrappedCaptionLines', 'drawWrappedText',
   'getCaptionEmojiBitmap', 'addCaptionEmojiOverlay', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions',
   'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss', 'buildPreviewMatchedExport'];
@@ -69,7 +69,8 @@ test('actual FFmpeg frames keep colored emoji, bright white text, outline and on
         const face = new FontFace('Pattan Caption Nunito', `url(data:font/ttf;base64,${data})`, { weight: index ? '900' : '400' });
         document.fonts.add(await face.load());
       }
-      const CAPTION_WORD_LIMIT = 8, CAPTION_BOTTOM_OFFSET_PX = 80, SHORT_CAPTION_GAP_SECONDS = .75;
+      const CAPTION_WORD_LIMIT = 8, CAPTION_BOTTOM_OFFSET_PX = 80, SHORT_CAPTION_GAP_SECONDS = .75,
+        CAPTION_PREVIEW_MAX_DIM = 1920, QUEUE_EXPORT_FONT_SIZE = 50;
       const captionEmojiCache = new Map();
       const sourceVideo = { videoWidth: 1920, videoHeight: 1080, duration: 3.8 }, renderCanvas = {};
       const sizeSlider = { value: 50 }, styleSelect = { value: 'white-yellow' }, colorPicker = { value: '#fde047' },

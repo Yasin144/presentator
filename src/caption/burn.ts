@@ -8,6 +8,7 @@ interface BurnVideoMeta {
   width?: number;
   height?: number;
   duration?: number;
+  sourcePath?: string;
 }
 
 const SPEECH_GAP_SECONDS = 0.75;
@@ -363,8 +364,8 @@ export async function burnCaptions(
   
   // Try the ultra-fast native FFmpeg IPC route first
   const api = (window as any).electronAPI;
-  if (api?.burnCaptions && api?.getPathForFile) {
-    const videoPath = api.getPathForFile(file);
+  if (api?.burnCaptions && (videoMeta.sourcePath || api?.getPathForFile)) {
+    const videoPath = videoMeta.sourcePath || api.getPathForFile(file);
     if (videoPath) {
       onProgress(5);
       let nativeMeta: BurnVideoMeta = videoMeta;
@@ -429,12 +430,15 @@ export async function burnCaptions(
       } catch (err: any) {
         if (ticker) clearInterval(ticker);
         if (api?.offBurnProgress) api.offBurnProgress(onRealProgress);
+        // The original upload is retained only for metadata; it still contains old captions.
+        if (videoMeta.sourcePath) throw err;
         console.warn('[burnCaptions] Native fast-burn failed, falling back to WASM:', err);
       }
     }
   }
 
   // Fallback to WASM FFmpeg
+  if (videoMeta.sourcePath) throw new Error('The cleaned video requires the local Windows caption export service.');
   const assContent = buildAss(caps, settings, videoMeta);
   const engine = await getFFmpeg();
   const onAbort = () => {

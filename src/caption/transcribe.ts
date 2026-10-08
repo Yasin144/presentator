@@ -12,6 +12,19 @@ interface HFResponse {
 const CAPTION_SILENCE_GAP_SECONDS = 0.75;
 const INDIC_CAPTION_CODES = new Set(['te', 'hi', 'ta', 'ur', 'ar']);
 
+interface TranscriptionResult {
+  captions: CaptionItem[];
+  detectedLang: string;
+  detectedCode?: string;
+  timingSource?: 'word' | 'estimated';
+  warnings?: string[];
+}
+
+interface TranscriptionOptions {
+  audioMode?: 'original' | 'vocal-focus';
+  transcriptionHints?: string;
+}
+
 function normalizeNurseryCaptionText(value: string): string {
   // Preserve the detected words. Names, letters and lesson phrases cannot be
   // inferred from a filename or silently replaced without listening to audio.
@@ -77,7 +90,7 @@ function isInstructionLeakCaption(text: string): boolean {
     || /invent words/.test(value);
 }
 
-function processLocalWhisperResult(result: any, language: Language, maxWords: number): { captions: CaptionItem[]; detectedLang: string; detectedCode?: string } {
+function processLocalWhisperResult(result: any, language: Language, maxWords: number): TranscriptionResult {
   const targetCode = getLanguageCode(language);
   const resultText = [
     String(result?.text || ''),
@@ -101,7 +114,7 @@ function processLocalWhisperResult(result: any, language: Language, maxWords: nu
   captions = captions.filter(caption => !isInstructionLeakCaption(caption.text));
   if (!captions.length) throw new Error('Local Whisper returned no speech');
   if (result.contentMode !== 'song' && isCaptionRepetitionLoop(captions.map(c => c.text).join(' '))) throw new Error('Local Whisper produced repeated captions.');
-  return { captions, detectedLang, detectedCode };
+  return { captions, detectedLang, detectedCode, timingSource: result.timingSource === 'estimated' ? 'estimated' : 'word', warnings: Array.isArray(result.warnings) ? result.warnings.map(String) : [] };
 }
 
 export async function transcribeLocalMediaPath(
@@ -128,12 +141,15 @@ async function transcribeWithLocalWhisper(
   onProgress: (msg: string, pct: number) => void,
   signal?: AbortSignal,
   contentMode: 'speech' | 'song' = 'speech',
-): Promise<{ captions: CaptionItem[]; detectedLang: string; detectedCode?: string } | null> {
+  sourcePath?: string,
+  engine: 'local' | 'gemini' = 'local',
+  options: TranscriptionOptions = {},
+): Promise<TranscriptionResult | null> {
   const api = typeof window !== 'undefined' ? (window as any).electronAPI : null;
-  if (!api?.transcribeVideo || !api?.getPathForFile) return null;
+  if (!api?.transcribeVideo || (!sourcePath && !api?.getPathForFile)) return null;
 
   throwIfAborted(signal);
-  if (api.isMobileRemote && api.uploadMobileFile) {
+  if (!sourcePath && api.isMobileRemote && api.uploadMobileFile) {
     onProgress('Uploading video securely to the Windows caption engine…', 2);
     const uploaded = await api.uploadMobileFile(file);
     if (!uploaded?.ok || !uploaded?.filePath || Number(uploaded?.size || file.size || 0) <= 0) {
@@ -141,7 +157,7 @@ async function transcribeWithLocalWhisper(
     }
     onProgress('Upload complete · starting Windows Whisper…', 5);
   }
-  const filePath = api.getPathForFile(file);
+  const filePath = sourcePath || api.getPathForFile(file);
   if (!filePath) {
     if (api.isMobileRemote) throw new Error('The uploaded phone video has no Windows file path. Select it again.');
     return null;
@@ -151,11 +167,11 @@ async function transcribeWithLocalWhisper(
   const languageHint = targetCode || 'auto';
 
   onProgress(
-    `Detecting and transcribing the spoken language locally${targetCode ? ` (${language})` : ''}...`,
+    engine === 'gemini' ? 'Recovering sung lyrics with Gemini (estimated timing)…' : `Detecting and transcribing the spoken language locally${targetCode ? ` (${language})` : ''}...`,
     8,
   );
 
-  const result = await api.transcribeVideo({ videoPath: filePath, languageHint, contentMode });
+  const result = await api.transcribeVideo({ videoPath: filePath, languageHint, contentMode, engine, audioMode: options.audioMode || 'original', transcriptionHints: options.transcriptionHints || '' });
   throwIfAborted(signal);
   if (!result?.ok) {
     throw new Error(String(result?.error || 'Local Whisper transcription failed'));
@@ -631,15 +647,15 @@ interface WavHandle {
 // In Electron: FFmpeg writes WAV to disk and returns the path. We never load
 // the full file into renderer memory — only the 12-second chunks are read.
 // In browser: falls back to in-memory AudioContext decoding.
-async function extractAudioAsWav(file: File): Promise<WavHandle> {
+async function extractAudioAsWav(file: File, sourcePath?: string): Promise<WavHandle> {
   const api = typeof window !== 'undefined' ? (window as any).electronAPI : null;
-  const isElectron = !!(api && api.isElectron);
+  const isElectron = !!(api && (api.isElectron || sourcePath));
 
   if (isElectron) {
-    if (!api.getPathForFile) {
+    if (!sourcePath && !api.getPathForFile) {
       throw new Error("Electron API 'getPathForFile' is missing! Preload script might not be loaded correctly.");
     }
-    const filePath = api.getPathForFile(file);
+    const filePath = sourcePath || api.getPathForFile(file);
     if (!filePath) {
       throw new Error(`Electron 'getPathForFile' returned empty for file "${file.name}" (size: ${file.size} bytes). Make sure the file exists and is accessible on your disk.`);
     }
@@ -654,6 +670,7 @@ async function extractAudioAsWav(file: File): Promise<WavHandle> {
   }
 
   // Browser fallback — load full file into memory (works for short videos)
+  if (sourcePath) throw new Error('The cleaned video requires the local Windows audio extraction service.');
   const ab  = await file.arrayBuffer();
   const ctx = new AudioContext({ sampleRate: 16000 });
   let decoded: AudioBuffer;
@@ -920,16 +937,19 @@ export async function transcribeWithHuggingFace(
   hfToken:            string,
   maxWordsPerCaption: number,
   onProgress:         (msg: string, pct: number) => void,
-  engine:             'auto' | 'local' | 'groq' = 'groq',
+  engine:             'auto' | 'local' | 'groq' | 'gemini' = 'groq',
   signal?:            AbortSignal,
   contentMode:        'speech' | 'song' = 'speech',
-): Promise<{ captions: CaptionItem[]; detectedLang: string }> {
+  sourcePath?:        string,
+  options:           TranscriptionOptions = {},
+): Promise<TranscriptionResult> {
 
   throwIfAborted(signal);
+  if (engine === 'gemini' && contentMode !== 'song') throw new Error('Gemini song accuracy requires Song / lyrics mode.');
   if (contentMode === 'song') {
-    const local = await transcribeWithLocalWhisper(file, language, maxWordsPerCaption, onProgress, signal, 'song');
+    const local = await transcribeWithLocalWhisper(file, language, maxWordsPerCaption, onProgress, signal, 'song', sourcePath, engine === 'gemini' ? 'gemini' : 'local', options);
     if (!local) throw new Error('Song mode requires the local Windows transcription service.');
-    return { captions: local.captions, detectedLang: local.detectedLang };
+    return local;
   }
   const targetCode = getLanguageCode(language);
   const preferCloudWhisper =
@@ -940,7 +960,7 @@ export async function transcribeWithHuggingFace(
   // narration. Use Groq large-v3 first for Auto-Detect and Indic languages.
   if (engine === 'local' || (engine === 'auto' && !preferCloudWhisper)) {
     try {
-      const local = await transcribeWithLocalWhisper(file, language, maxWordsPerCaption, onProgress, signal);
+      const local = await transcribeWithLocalWhisper(file, language, maxWordsPerCaption, onProgress, signal, 'speech', sourcePath, 'local', options);
       if (local?.captions?.length) {
         const targetCode = getLanguageCode(language);
         const inferredCode = local.detectedCode || inferLangFromScript(local.captions.map(c => c.text).join(' ')) || undefined;
@@ -951,7 +971,14 @@ export async function transcribeWithHuggingFace(
           ? local.captions
           : await translateCaptionsToLanguage(local.captions, language, onProgress, maxWordsPerCaption, signal);
         onProgress(`${local.detectedLang || 'Local'} captions ready ✓`, 97);
-        return { captions: finalCaptions, detectedLang: local.detectedLang };
+        return {
+          ...local, captions: finalCaptions,
+          timingSource: sameLanguage ? local.timingSource : 'estimated',
+          warnings: sameLanguage ? local.warnings : [
+            ...(local.warnings || []),
+            'Translated words use estimated highlight timing. Review synchronization against the recording.',
+          ],
+        };
       }
     } catch (err) {
       if (engine === 'local') {
@@ -969,7 +996,7 @@ export async function transcribeWithHuggingFace(
   }
 
   onProgress('Extracting audio…', 5);
-  const audio = await extractAudioAsWav(file);
+  const audio = await extractAudioAsWav(file, sourcePath);
   throwIfAborted(signal);
 
   // We must ALWAYS probe for the actual spoken language so Whisper doesn't hallucinate.

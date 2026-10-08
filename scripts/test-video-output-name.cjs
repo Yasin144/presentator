@@ -50,12 +50,14 @@ test('a first export keeps its original name and skips existing numbered files',
 });
 test('native uploaded-video exporters use original-name allocation', () => {
   const main = fs.readFileSync(path.join(__dirname, '../main.cjs'), 'utf8');
-  for (const channel of ['sc3-replace-video-audio', 'erase-captions', 'export-translated-video', 'export-synced-translated-video', 'burn-captions', 'video-resizer-export']) {
+  for (const channel of ['sc3-replace-video-audio', 'export-translated-video', 'export-synced-translated-video', 'burn-captions', 'video-resizer-export']) {
     const start = main.indexOf(`ipcMain.handle('${channel}'`);
     const end = main.indexOf('ipcMain.handle(', start + 20);
     assert.ok(start >= 0, channel);
     assert.match(main.slice(start, end < 0 ? undefined : end), /createVideoOutputPath/, channel);
   }
+  assert.match(main, /ipcMain\.handle\('erase-captions', \(event, opts\) => erasePreviousCaptions/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../caption-eraser.cjs'), 'utf8'), /allocateOutput \|\| createVideoOutputPath/);
 });
 
 test('caption finalization copies to Downloads and never deletes a conflicting user file', t => {

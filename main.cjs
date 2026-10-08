@@ -43,6 +43,7 @@ const { registerPdfCountingOcr } = require('./pdf-counting-ocr.cjs');
 const { createWhatsAppDrafts } = require('./whatsapp-drafts.cjs');
 const { originalVideoName, createVideoOutputPath } = require('./video-output-name.cjs');
 const { prepareCaptionEmojiExport } = require('./caption-emoji-export.cjs');
+const { createCaptionEraser } = require('./caption-eraser.cjs');
 const { createWhatsAppSession } = require('./whatsapp-session.cjs');
 const { createWhatsAppJobObserver } = require('./whatsapp-job-events.cjs');
 // Desktop-only PDF OCR: register before the generic mobile IPC bridge wrapper.
@@ -215,6 +216,7 @@ function mobileBridgeSource() {
     if (supplied) localStorage.setItem('presentator.mobileToken', supplied);
     const token = supplied || localStorage.getItem('presentator.mobileToken') || '';
     const captionProgressHandlers = new Set();
+    const captionEraseProgressHandlers = new Set();
     const invoke = async (method, args) => {
       if (longMethods.has(method)) {
         const startedResponse = await fetch('/api/mobile-job-start', {
@@ -238,6 +240,11 @@ function mobileBridgeSource() {
             lastProgressAt = Date.now();
             if (job.progress?.channel === 'caption-transcribe-progress') {
               for (const callback of captionProgressHandlers) {
+                try { callback(job.progress.data); } catch (_) {}
+              }
+            }
+            if (job.progress?.channel === 'caption-erase-progress') {
+              for (const callback of captionEraseProgressHandlers) {
                 try { callback(job.progress.data); } catch (_) {}
               }
             }
@@ -301,6 +308,11 @@ function mobileBridgeSource() {
         return () => captionProgressHandlers.delete(callback);
       },
       offCaptionTranscribeProgress: callback => captionProgressHandlers.delete(callback),
+      onCaptionEraseProgress: callback => {
+        if (typeof callback === 'function') captionEraseProgressHandlers.add(callback);
+        return () => captionEraseProgressHandlers.delete(callback);
+      },
+      offCaptionEraseProgress: callback => captionEraseProgressHandlers.delete(callback),
       onServerStatus: () => () => {},
     };
     for (const [method, channel] of Object.entries(methods)) api[method] = (...args) => invoke(channel, args);
@@ -4388,9 +4400,11 @@ thumbnailText must be at most four words. Include a strong intro, score-based ou
 // ————————————— Crash-free Video Transcription (IPC) ————————————————————————————
 let activeCaptionTranscribeProcess = null;
 let activeCaptionTranscribeCancelRequested = false;
+let activeCaptionSongController = null;
 
 ipcMain.handle('cancel-transcribe-video', async () => {
   activeCaptionTranscribeCancelRequested = true;
+  activeCaptionSongController?.abort();
   if (activeCaptionTranscribeProcess) {
     try { killProcessTree(activeCaptionTranscribeProcess); } catch (_) {}
   }
@@ -4404,7 +4418,7 @@ ipcMain.handle('cancel-transcribe-video', async () => {
 //   3. Falls back to HTTP server (port 8428) if Python unavailable
 //   4. Returns { ok, text, segments, words } to renderer
 ipcMain.handle('transcribe-video', async (event, opts) => {
-  const { videoPath, languageHint, contentMode = 'speech' } = opts || {};
+  const { videoPath, languageHint, contentMode = 'speech', engine = 'local', audioMode = 'original', transcriptionHints = '' } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
   let resumePausedServers = () => {};
@@ -4420,6 +4434,16 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   const FFMPEG = findFFmpeg();
   const stamp  = Date.now();
   const tmpWav = path.join(ensureCaptionWorkDir('transcribe-audio'), 'caption-' + stamp + '.wav');
+  let transcriptionAudioPath = tmpWav;
+  let enhancedAudioFiles = [];
+  let audioWarnings = [];
+  let progressFloor = 0;
+  let transcriptionProgressBase = 0;
+  const reportCaptionProgress = raw => {
+    progressFloor = Math.max(progressFloor, Math.max(0, Math.min(100, Number(raw) || 0)));
+    try { event.sender.send('caption-transcribe-progress', progressFloor); } catch (_) {}
+  };
+  const reportTranscriptionProgress = raw => reportCaptionProgress(transcriptionProgressBase + (100 - transcriptionProgressBase) * Number(raw) / 100);
 
   try {
     // Step 1: Extract audio from video as 16kHz mono WAV
@@ -4438,6 +4462,38 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     });
     console.log('[Caption] Audio extracted:', Math.round(fs.statSync(tmpWav).size / 1024), 'KB');
 
+    if (contentMode === 'song' && audioMode === 'vocal-focus') {
+      activeCaptionSongController = new AbortController();
+      if (activeCaptionTranscribeCancelRequested) activeCaptionSongController.abort();
+      const { prepareCaptionAudio } = require('./caption-audio-preprocess.cjs');
+      const prepared = await prepareCaptionAudio({
+        inputPath: videoPath, outputDirectory: ensureCaptionWorkDir('vocal-focus'),
+        ffmpegPath: FFMPEG, pythonPath: path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe'),
+        mode: 'vocal-focus', signal: activeCaptionSongController.signal,
+        onProgress: progress => reportCaptionProgress(Math.min(30, progress.pct * 0.3)),
+      });
+      transcriptionAudioPath = prepared.audioPath === videoPath ? tmpWav : prepared.audioPath;
+      enhancedAudioFiles = prepared.cleanupFiles || [];
+      audioWarnings = prepared.warnings || [];
+      transcriptionProgressBase = 30;
+    }
+
+    if (engine === 'gemini' && contentMode === 'song') {
+      if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+      const keyPath = path.join(ROOT, '.gemini_api_key');
+      const apiKey = String(process.env.GEMINI_API_KEY || (fs.existsSync(keyPath) ? fs.readFileSync(keyPath, 'utf8') : '')).trim();
+      if (!apiKey) throw new Error('Google Gemini API key is missing. Add it in AI Tools first.');
+      activeCaptionSongController ||= new AbortController();
+      const { transcribeSongAudio } = require('./caption-song-transcribe.cjs');
+      const result = await transcribeSongAudio({
+        audioBuffer: fs.readFileSync(transcriptionAudioPath), apiKey, languageHint, transcriptionHints,
+        signal: activeCaptionSongController.signal,
+        onProgress: progress => reportTranscriptionProgress(progress.pct),
+      });
+      if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+      return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+    }
+
     // Whisper-small needs roughly 1.5–2 GB during decoding. Release cached
     // diffusion/Ollama weights and temporarily stop the two largest voice
     // workers so captioning cannot silently fail under memory pressure.
@@ -4452,7 +4508,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       }
     } catch (_) {}
     resumePausedServers = await pauseManagedServersForImage(['AnjaliAI', 'Sc3Singing']);
-    try { event.sender.send('caption-transcribe-progress', 3); } catch (_) {}
+    reportTranscriptionProgress(3);
 
     // Step 2: Run Whisper directly via Python (no HTTP server needed)
     // Caption Whisper is substantially faster in the voice-clone runtime on
@@ -4474,7 +4530,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       throw new Error('Transcription cancelled.');
     }
     const whisperResult = await new Promise((resolve, reject) => {
-      const proc = spawn(pyExe, [scriptPath, tmpWav, langParam, path.basename(videoPath), contentMode === 'song' ? 'song' : 'speech'], {
+      const proc = spawn(pyExe, [scriptPath, transcriptionAudioPath, langParam, path.basename(videoPath), contentMode === 'song' ? 'song' : 'speech', String(transcriptionHints).slice(0, 1000)], {
         stdio: 'pipe',
         windowsHide: true,
         env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
@@ -4491,7 +4547,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
           const match = line.match(/^PROGRESS:(\d+)/);
           if (match) {
             const pct = Math.max(0, Math.min(99, Number(match[1]) || 0));
-            try { event.sender.send('caption-transcribe-progress', pct); } catch (_) {}
+            reportTranscriptionProgress(pct);
           }
         }
       });
@@ -4508,7 +4564,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
           const json = JSON.parse(lastLine);
           if (json.error) reject(new Error('Whisper: ' + json.error));
           else {
-            try { event.sender.send('caption-transcribe-progress', 100); } catch (_) {}
+            reportTranscriptionProgress(100);
             resolve(json);
           }
         } catch(e) {
@@ -4524,6 +4580,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       segments: whisperResult.segments || [],
       words:    whisperResult.words    || [],
       language: whisperResult.language || 'en',
+      warnings: audioWarnings,
       contentMode: contentMode === 'song' ? 'song' : 'speech'
     };
 
@@ -4531,11 +4588,11 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     if (activeCaptionTranscribeCancelRequested) {
       return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
     }
-    if (contentMode === 'song') return { ok: false, error: `Local song transcription failed: ${err.message}` };
+    if (contentMode === 'song') return { ok: false, error: `${engine === 'gemini' ? 'Gemini' : 'Local'} song transcription failed: ${err.message}` };
     // Fallback: HTTP transcription server (port 8428)
     console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
     try {
-      const wavBase64 = fs.readFileSync(tmpWav).toString('base64');
+      const wavBase64 = fs.readFileSync(transcriptionAudioPath).toString('base64');
       const result = await postJsonForBufferWithRecovery(8428, '/api/transcribe', { audioBase64: wavBase64, wordTimestamps: true }, 300000, 3);
       if (result && result.statusCode === 200) {
         const p = JSON.parse(result.buffer.toString('utf8'));
@@ -4553,6 +4610,14 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     return { ok: false, error: err.message };
   } finally {
     activeCaptionTranscribeProcess = null;
+    activeCaptionSongController = null;
+    for (const generatedFile of enhancedAudioFiles) {
+      const absolute = path.resolve(generatedFile);
+      const relative = path.relative(path.join(ROOT, 'caption-work', 'vocal-focus'), absolute);
+      if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+        try { fs.unlinkSync(absolute); } catch (_) {}
+      }
+    }
     activeCaptionTranscribeCancelRequested = false;
     console.log('[Caption] Kept transcription WAV:', tmpWav);
     resumePausedServers();
@@ -5161,80 +5226,17 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
   }
 });
 
-// ————————————— Native Caption Eraser (delogo blur filter) —————————————
-ipcMain.handle('erase-captions', async (event, opts) => {
-  const { filePath } = opts || {};
-  if (!filePath) return { ok: false, error: 'No file path provided.' };
-
-  const os = require('os');
-  const fs = require('fs');
-  const path = require('path');
-  const { spawn } = require('child_process');
-
-  const tmpDir  = os.tmpdir();
-  const stamp   = Date.now();
-  const baseName = path.basename(filePath, path.extname(filePath));
-  const outputMp4 = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), filePath);
-  const FFMPEG = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
-  const FFPROBE = FFMPEG.replace('ffmpeg.exe', 'ffprobe.exe');
-
-  function getVideoDimensions(path_) {
-    return new Promise((resolve) => {
-      const proc = spawn(FFPROBE, [
-        '-v', 'quiet', '-select_streams', 'v:0',
-        '-show_entries', 'stream=width,height',
-        '-of', 'csv=s=x:p=0', path_
-      ], { stdio: 'pipe', windowsHide: true });
-      let out = '';
-      proc.stdout.on('data', d => { out += d.toString(); });
-      proc.on('exit', () => {
-        const parts = out.trim().split('x');
-        const w = parseInt(parts[0]) || 1920;
-        const h = parseInt(parts[1]) || 1080;
-        resolve({ width: w, height: h });
-      });
-      proc.on('error', () => resolve({ width: 1920, height: 1080 }));
-    });
-  }
-
-  try {
-    const { width, height } = await getVideoDimensions(filePath);
-    console.log('[PP] Erase: video dimensions ' + width + 'x' + height);
-
-    // Box parameters: cover only the caption line precisely (bottom 5.5% height, 70% width, centered at 88% Y)
-    const boxW = Math.round(width * 0.70);
-    const boxH = Math.round(height * 0.055);
-    const boxX = Math.round((width - boxW) / 2);
-    const boxY = Math.round(height * 0.88);
-
-    const delogoFilter = 'delogo=x=' + boxX + ':y=' + boxY + ':w=' + boxW + ':h=' + boxH;
-    console.log('[PP] Erase: applying delogo filter: ' + delogoFilter);
-
-    await new Promise((resolve, reject) => {
-      const proc = spawn(FFMPEG, [
-        '-y', '-i', filePath,
-        '-vf', delogoFilter,
-        '-c:a', 'copy',
-        outputMp4
-      ], { stdio: 'pipe', windowsHide: true });
-
-      let stderr = '';
-      if (proc.stderr) proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
-      proc.on('exit', code => {
-        if (code === 0) resolve();
-        else reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300)));
-      });
-    });
-
-    console.log('[PP] Erase: caption erasing complete -> ' + outputMp4);
-    return { ok: true, outputPath: outputMp4, fileName: path.basename(outputMp4) };
-
-  } catch (err) {
-    console.error('[PP] Erase: caption erasing error:', err.message);
-    return { ok: false, error: err.message };
-  }
+// Detect previous caption text locally and restore only the masked pixels.
+const erasePreviousCaptions = createCaptionEraser({
+  root: __dirname,
+  getFFmpeg: findFFmpegExecutable,
+  downloadsPath: app.getPath('downloads'),
+  tempPath: app.getPath('temp'),
 });
+ipcMain.handle('erase-captions', (event, opts) => erasePreviousCaptions(opts, progress => {
+  try { if (!event.sender.isDestroyed?.()) event.sender.send('caption-erase-progress', progress); }
+  catch (_) { /* Closing the preview does not corrupt the original video. */ }
+}));
 
 
 
