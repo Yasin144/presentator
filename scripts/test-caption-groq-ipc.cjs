@@ -362,7 +362,13 @@ test('sparse speech repair uses source PCM offsets and keeps original words whil
     assert.ok(Math.abs(result.words.find(item => item.word === word).start - expected) < 1e-9, word);
   }
   for (let index = 1; index < result.words.length; index++) assert.ok(result.words[index].start >= result.words[index - 1].end);
-  assert.deepEqual(result.segments, result.words.map(({ start, end, word }) => ({ start, end, text: word })), 'No stale Fox segment may survive repaired word timing');
+  assert.equal(result.segments.map(segment => segment.text).join(' '), result.words.map(word => word.word).join(' '));
+  for (const segment of result.segments) {
+    const first = result.words.findIndex(word => word.start === segment.start);
+    const last = result.words.findIndex(word => word.end === segment.end);
+    assert.ok(first >= 0 && last >= first, 'Every phrase uses repaired word bounds');
+    assert.equal(segment.text, result.words.slice(first, last + 1).map(word => word.word).join(' '));
+  }
   const windows = [[4.24, 8.24], [22.12, 26.12], [36, 46], [49.44, 53.44]];
   for (let index = 0; index < windows.length; index++) {
     const [start, end] = windows[index];
@@ -412,6 +418,73 @@ test('short-window verification recovers on its single retry using verified sour
   assert.equal(result.words[0].word, 'Elephant');
   assert.ok(Math.abs(result.words[0].start - 2.7) < .001);
   assert.ok(Math.abs(result.words[0].end - 3.1) < .001);
+});
+
+test('a conflict needing over twenty seconds is verified with bounded broader audio', async () => {
+  const original = { text: 'Tiger Fox', segments: [], words: [
+    { word: 'Tiger', start: 2, end: 24 }, { word: 'Fox', start: 23, end: 25 },
+  ] };
+  const verified = { text: 'Tiger Fox', words: [
+    { word: 'Tiger', start: 20, end: 21 }, { word: 'Fox', start: 23, end: 24 },
+  ] };
+  const f = fixture({ duration: 40, responses: [original, verified] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(f.calls.fetch.length, 2);
+  assert.equal(result.words[0].start, 20);
+  assert.equal(result.words[1].start, 23);
+});
+
+test('verification still rejects context exceeding the sixty-second bound', async () => {
+  const original = { text: 'Tiger Fox', segments: [], words: [
+    { word: 'Tiger', start: 2, end: 65 }, { word: 'Fox', start: 64, end: 66 },
+  ] };
+  const f = fixture({ duration: 90, responses: [original] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /short audio window/);
+  assert.equal(f.calls.fetch.length, 1);
+});
+
+test('verification accepts identical text split into different ASR tokens', async () => {
+  const original = { text: 'InfoKids', segments: [], words: [{ word: 'InfoKids', start: 2, end: 4 }] };
+  const verified = { text: 'Info Kids', words: [
+    { word: 'Info', start: .7, end: 1 }, { word: 'Kids', start: 1, end: 1.4 },
+  ] };
+  const f = fixture({ duration: 10, responses: [original, verified] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(result.words[0].word, 'InfoKids');
+  assert.ok(Math.abs(result.words[0].start - 2.7) < .001);
+  assert.ok(Math.abs(result.words[0].end - 3.4) < .001);
+});
+
+test('verification resolves small forward boundary overlaps without reordering words', async () => {
+  const original = { text: 'Tiger Fox', segments: [], words: [
+    { word: 'Tiger', start: 2, end: 3 }, { word: 'Fox', start: 2.9, end: 4 },
+  ] };
+  const verified = { text: 'Tiger Fox', words: [
+    { word: 'Tiger', start: .5, end: 1.2 }, { word: 'Fox', start: 1.06, end: 1.5 },
+  ] };
+  const f = fixture({ duration: 10, responses: [original, verified] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.ok(Math.abs(result.words[0].end - 1.13) < .001);
+  assert.equal(result.words[0].end, result.words[1].start);
+  assert.equal(result.segments.length, 1, 'Verified Groq words remain grouped like Local captions');
+  assert.equal(result.segments[0].text, 'Tiger Fox');
+  assert.equal(result.segments[0].start, result.words[0].start);
+  assert.equal(result.segments[0].end, result.words[1].end);
+  assert.match(result.warnings.join(' '), /midpoint/);
+});
+
+test('verification clamps only small final-word overruns to the physical clip end', async () => {
+  const original = { text: 'Elephant', segments: [], words: [{ word: 'Elephant', start: 2, end: 4 }] };
+  const verified = { text: 'Elephant', words: [{ word: 'Elephant', start: 3.6, end: 4.32 }] };
+  const f = fixture({ duration: 10, responses: [original, verified] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(result.words[0].end, 6);
 });
 
 test('song timestamps never trigger speech verification and conflicting song words fail directly', async () => {

@@ -2,7 +2,7 @@
 whisper-transcribe-caption.py  —  Transcribes ANY video audio as captions
 Works on: speech videos, animation, music, background noise, any content.
 Strategy:
-  1. VAD ON — silent/non-speech regions never become invented captions
+  1. Preserve the original audio timeline; filter decoded non-speech results
   2. tiny model first (fast), small model if result is garbage
   3. Returns real word-level timestamps for perfect caption sync
 """
@@ -119,9 +119,11 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False,
         # word times at the end. Short windows keep lyrics anchored to audio.
         chunk_length=10 if song_mode else 30,
         clip_timestamps=clip_timestamps,
-        # The retry pass disables VAD because short child words over music are
-        # commonly classified as non-speech before Whisper can decode them.
-        vad_filter=not (lenient or song_mode),
+        # Keep the physical audio timeline intact. VAD's concatenated speech
+        # clips can attach the next phrase's first word to an earlier intro,
+        # and omit short labels over music. Decoded segments still pass the
+        # confidence and repetition filters below.
+        vad_filter=False,
         vad_parameters={
             # Keep quiet/short opening words instead of trimming them before
             # Whisper can timestamp the first caption.
@@ -284,7 +286,11 @@ def retry_sparse_with_child_speech_mode(m, audio_path: str, lang: str, current):
     ) if ordered_words else audio_duration
     largest_gap = max(leading_gap, largest_internal_gap, trailing_gap)
     sparse_word_count = len(words) < 4 and len(text.split()) < 4
-    suspicious_missing_section = audio_duration > 20.0 and largest_gap > 10.0
+    # Short instructional labels can disappear inside two-second pauses.
+    # Ignore ordinary intro silence, but inspect internal and ending gaps.
+    suspicious_missing_section = audio_duration > 10.0 and (
+        largest_internal_gap > 2.0 or trailing_gap > 3.0 or leading_gap > 8.0
+    )
     if not sparse_word_count and not suspicious_missing_section:
         return current
     reason = (

@@ -50,6 +50,7 @@ export default function LocalCaptionPanel() {
               </label>
               <p id="captionLanguageDisclosure" className="lcp-help">Speech language is detected automatically. Translation uses the configured local or online providers and keeps cue timing; translated word highlighting is estimated. Telugu and Hindi use a readable script font.</p>
               <p id="captionLocalModeDisclosure" className="lcp-help">Local processes audio on this computer. Review the words and timing before export.</p>
+              <div id="captionIntelligenceStatus" className="lcp-help" role="status" aria-live="polite">Automatic review checks language, word timing and possible missing speech after generation.</div>
               <div id="captionGroqKeyField" className="lcp-field hidden">
                 <label htmlFor="captionGroqApiKey">Groq API key (optional)</label>
                 <input id="captionGroqApiKey" type="password" maxLength={256} autoComplete="off" placeholder="Leave blank to use the configured key" className="theme-input" />

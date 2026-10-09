@@ -4879,7 +4879,9 @@ function groqCaptionTimingWindows(words, duration) {
       }
       if (!moved) break;
     }
-    if (!(window.end > window.start) || window.end - window.start > 20) {
+    // Dense overlapping timestamps can require more than twenty seconds of
+    // context. Verify the broader audio instead of rejecting before ASR runs.
+    if (!(window.end > window.start) || window.end - window.start > 60) {
       throw new Error('Groq returned caption timing that could not be verified in a short audio window. Generate captions again or use the Local engine.');
     }
   }
@@ -4887,7 +4889,7 @@ function groqCaptionTimingWindows(words, duration) {
   const windows = [];
   for (const window of candidates) {
     const previous = windows.at(-1);
-    if (previous && window.start <= previous.end && Math.max(previous.end, window.end) - previous.start <= 20) {
+    if (previous && window.start <= previous.end && Math.max(previous.end, window.end) - previous.start <= 60) {
       previous.end = Math.max(previous.end, window.end);
       previous.core = [...new Set([...previous.core, ...window.core])];
       previous.wide = [...new Set([...(previous.wide || []), ...(window.wide || [])])];
@@ -4904,7 +4906,7 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
   if (!windows.length) { assertGroqCaptionWordTimeline(words); return { words, verifiedTimingWindows: 0 }; }
   const repaired = words.map(word => ({ ...word }));
   const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
-  const failure = () => new Error('Groq could not verify the caption words and timing on a short audio window. Generate captions again or use the Local engine.');
+  const failure = (window, reason) => new Error(`Groq could not verify the caption words and timing on audio ${window.start.toFixed(2)}–${window.end.toFixed(2)}s: ${reason}.`);
   for (let index = 0; index < windows.length; index += 1) {
     throwIfCaptionTranscriptionCancelled(signal);
     const window = windows[index];
@@ -4914,28 +4916,68 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
     const expectedIndices = words.flatMap((word, wordIndex) => window.core.includes(wordIndex)
       || (word.start >= offset && word.end <= endSample / sampleRate) ? [wordIndex] : []);
     const expected = expectedIndices.map(wordIndex => words[wordIndex]);
-    let fresh;
+    let fresh, rejectionReason = 'recognition disagreed';
     // A cropped recognition can disagree transiently. Retry once, retaining
     // every word and timing check rather than exporting unverified captions.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       throwIfCaptionTranscriptionCancelled(signal);
       const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
       throwIfCaptionTranscriptionCancelled(signal);
-      const candidate = Array.isArray(json?.words) ? json.words.filter(word => String(word?.word || word?.text || '').trim()) : [];
-      let valid = candidate.length === expected.length && !candidate.some((word, wordIndex) =>
+      const decoded = Array.isArray(json?.words) ? json.words.filter(word => String(word?.word || word?.text || '').trim()).map(word => ({ ...word })) : [];
+      // Groq can overlap adjacent boundary words by a few frames and let the
+      // final word run beyond the physical clip. Bound only small forward
+      // overlaps; reversed or substantially conflicting intervals still fail.
+      for (let wordIndex = 0; wordIndex < decoded.length; wordIndex += 1) {
+        const word = decoded[wordIndex], previous = decoded[wordIndex - 1];
+        if (wordIndex === decoded.length - 1 && Number.isFinite(word.end)
+            && word.end > length && word.end - length <= 0.35) word.end = length;
+        if (previous && Number.isFinite(previous.end) && Number.isFinite(word.start)
+            && word.start >= previous.start && word.start < previous.end
+            && previous.end - word.start <= 0.2) {
+          const boundary = (previous.end + word.start) / 2;
+          if (boundary > previous.start && boundary < word.end) {
+            previous.end = boundary; word.start = boundary;
+          }
+        }
+      }
+      // Token boundaries may differ (InfoKids versus Info Kids). Align equal
+      // normalized character spans, retaining the original caption text.
+      const expectedText = expected.map(word => normalized(word.word)).join('');
+      const decodedText = decoded.map(word => normalized(word.word || word.text)).join('');
+      let candidate = decoded;
+      let decodedValid = decoded.length > 0 && decoded.every(word => Number.isFinite(word.start) && Number.isFinite(word.end)
+        && word.start >= 0 && word.end > word.start && word.end <= length + 0.05);
+      try { assertGroqCaptionWordTimeline(decoded); } catch (_) { decodedValid = false; }
+      if (decodedValid && expectedText === decodedText && decoded.length !== expected.length) {
+        let cursor = 0;
+        const spans = decoded.map(word => {
+          const start = cursor; cursor += normalized(word.word || word.text).length;
+          return { start, end: cursor, word };
+        });
+        cursor = 0;
+        candidate = expected.map(word => {
+          const start = cursor; cursor += normalized(word.word).length;
+          const matching = spans.filter(span => span.end > start && span.start < cursor);
+          return { word: word.word, start: matching[0]?.word.start, end: matching.at(-1)?.word.end };
+        });
+      }
+      let valid = decodedValid && candidate.length === expected.length && !candidate.some((word, wordIndex) =>
         normalized(word.word || word.text) !== normalized(expected[wordIndex].word)
         || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || word.end > length + 0.05
         || ((window.wide || []).includes(expectedIndices[wordIndex]) && word.end - word.start > 1.5));
-      if (String(json?.text || '').trim() && normalized(json.text) !== candidate.map(word => normalized(word.word || word.text)).join('')) valid = false;
+      if (String(json?.text || '').trim() && normalized(json.text) !== decodedText) valid = false;
       try { assertGroqCaptionWordTimeline(candidate); } catch (_) { valid = false; }
       if (valid) { fresh = candidate; break; }
+      rejectionReason = expectedText !== decodedText ? 'the second recognition returned different words'
+        : !decodedValid ? 'the second recognition returned missing, overlapping or invalid timestamps'
+        : 'word boundaries or wide timestamps remain uncertain';
     }
-    if (!fresh) throw failure();
+    if (!fresh) throw failure(window, rejectionReason);
     for (let wordIndex = 0; wordIndex < fresh.length; wordIndex += 1) {
       const originalIndex = expectedIndices[wordIndex], word = fresh[wordIndex];
       // A second broad interval is still uncertain, even if its transcript is
       // correct. Never report an unchanged early label as verified timing.
-      if ((window.wide || []).includes(originalIndex) && word.end - word.start > 1.5) throw failure();
+      if ((window.wide || []).includes(originalIndex) && word.end - word.start > 1.5) throw failure(window, 'word timestamp remains too wide');
       repaired[originalIndex] = { ...words[originalIndex], start: offset + word.start, end: Math.min(duration, offset + word.end) };
     }
     try { onProgress?.(80 + Math.round((index + 1) / windows.length * 18)); } catch (_) {}
@@ -5013,12 +5055,30 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   }
   // Original segment boundaries can conflict with corrected word intervals.
   // Keep only real verified word ranges after a repair, with no stale fallback.
-  const segments = verifiedTimingWindows ? words.map(({ start, end, word }) => ({ start, end, text: word })) : allSegments;
+  const segments = verifiedTimingWindows ? [] : allSegments;
+  if (verifiedTimingWindows) {
+    // Rebuild phrase boundaries from corrected word timing. Returning one
+    // segment per word makes the Local page split Groq into one-word captions.
+    let group = [];
+    const flush = () => {
+      if (!group.length) return;
+      segments.push({ start: group[0].start, end: group.at(-1).end,
+        text: group.map(item => item.word).join(' ') });
+      group = [];
+    };
+    for (const word of words) {
+      const previous = group.at(-1);
+      if (group.length && (group.length >= 8 || word.start - previous.end > 0.75
+          || /[.!?]["'’)]?$/.test(previous.word))) flush();
+      group.push(word);
+    }
+    flush();
+  }
   const text = (words.length ? words.map(word => word.word) : segments.map(segment => segment.text)).join(' ').replace(/\s+/g, ' ').trim();
   if (!text) throw new Error('Groq returned no recognizable words.');
   const timingSource = words.length ? 'word' : 'estimated';
   const warnings = timingSource === 'estimated' ? ['Groq returned segment timing only. Word highlighting is estimated; review synchronization before exporting.'] : [];
-  if (verifiedTimingWindows) warnings.push(`Groq caption timing was verified against ${verifiedTimingWindows} short audio ${verifiedTimingWindows === 1 ? 'window' : 'windows'}.`);
+  if (verifiedTimingWindows) warnings.push(`Groq caption timing was verified against ${verifiedTimingWindows} short audio ${verifiedTimingWindows === 1 ? 'window' : 'windows'}. Small overlaps may be shared at their midpoint and the final word is clipped to the audio end; review synchronization.`);
   throwIfCaptionTranscriptionCancelled(signal);
   report(100);
   return {

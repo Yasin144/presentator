@@ -127,6 +127,33 @@ function spokenPhraseStart(tokens, activeIndex, limit = 8) {
     return start;
 }
 
+function inspectCaptionQuality(captions, duration, timingSource) {
+    const issues = [];
+    let previousEnd = null;
+    let wordCount = 0;
+    for (const cue of captions || []) {
+        const start = Number(cue.timestamp?.[0]), end = Number(cue.timestamp?.[1]);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || start < 0) {
+            issues.push('Invalid cue timing'); continue;
+        }
+        if (previousEnd !== null && start < previousEnd) issues.push(`Overlapping captions near ${start.toFixed(1)}s`);
+        if (previousEnd !== null && start - previousEnd >= 2) issues.push(`Check possible missing speech at ${previousEnd.toFixed(1)}–${start.toFixed(1)}s`);
+        previousEnd = Math.max(previousEnd ?? 0, end);
+        const words = cue.words || [];
+        wordCount += words.length || String(cue.text || '').trim().split(/\s+/).filter(Boolean).length;
+        let wordEnd = start;
+        for (const word of words) {
+            const ws = Number(word.timestamp?.[0]), we = Number(word.timestamp?.[1]);
+            if (!Number.isFinite(ws) || !Number.isFinite(we) || we <= ws || ws < wordEnd || ws < start || we > end) issues.push(`Uncertain word timing near ${start.toFixed(1)}s`);
+            else if (we - ws > 1.5) issues.push(`Review long word timing at ${ws.toFixed(1)}s`);
+            wordEnd = we;
+        }
+    }
+    if (captions?.length && timingSource === 'estimated') issues.push('Word highlighting uses estimated timing');
+    if (previousEnd !== null && Number.isFinite(duration) && duration - previousEnd >= 3) issues.push(`Check the uncaptioned ending from ${previousEnd.toFixed(1)}s`);
+    return { wordCount, issues: [...new Set(issues)] };
+}
+
 function normalizeNurseryCaptionText(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -809,6 +836,15 @@ function bootCaptionStudio() {
 
     function publishCaptionLocalState() {
         syncCaptionWorkbenchBusy();
+        const intelligenceStatus = document.getElementById('captionIntelligenceStatus');
+        if (intelligenceStatus) {
+            const item = captionVideoQueue[captionQueueIndex];
+            const quality = inspectCaptionQuality(generatedCaptions, Number(sourceVideo.duration), item?.timingSource);
+            intelligenceStatus.textContent = captionLocalBusy() ? 'Automatic review will run when the active job finishes.'
+                : !generatedCaptions.length ? 'Automatic language detection and caption review are ready. Generate captions to inspect this video.'
+                : `${quality.wordCount} words · Detected language: ${item?.sourceLanguage || 'auto'}. `
+                    + (quality.issues.length ? quality.issues.join(' · ') : 'No cue overlaps or long internal gaps detected. Review against the audio.');
+        }
         if (eraseBtn) {
             eraseBtn.classList.remove('hidden');
             eraseBtn.disabled = captionLocalBusy() || !activeFile;
