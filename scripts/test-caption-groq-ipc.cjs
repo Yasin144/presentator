@@ -13,7 +13,7 @@ const acorn = require('acorn');
 const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8');
 const ast = acorn.parse(source, { ecmaVersion: 'latest', allowReturnOutsideFunction: true });
 const callbacks = new Map(), helperSources = [];
-const helperNames = new Set(['buildWavChunkBuffer', 'throwIfCaptionTranscriptionCancelled', 'waitForGroqCaptionRetry', 'callGroqWhisperForBuffer', 'readGroqCaptionWav', 'assertGroqCaptionWordTimeline', 'groqCaptionTimingWindows', 'verifyGroqCaptionSpeechTimings', 'transcribeCaptionWavWithGroq']);
+const helperNames = new Set(['buildWavChunkBuffer', 'throwIfCaptionTranscriptionCancelled', 'waitForGroqCaptionRetry', 'callGroqWhisperForBuffer', 'readGroqCaptionWav', 'assertGroqCaptionWordTimeline', 'groqCaptionTimingWindows', 'verifyGroqCaptionSpeechTimings', 'recoverGroqCaptionGaps', 'transcribeCaptionWavWithGroq']);
 (function visit(node) {
   if (!node || typeof node !== 'object') return;
   if (node.type === 'FunctionDeclaration' && helperNames.has(node.id?.name)) helperSources.push(source.slice(node.start, node.end));
@@ -87,7 +87,7 @@ function fixture(options = {}) {
       if (options.pendingRequest || options.pendingRequestAt === calls.fetch.length) return new Promise((resolve, reject) => {
         init.signal.addEventListener('abort', () => reject(Object.assign(new Error('Fixture abort'), { name: 'AbortError' })), { once: true });
       });
-      if (options.networkFails) throw new Error('Fixture network failure');
+      if (options.networkFails || options.networkFailsAt === calls.fetch.length) throw new Error('Fixture network failure');
       if (options.status) return { ok: false, status: options.status, headers: { get: () => null }, body: { cancel: async () => {} } };
       const json = options.responses?.[calls.fetch.length - 1] || options.response || recognized;
       return { ok: true, json: async () => { if (options.cancelAtJson) await cancel(); return plain(json); } };
@@ -485,6 +485,65 @@ test('verification clamps only small final-word overruns to the physical clip en
   const result = plain(await f.invoke()); f.assertReleased();
   assert.equal(result.ok, true);
   assert.equal(result.words[0].end, 6);
+});
+
+test('automatic gap recovery inserts confirmed missing speech while retaining existing word timings', async () => {
+  const original = { text: 'Hello world', segments: [], words: [
+    { word: 'Hello', start: 1, end: 1.3 }, { word: 'world', start: 4, end: 4.3 },
+  ] };
+  const recovered = { text: 'Example', words: [{ word: 'Example', start: 1, end: 1.4 }] };
+  const f = fixture({ duration: 5, responses: [original, recovered, recovered] });
+  const result = plain(await f.invoke({ autoRecoverMissingSpeech: true })); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'Hello Example world');
+  assert.equal(result.words[0].start, 1);
+  assert.equal(result.words[2].start, 4);
+  assert.match(result.warnings.join(' '), /recovery added 1/);
+  assert.equal(f.calls.fetch.length, 3);
+});
+
+test('a small audio-end overrun keeps valid word timing instead of continuous segment fallback', async () => {
+  const original = { text: 'Hello world', segments: [{ text: 'Hello world', start: 0, end: 5 }],
+    words: [{ word: 'Hello', start: 1, end: 1.3 }, { word: 'world', start: 4.8, end: 5.14 }] };
+  const f = fixture({ duration: 5, response: original });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(result.timingSource, 'word');
+  assert.equal(result.words[1].end, 5);
+  assert.equal(result.words[0].end, 1.3);
+});
+
+test('automatic recovery refuses inconsistent short recognition instead of inventing a word', async () => {
+  const original = { text: 'Hello world', segments: [], words: [
+    { word: 'Hello', start: 1, end: 1.3 }, { word: 'world', start: 4, end: 4.3 },
+  ] };
+  const f = fixture({ duration: 5, responses: [original,
+    { words: [{ word: 'Example', start: 1, end: 1.4 }] },
+    { words: [{ word: 'Sentence', start: 1, end: 1.4 }] }] });
+  const result = plain(await f.invoke({ autoRecoverMissingSpeech: true })); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'Hello world');
+});
+
+test('recovery request failure retains the original captions and reports unchecked gaps', async () => {
+  const original = { text: 'Hello world', segments: [], words: [
+    { word: 'Hello', start: 1, end: 1.3 }, { word: 'world', start: 4, end: 4.3 },
+  ] };
+  const f = fixture({ duration: 5, response: original, networkFailsAt: 2 });
+  const result = plain(await f.invoke({ autoRecoverMissingSpeech: true })); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.words, original.words);
+  assert.match(result.warnings.join(' '), /retained.*unchecked/);
+});
+
+test('recovery discloses its window limit without adding silent audio as words', async () => {
+  const original = { text: 'Hello', segments: [], words: [{ word: 'Hello', start: 0, end: .3 }] };
+  const f = fixture({ duration: 100, responses: [original], response: { words: [], segments: [], text: '' } });
+  const result = plain(await f.invoke({ autoRecoverMissingSpeech: true })); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.words, original.words);
+  assert.equal(f.calls.fetch.length, 9);
+  assert.match(result.warnings.join(' '), /8 of 10/);
 });
 
 test('song timestamps never trigger speech verification and conflicting song words fail directly', async () => {

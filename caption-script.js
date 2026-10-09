@@ -86,6 +86,7 @@ function getCaptionTranscriptionOptions() {
         engine,
         audioMode: document.getElementById('captionVocalFocus')?.checked ? 'vocal-focus' : 'original',
         transcriptionHints: document.getElementById('captionVocabularyHints')?.value || '',
+        ...(document.getElementById('captionAutoRecover') ? { autoRecoverMissingSpeech: !!document.getElementById('captionAutoRecover').checked } : {}),
         ...(apiKey ? { apiKey } : {}),
     };
 }
@@ -215,7 +216,9 @@ function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LI
         const previousEndsSentence = previous ? /[.!?]["'’)]?$/.test(previous.text) : false;
         if (group.length && (
             group.length >= Math.max(1, maxWords) ||
-            gap > SHORT_CAPTION_GAP_SECONDS ||
+            // A brief phrase pause must stay blank rather than being covered
+            // by a group containing words from both sides of the pause.
+            gap >= 0.3 ||
             previousEndsSentence || phraseStarts.has(wordIndex)
         )) flush();
         group.push(word);
@@ -225,6 +228,20 @@ function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LI
 }
 
 // Canonical, copy-only boundary between the legacy page and its caption workbench.
+function captionHasSpeechAtTime(caption, time) {
+    const words = caption?.words;
+    if (!Array.isArray(words) || !words.length) return true;
+    const firstStart = Number(words[0].timestamp?.[0] ?? words[0].start);
+    const lastEnd = Number(words[words.length - 1].timestamp?.[1] ?? words[words.length - 1].end);
+    if (time < firstStart || time >= lastEnd) return false;
+    for (let index = 0; index < words.length - 1; index += 1) {
+        const end = Number(words[index].timestamp?.[1] ?? words[index].end);
+        const start = Number(words[index + 1].timestamp?.[0] ?? words[index + 1].start);
+        if (start - end >= 0.3 && time >= end && time < start) return false;
+    }
+    return true;
+}
+
 function captionLocalCanonicalCue(cue) {
     const timestamp = Array.isArray(cue?.timestamp) ? cue.timestamp : [cue?.start, cue?.end];
     const result = { start: Number(timestamp[0]), end: Number(timestamp[1]), text: String(cue?.text ?? '') };
@@ -745,7 +762,7 @@ function bootCaptionStudio() {
         const disabled = captionLocalBusy();
         if (disabled) clearCaptionPreviewLoop();
         const controls = [...Array.from(editorPanel?.querySelectorAll('button, input, select, textarea') || []),
-            videoInput, resetBtn, previewBtn, seekSlider, playPauseBtn,
+            videoInput, resetBtn, previewBtn, seekSlider, playPauseBtn, document.getElementById('captionAutoRecover'),
             ...[styleSelect, sizeSlider, gapSlider, widthSlider, heightSlider, fontSelect, boldCheck, strokeSlider,
                 colorPicker, syncSlider, positionXControl, positionYControl, positionPresetControl,
                 emojiCheck, karaokeCheck, filterSelect, progressCheck, watermarkCheck,
@@ -3610,7 +3627,8 @@ function bootCaptionStudio() {
         // the newly started sequential chunk immediately claims the screen render, preventing display masks!
         let currentChunk = null;
         for (let i = generatedCaptions.length - 1; i >= 0; i--) {
-            if (adjustedTime >= generatedCaptions[i].timestamp[0] && adjustedTime <= generatedCaptions[i].timestamp[1]) {
+            if (adjustedTime >= generatedCaptions[i].timestamp[0] && adjustedTime < generatedCaptions[i].timestamp[1]
+                && captionHasSpeechAtTime(generatedCaptions[i], adjustedTime)) {
                 currentChunk = generatedCaptions[i];
                 break;
             }
@@ -3762,8 +3780,6 @@ function bootCaptionStudio() {
         for (let index = 0; index < sorted.length - 1; index += 1) {
             if (sorted[index].end > sorted[index + 1].start) {
                 sorted[index].end = Math.max(sorted[index].start + 0.12, sorted[index + 1].start - 0.02);
-            } else if (sorted[index + 1].start - sorted[index].end <= SHORT_CAPTION_GAP_SECONDS) {
-                sorted[index].end = sorted[index + 1].start;
             }
         }
         return sorted;
@@ -3928,7 +3944,7 @@ function bootCaptionStudio() {
                 const groupTokens = textTokens.slice(groupStart, groupStart + exportWordLimit);
                 const groupWords = sourceWords.slice(groupStart, groupStart + exportWordLimit);
                 const groupStartTime = groupWords[0] ? groupWords[0].start : capStart;
-                const groupEndTime = sourceWords[groupStart + exportWordLimit]?.start ?? capEnd;
+                const groupEndTime = groupWords[groupWords.length - 1]?.end ?? capEnd;
                 captionGroups.push({
                     tokens: groupTokens,
                     words: groupWords,

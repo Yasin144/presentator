@@ -4521,7 +4521,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       const result = await transcribeCaptionWavWithGroq({
         audioBuffer: fs.readFileSync(transcriptionAudioPath),
         apiKey: (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim(),
-        languageHint: languageHint || 'auto', contentMode, transcriptionHints,
+        languageHint: languageHint || 'auto', contentMode, transcriptionHints, autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
         signal: activeCaptionSongController.signal,
         onProgress: reportTranscriptionProgress,
       });
@@ -4592,7 +4592,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       throw new Error('Transcription cancelled.');
     }
     const whisperResult = await new Promise((resolve, reject) => {
-      const proc = spawn(pyExe, [scriptPath, transcriptionAudioPath, langParam, path.basename(videoPath), contentMode === 'song' ? 'song' : 'speech', String(transcriptionHints).slice(0, 1000)], {
+      const proc = spawn(pyExe, [scriptPath, transcriptionAudioPath, langParam, path.basename(videoPath), contentMode === 'song' ? 'song' : 'speech', String(transcriptionHints).slice(0, 1000), opts?.autoRecoverMissingSpeech === false ? 'no-recovery' : 'recover'], {
         stdio: 'pipe',
         windowsHide: true,
         env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
@@ -4650,7 +4650,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       segments: whisperResult.segments || [],
       words:    whisperResult.words    || [],
       language: whisperResult.language || 'en',
-      warnings: audioWarnings,
+      warnings: [...audioWarnings, ...(Array.isArray(whisperResult.warnings) ? whisperResult.warnings.filter(warning => typeof warning === 'string') : [])],
       contentMode: contentMode === 'song' ? 'song' : 'speech'
     };
 
@@ -4848,7 +4848,10 @@ function groqCaptionTimingWindows(words, duration) {
     }
     const start = Math.max(0, Math.floor(Math.min(...core.map(index => words[index].start))) - 2);
     let end = Math.min(duration, Math.ceil(Math.max(...core.map(index => words[index].end))) + 4);
-    end = Math.min(duration, Math.max(end, start + 10));
+    // Forward boundary conflicts benefit from a full decoding context. Keep
+    // backwards-label checks focused so unrelated words cannot mask them.
+    const forwardConflict = core.every((wordIndex, index) => !index || words[wordIndex].start >= words[core[index - 1]].start);
+    end = Math.min(duration, Math.max(end, start + (forwardConflict ? 30 : 10)));
     candidates.push({ start, end, core, focused: false });
   }
   for (let index = 0; index < words.length; index += 1) {
@@ -4986,7 +4989,56 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
   return { words: repaired, verifiedTimingWindows: windows.length };
 }
 
-async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', signal, onProgress }) {
+async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints }) {
+  const gaps = [];
+  let cursor = 0;
+  for (const word of words) {
+    if (word.start - cursor >= 2) gaps.push([cursor, word.start]);
+    cursor = Math.max(cursor, word.end);
+  }
+  if (duration - cursor >= 2) gaps.push([cursor, duration]);
+  const additions = [], normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+  let checked = 0;
+  const warnings = [];
+  const totalWindows = gaps.reduce((sum, [start, end]) => sum + Math.ceil((end - start) / 10), 0);
+  recoveryWindows:
+  for (const [gapStart, gapEnd] of gaps) {
+    for (let start = gapStart; start < gapEnd && checked < 8; start += 10) {
+      checked += 1;
+      throwIfCaptionTranscriptionCancelled(signal);
+      const end = Math.min(gapEnd, start + 10);
+      const offset = Math.max(0, start - .5), clipEnd = Math.min(duration, end + .5);
+      const audio = buildWavChunkBuffer(pcm.subarray(Math.floor(offset * sampleRate) * 2, Math.ceil(clipEnd * sampleRate) * 2), sampleRate);
+      const read = json => {
+        const candidate = (json?.words || []).filter(word => String(word?.word || word?.text || '').trim()).map(word => ({
+          word: String(word.word || word.text).trim(), start: offset + word.start, end: offset + word.end,
+        })).filter(word => Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start && word.start >= start && word.end <= end);
+        try { assertGroqCaptionWordTimeline(candidate); } catch (_) { return []; }
+        return candidate;
+      };
+      let first, second;
+      try {
+      first = read(await callGroqWhisperForBuffer(audio, apiKey, languageHint, signal, transcriptionHints));
+      if (!first.length) continue;
+      second = read(await callGroqWhisperForBuffer(audio, apiKey, languageHint, signal, transcriptionHints));
+      } catch (_) {
+        throwIfCaptionTranscriptionCancelled(signal);
+        warnings.push('Automatic recovery stopped after a short audio request failed. Existing captions were retained; some gaps remain unchecked.');
+        break recoveryWindows;
+      }
+      if (first.length !== second.length || first.some((word, index) => normalized(word.word) !== normalized(second[index].word)
+          || Math.abs(word.start - second[index].start) > .3 || Math.abs(word.end - second[index].end) > .3)) continue;
+      additions.push(...second);
+    }
+  }
+  throwIfCaptionTranscriptionCancelled(signal);
+  if (totalWindows > 8 && checked === 8) warnings.push(`Automatic recovery checked 8 of ${totalWindows} audio windows. Remaining gaps need review.`);
+  const repaired = [...words.map(word => ({ ...word })), ...additions].sort((a, b) => a.start - b.start);
+  assertGroqCaptionWordTimeline(repaired);
+  return { words: repaired, recoveredWords: additions.length, warnings };
+}
+
+async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', signal, onProgress, autoRecoverMissingSpeech = false }) {
   throwIfCaptionTranscriptionCancelled(signal);
   if (!apiKey) throw new Error('Groq API key is missing. Enter it under Caption engine or configure the saved key.');
   const { pcm, sampleRate, duration } = readGroqCaptionWav(audioBuffer);
@@ -5014,11 +5066,11 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
     throwIfCaptionTranscriptionCancelled(signal);
     if (typeof json?.language === 'string' && json.language.trim() && !detectedLanguage) detectedLanguage = json.language.trim();
     const validInterval = item => Number.isFinite(item?.start) && Number.isFinite(item?.end)
-      && item.start >= 0 && item.end > item.start && item.end <= chunkDuration + 0.05;
+      && item.start >= 0 && item.start < chunkDuration && item.end > item.start && item.end <= chunkDuration + 0.35;
     const accepted = item => {
       if (!validInterval(item)) return null;
       const { start, end } = item;
-      const absoluteStart = start + timeOffset, absoluteEnd = Math.min(end + timeOffset, duration);
+      const absoluteStart = start + timeOffset, absoluteEnd = Math.min(end, chunkDuration) + timeOffset;
       const midpoint = (absoluteStart + absoluteEnd) / 2;
       if (midpoint < ownedStart || (i + 1 < totalChunks ? midpoint >= ownedEnd : midpoint > ownedEnd)) return null;
       return { start: absoluteStart, end: absoluteEnd };
@@ -5027,7 +5079,19 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
       const interval = accepted(segment), text = String(segment?.text || '').trim();
       return interval && text ? [{ ...interval, text }] : [];
     });
-    const providedWords = Array.isArray(json?.words) ? json.words : [];
+    const providedWords = [];
+    for (const word of Array.isArray(json?.words) ? json.words : []) {
+      const previous = providedWords.at(-1);
+      const normalize = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+      // An overlapping duplicate cannot represent two successive spoken words.
+      // Merge its range for audio verification; preserve actual repeated words
+      // whose time intervals do not overlap.
+      if (previous && validInterval(previous) && validInterval(word)
+          && word.start >= previous.start && word.start < previous.end
+          && normalize(word.word || word.text) === normalize(previous.word || previous.text)) {
+        previous.end = Math.max(previous.end, word.end);
+      } else providedWords.push({ ...word });
+    }
     const chunkWords = providedWords.flatMap(word => {
       const interval = accepted(word), text = String(word?.word || word?.text || '').trim();
       return interval && text ? [{ ...interval, word: text }] : [];
@@ -5046,6 +5110,8 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   }
   let words = missingWordTiming ? [] : allWords;
   let verifiedTimingWindows = 0;
+  let recoveredWords = 0;
+  let recoveryWarnings = [];
   if (words.length) {
     if (contentMode === 'song') assertGroqCaptionWordTimeline(words);
     else {
@@ -5053,10 +5119,14 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
       words = verified.words; verifiedTimingWindows = verified.verifiedTimingWindows;
     }
   }
+  if (autoRecoverMissingSpeech && contentMode === 'speech' && words.length) {
+    const recovery = await recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
+    words = recovery.words; recoveredWords = recovery.recoveredWords; recoveryWarnings = recovery.warnings;
+  }
   // Original segment boundaries can conflict with corrected word intervals.
   // Keep only real verified word ranges after a repair, with no stale fallback.
-  const segments = verifiedTimingWindows ? [] : allSegments;
-  if (verifiedTimingWindows) {
+  const segments = verifiedTimingWindows || recoveredWords ? [] : allSegments;
+  if (verifiedTimingWindows || recoveredWords) {
     // Rebuild phrase boundaries from corrected word timing. Returning one
     // segment per word makes the Local page split Groq into one-word captions.
     let group = [];
@@ -5068,7 +5138,7 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
     };
     for (const word of words) {
       const previous = group.at(-1);
-      if (group.length && (group.length >= 8 || word.start - previous.end > 0.75
+      if (group.length && (group.length >= 8 || word.start - previous.end >= 0.3
           || /[.!?]["'’)]?$/.test(previous.word))) flush();
       group.push(word);
     }
@@ -5078,6 +5148,8 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   if (!text) throw new Error('Groq returned no recognizable words.');
   const timingSource = words.length ? 'word' : 'estimated';
   const warnings = timingSource === 'estimated' ? ['Groq returned segment timing only. Word highlighting is estimated; review synchronization before exporting.'] : [];
+  warnings.push(...recoveryWarnings);
+  if (recoveredWords) warnings.push(`Automatic recovery added ${recoveredWords} words confirmed by two short audio passes. Review synchronization.`);
   if (verifiedTimingWindows) warnings.push(`Groq caption timing was verified against ${verifiedTimingWindows} short audio ${verifiedTimingWindows === 1 ? 'window' : 'windows'}. Small overlaps may be shared at their midpoint and the final word is clipped to the audio end; review synchronization.`);
   throwIfCaptionTranscriptionCancelled(signal);
   report(100);
@@ -5128,6 +5200,7 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
     activeCaptionTranscribeProcess = null;
     const result = await transcribeCaptionWavWithGroq({
       audioBuffer: fs.readFileSync(tmpWav), apiKey, languageHint, contentMode, transcriptionHints,
+      autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
       signal: activeCaptionSongController.signal,
       onProgress: value => { try { event.sender.send('caption-transcribe-progress', value); } catch (_) {} },
     });

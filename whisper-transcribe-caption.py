@@ -18,6 +18,8 @@ lang_hint  = sys.argv[2] if len(sys.argv) > 2 else None  # None = auto-detect la
 context_hint = sys.argv[3] if len(sys.argv) > 3 else ""
 song_mode = len(sys.argv) > 4 and sys.argv[4] == "song"
 decoder_hint = sys.argv[5][:1000] if len(sys.argv) > 5 else ""
+auto_recovery = len(sys.argv) <= 6 or sys.argv[6] != "no-recovery"
+recovery_warnings = []
 
 if not os.path.exists(audio_path):
     print(json.dumps({"error": f"File not found: {audio_path}", "text": "", "words": [], "segments": []}))
@@ -176,7 +178,7 @@ def audio_duration_seconds(audio_path: str) -> float:
         return 0.0
 
 
-def uncovered_audio_ranges(words, duration: float, minimum_gap: float = 8.0):
+def uncovered_audio_ranges(words, duration: float, minimum_gap: float = 2.0):
     """Return substantial timeline holes which may contain skipped narration."""
     ordered = sorted(
         (w for w in words if isinstance(w, dict)),
@@ -202,6 +204,8 @@ def uncovered_audio_ranges(words, duration: float, minimum_gap: float = 8.0):
 def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current):
     """Decode only uncovered ranges and merge genuine recovered words into the timeline."""
     text, detected, segs, words = current
+    if not auto_recovery:
+        return current
     duration = audio_duration_seconds(audio_path)
     gaps = uncovered_audio_ranges(words, duration)
     if not gaps:
@@ -217,20 +221,29 @@ def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current):
             f"[Whisper] Checking uncovered narration {gap_start:.1f}s-{gap_end:.1f}s...",
             flush=True,
         )
-        gap_text, _, _, gap_words = run_whisper_with_model(
-            m, audio_path, lang, lenient=True,
-            clip_timestamps=f"{clip_start:.3f},{clip_end:.3f}",
-        )
+        try:
+            gap_text, _, _, gap_words = run_whisper_with_model(
+                m, audio_path, lang, lenient=True,
+                clip_timestamps=f"{clip_start:.3f},{clip_end:.3f}",
+            )
+        except Exception:
+            print("[Whisper] Gap recovery failed; retaining existing captions. Review this gap.", flush=True)
+            recovery_warnings.append(f"Local recovery failed on audio {gap_start:.2f}–{gap_end:.2f}s. Existing captions were retained; review this gap.")
+            continue
         accepted = []
         for word in gap_words:
             start = float(word.get("start", 0.0))
             end = float(word.get("end", start))
-            midpoint = (start + end) / 2.0
-            if gap_start <= midpoint <= gap_end:
+            if end > start and gap_start <= start and end <= gap_end:
                 accepted.append(word)
         if not accepted or (not song_mode and is_repetition_loop(gap_text)):
             continue
         accepted.sort(key=lambda w: float(w.get("start", 0.0)))
+        if any(float(left["end"]) > float(right["start"])
+               for left, right in zip(accepted, accepted[1:])):
+            print("[Whisper] Skipped recovered words with overlapping timing; review this gap.", flush=True)
+            recovery_warnings.append(f"Local recovery skipped overlapping word timing on audio {gap_start:.2f}–{gap_end:.2f}s. Review this gap.")
+            continue
         recovered_count += len(accepted)
         merged_words.extend(accepted)
         merged_segments.append({
@@ -262,6 +275,8 @@ def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current):
 
 def retry_sparse_with_child_speech_mode(m, audio_path: str, lang: str, current):
     """Retry incomplete results without VAD and keep only a demonstrably fuller transcript."""
+    if not auto_recovery:
+        return current
     text, detected, segs, words = current
     ordered_words = sorted(
         (w for w in words if isinstance(w, dict)),
@@ -450,6 +465,7 @@ try:
         "language": lang,
         "segments": segs,
         "words":    words,
+        "warnings": recovery_warnings,
         "noSpeech": len(text.strip()) == 0
     }))
 

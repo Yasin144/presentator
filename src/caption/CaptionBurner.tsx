@@ -912,8 +912,16 @@ export default function CaptionBurner({ onClose }: Props) {
   const activeCap = useMemo(() => {
     if (!activeItem?.captions) return null;
     const t = curTime - S.offset;
-    // Show caption for the full caption duration — don't hide during inter-word gaps
-    return activeItem.captions.find(c => t >= c.start && t < c.end) ?? null;
+    return activeItem.captions.find(c => {
+      if (t < c.start || t >= c.end) return false;
+      const words = c.words;
+      if (!words?.length) return true;
+      if (t < words[0].start || t >= words[words.length - 1].end) return false;
+      return !words.some((word, index) => {
+        const next = words[index + 1];
+        return next && next.start - word.end >= 0.3 && t >= word.end && t < next.start;
+      });
+    }) ?? null;
   }, [activeItem, curTime, S.offset]);
 
   // A style sample belongs beside the controls, never over untranscribed video.

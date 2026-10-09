@@ -9,7 +9,7 @@ interface HFResponse {
   language?: string;
 }
 
-const CAPTION_SILENCE_GAP_SECONDS = 0.75;
+const CAPTION_SILENCE_GAP_SECONDS = 0.3;
 const INDIC_CAPTION_CODES = new Set(['te', 'hi', 'ta', 'ur', 'ar']);
 
 interface TranscriptionResult {
@@ -423,7 +423,7 @@ function groupIntoSentences(chunks: HFChunk[], maxWords = 4): CaptionItem[] {
     // at a sentence boundary, a real pause, or the configured word limit.
     if (
       currentGroup.length >= maxWords ||
-      gap > CAPTION_SILENCE_GAP_SECONDS ||
+      gap >= CAPTION_SILENCE_GAP_SECONDS ||
       previousEndsSentence
     ) {
       if (currentGroup.length) {
@@ -548,7 +548,8 @@ function rebuildCaptionsFromWords(words: { text: string; start: number; end: num
   for (const word of words) {
     const prev = group[group.length - 1];
     const gap = prev ? word.start - prev.end : 0;
-    if (group.length >= limit || gap > CAPTION_SILENCE_GAP_SECONDS) flush();
+    if (group.length >= limit || gap >= CAPTION_SILENCE_GAP_SECONDS
+        || (prev && /[.!?]["'’)]?$/.test(prev.text))) flush();
     group.push(word);
   }
   flush();

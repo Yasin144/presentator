@@ -22,6 +22,40 @@ function timingHarness() {
   return context;
 }
 
+test('export preserves the blank pause between caption groups', () => {
+  const context = { sourceVideo: { duration: 10 }, syncSlider: { value: '0' },
+    generatedCaptions: [{ text: 'First', timestamp: [1, 2] }, { text: 'Second', timestamp: [2.3, 3] }],
+    stripIgnoredIntroCaption: text => text };
+  vm.createContext(context);
+  vm.runInContext([fn('getCaptionSyncOffsetSeconds'), fn('getValidatedCaptionBurnList')].join('\n'), context);
+  const cues = plain(context.getValidatedCaptionBurnList());
+  assert.equal(cues[0].end, 2);
+  assert.equal(cues[1].start, 2.3);
+});
+
+test('preview hides a saved group during a phrase pause without hiding short interword gaps', () => {
+  const context = vm.createContext({});
+  vm.runInContext(fn('captionHasSpeechAtTime'), context);
+  const cue = { words: [
+    { timestamp: [1, 1.2] }, { timestamp: [1.3, 1.5] }, { timestamp: [2, 2.4] },
+  ] };
+  for (const time of [1.1, 1.25, 1.4, 2.1]) assert.equal(context.captionHasSpeechAtTime(cue, time), true);
+  for (const time of [.9, 1.6, 1.9, 2.4]) assert.equal(context.captionHasSpeechAtTime(cue, time), false);
+});
+
+test('both engine word lists leave short phrase pauses blank while retaining grouped words', () => {
+  const words = [
+    { word: 'The', start: 1, end: 1.2 }, { word: 'bird', start: 1.2, end: 1.5 },
+    { word: 'sings', start: 1.9, end: 2.2 }, { word: 'sweetly.', start: 2.2, end: 2.6 },
+    { word: 'Examples', start: 3, end: 3.4 },
+  ];
+  const cues = plain(timingHarness().buildSpeechBoundedCaptionChunks(words));
+  assert.deepEqual(cues.map(cue => cue.text), ['The bird', 'sings sweetly.', 'Examples']);
+  assert.equal(cues[0].timestamp[1], 1.5);
+  assert.equal(cues[1].timestamp[0], 1.9);
+  assert.deepEqual(cues.flatMap(cue => cue.words).map(word => word.timestamp), words.map(word => [word.start, word.end]));
+});
+
 test('Local segment phrases keep Time and What with their following sentences', () => {
   const texts = ['Info', 'Kids', 'Time', 'to', 'warm', 'up', 'Students', 'A', 'bird', 'in', 'a', 'cage', 'What', 'color', 'is', 'the', 'bird'];
   const words = texts.map((word, index) => ({ word, start: index * .4, end: index * .4 + .3 }));
