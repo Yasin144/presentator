@@ -131,7 +131,7 @@ function normalizeNurseryCaptionText(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LIMIT) {
+function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LIMIT, sourceSegments = []) {
     const words = [];
     for (const [index, word] of (Array.isArray(sourceWords) ? sourceWords : []).entries()) {
         const text = word?.word ?? word?.text;
@@ -149,6 +149,23 @@ function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LI
         }
         words.push({ text: text.trim(), start, end });
     }
+    // Local Whisper's segment boundaries carry phrase breaks that its flat
+    // word list loses. Use them only when segment text matches the words.
+    const phraseStarts = new Set();
+    const normalizeToken = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+    let segmentCursor = 0;
+    for (const segment of sourceSegments) {
+        const tokens = String(segment?.text || '').trim().split(/\s+/).filter(Boolean);
+        if (!tokens.length) continue;
+        if (!tokens.every((token, index) => words[segmentCursor + index]
+            && normalizeToken(token) === normalizeToken(words[segmentCursor + index].text))) break;
+        phraseStarts.add(segmentCursor);
+        // Segment punctuation is sometimes absent from individual word text.
+        tokens.forEach((token, index) => {
+            if (/[.!?]["'’)]?$/.test(token)) phraseStarts.add(segmentCursor + index + 1);
+        });
+        segmentCursor += tokens.length;
+    }
     const chunks = [];
     let group = [];
     const flush = () => {
@@ -165,14 +182,14 @@ function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LI
         });
         group = [];
     };
-    for (const word of words) {
+    for (const [wordIndex, word] of words.entries()) {
         const previous = group[group.length - 1];
         const gap = previous ? word.start - previous.end : 0;
         const previousEndsSentence = previous ? /[.!?]["'’)]?$/.test(previous.text) : false;
         if (group.length && (
             group.length >= Math.max(1, maxWords) ||
             gap > SHORT_CAPTION_GAP_SECONDS ||
-            previousEndsSentence
+            previousEndsSentence || phraseStarts.has(wordIndex)
         )) flush();
         group.push(word);
     }
@@ -1058,9 +1075,14 @@ function bootCaptionStudio() {
         if (sourceVideo.paused) renderPreviewNow(sourceVideo.currentTime);
     });
 
-    playPauseBtn.addEventListener('click', () => {
+    playPauseBtn.addEventListener('click', async () => {
         if (sourceVideo.paused) {
-            sourceVideo.play();
+            try {
+                await sourceVideo.play();
+            } catch (error) {
+                statusText.textContent = 'Preview failed: ' + (error.message || error);
+                updatePlayPauseLabel();
+            }
         } else {
             sourceVideo.pause();
         }
@@ -2217,7 +2239,7 @@ function bootCaptionStudio() {
         const segments = Array.isArray(result && result.segments) ? result.segments : [];
         const chunks = [];
         if (words.length > 0) {
-            return buildSpeechBoundedCaptionChunks(words);
+            return buildSpeechBoundedCaptionChunks(words, CAPTION_WORD_LIMIT, segments);
         } else if (segments.length > 0) {
             return segments.filter(s => s.text && String(s.text).trim()).map(s => ({
                 text: String(s.text).trim(),
@@ -2283,7 +2305,7 @@ function bootCaptionStudio() {
         if (words.length > 0) {
             // Real word timestamps plus pause/sentence-aware grouping prevent
             // future narration from appearing before it is spoken.
-            chunks = buildSpeechBoundedCaptionChunks(words);
+            chunks = buildSpeechBoundedCaptionChunks(words, CAPTION_WORD_LIMIT, segments);
         } else if (segments.length > 0) {
             // Fall back to segment-level timestamps
             chunks = segments
@@ -2996,7 +3018,7 @@ function bootCaptionStudio() {
                     const words    = Array.isArray(ipc.words)    ? ipc.words    : [];
                     const segments = Array.isArray(ipc.segments) ? ipc.segments : [];
                     if (words.length > 0) {
-                        generatedCaptions = buildSpeechBoundedCaptionChunks(words);
+                        generatedCaptions = buildSpeechBoundedCaptionChunks(words, CAPTION_WORD_LIMIT, segments);
                     } else if (segments.length > 0) {
                         generatedCaptions = segments.filter(s => s.text && s.text.trim()).map(s => ({
                             text: s.text.trim(), timestamp: [s.start, s.end],
@@ -3990,9 +4012,11 @@ function bootCaptionStudio() {
                 previewBtn.textContent = 'Previewing 5s...';
                 statusText.innerHTML = `Previewing captions for 5 seconds. Check font, placement, color, and ${CAPTION_WORD_LIMIT}-word grouping before export.`;
                 sourceVideo.pause();
-                await seekCaptionPreviewTo(start);
-                renderPreviewNow(start);
-                await sourceVideo.play().catch(() => {});
+                // Request playback during the click's user activation. Waiting
+                // for seeked first can make browsers reject audible playback.
+                const seekReady = seekCaptionPreviewTo(start);
+                await Promise.all([seekReady, sourceVideo.play()]);
+                renderPreviewNow(sourceVideo.currentTime);
                 await new Promise(resolve => {
                     let finished = false;
                     const finish = () => {

@@ -1027,11 +1027,15 @@ export default function CaptionBurner({ onClose }: Props) {
     return 2;
   }, [queue, activeItem]);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (vidRef.current) {
       if (vidRef.current.paused) {
-        vidRef.current.play().catch(() => {});
-        setIsPlaying(true);
+        try {
+          await vidRef.current.play();
+        } catch (error: any) {
+          setIsPlaying(false);
+          setError(`Preview failed: ${error?.message || error}`);
+        }
       } else {
         vidRef.current.pause();
         setIsPlaying(false);

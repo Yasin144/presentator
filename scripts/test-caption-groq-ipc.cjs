@@ -42,7 +42,7 @@ test('timing verification retains Indic vowel marks when checking unchanged word
     words: [{ word: 'कल', start: 1, end: 2 }, { word: 'अब', start: 1.5, end: 2.5 }] };
   const changed = { text: 'काल अब',
     words: [{ word: 'काल', start: 1, end: 1.4 }, { word: 'अब', start: 2, end: 2.4 }] };
-  const f = fixture({ duration: 10, responses: [original, changed] });
+  const f = fixture({ duration: 10, responses: [original, changed, changed] });
   const result = await f.invoke({ languageHint: 'hi' });
   f.assertReleased();
   assert.equal(result.ok, false);
@@ -376,7 +376,7 @@ test('sparse speech repair uses source PCM offsets and keeps original words whil
   assert.equal(progress.at(-1), 100);
 });
 
-test('short audio verification refuses changed, missing, backward or still-wide words', async () => {
+test('short audio verification retries once then refuses changed, missing, backward or still-wide words', async () => {
   const original = { text: 'Elephant', segments: [], words: [{ word: 'Elephant', start: 2, end: 4 }] };
   for (const fresh of [
     { text: 'Zebra', words: [{ word: 'Zebra', start: .7, end: 1.1 }] },
@@ -385,10 +385,10 @@ test('short audio verification refuses changed, missing, backward or still-wide 
     { text: 'Elephant', words: [{ word: 'Elephant', start: 1, end: .8 }] },
     { text: 'Elephant Bear', words: [{ word: 'Elephant', start: .7, end: 1.1 }] },
   ]) {
-    const f = fixture({ duration: 10, responses: [original, fresh] });
+    const f = fixture({ duration: 10, responses: [original, fresh, fresh] });
     const result = plain(await f.invoke()); f.assertReleased();
     assert.equal(result.ok, false); assert.equal(result.engine, 'groq'); assert.match(result.error, /verify/);
-    assert.equal(f.calls.fetch.length, 2); assert.equal(result.words, undefined);
+    assert.equal(f.calls.fetch.length, 3); assert.equal(result.words, undefined);
     assert.ok(f.calls.progress.every(item => item.value < 100));
   }
 });
@@ -396,9 +396,22 @@ test('short audio verification refuses changed, missing, backward or still-wide 
 test('a repeated conflicting short-window timeline fails instead of sorting or using old segments', async () => {
   const bad = { text: 'Tiger Fox', segments: [{ text: 'Tiger Fox', start: 2, end: 5 }],
     words: [{ word: 'Tiger', start: 3, end: 4 }, { word: 'Fox', start: 2.8, end: 4.5 }] };
-  const f = fixture({ duration: 15, responses: [bad, bad] });
+  const f = fixture({ duration: 15, responses: [bad, bad, bad] });
   const result = plain(await f.invoke()); f.assertReleased();
-  assert.equal(result.ok, false); assert.match(result.error, /verify/); assert.equal(f.calls.fetch.length, 2);
+  assert.equal(result.ok, false); assert.match(result.error, /verify/); assert.equal(f.calls.fetch.length, 3);
+});
+
+test('short-window verification recovers on its single retry using verified source timing', async () => {
+  const original = { text: 'Elephant', segments: [], words: [{ word: 'Elephant', start: 2, end: 4 }] };
+  const wrong = { text: 'Zebra', words: [{ word: 'Zebra', start: .7, end: 1.1 }] };
+  const verified = { text: 'Elephant', words: [{ word: 'Elephant', start: .7, end: 1.1 }] };
+  const f = fixture({ duration: 10, responses: [original, wrong, verified] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(f.calls.fetch.length, 3);
+  assert.equal(result.words[0].word, 'Elephant');
+  assert.ok(Math.abs(result.words[0].start - 2.7) < .001);
+  assert.ok(Math.abs(result.words[0].end - 3.1) < .001);
 });
 
 test('song timestamps never trigger speech verification and conflicting song words fail directly', async () => {

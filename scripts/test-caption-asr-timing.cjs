@@ -22,6 +22,15 @@ function timingHarness() {
   return context;
 }
 
+test('Local segment phrases keep Time and What with their following sentences', () => {
+  const texts = ['Info', 'Kids', 'Time', 'to', 'warm', 'up', 'Students', 'A', 'bird', 'in', 'a', 'cage', 'What', 'color', 'is', 'the', 'bird'];
+  const words = texts.map((word, index) => ({ word, start: index * .4, end: index * .4 + .3 }));
+  const segments = ['Info Kids', 'Time to warm up.', 'Students A bird in a cage.', 'What color is the bird?'].map(text => ({ text }));
+  const result = timingHarness().buildCaptionChunksFromTranscription({ words, segments }, 10);
+  assert.deepEqual(plain(result.map(cue => cue.text)), ['Info Kids', 'Time to warm up', 'Students A bird in a cage', 'What color is the bird']);
+  assert.deepEqual(plain(result.flatMap(cue => cue.words).map(word => word.timestamp)), words.map(word => [word.start, word.end]));
+});
+
 test('actual backwards Fox timing cannot replace Tiger or be silently sorted', () => {
   const words = [
     { word: 'Tiger.', start: 38.60, end: 38.94 },

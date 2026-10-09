@@ -649,6 +649,30 @@ async function main() {
   assert.equal(await page.evaluate(() => window.__qaCapabilityRequests.length), 0, 'Healthy repaired results must not require a backend probe or restart.');
   passed.push('Generate uses explicit Groq speech routing and updates the editor without local fallback or export');
 
+  // Exercise actual playback after Generate, then a browser playback rejection.
+  assert.equal(await page.$eval('#captionPreviewBtn', button => button.disabled), false);
+  assert.equal(await page.$eval('#captionPlayPauseBtn', button => button.disabled), false);
+  await page.click('#captionPreviewBtn');
+  await page.waitForFunction(() => {
+    const video = document.getElementById('captionSourceVideo');
+    return !video.paused && video.currentTime > 0.2;
+  });
+  await page.waitForFunction(() => /5-second preview complete/.test(document.getElementById('captionStatusText').textContent));
+  await page.evaluate(() => {
+    const video = document.getElementById('captionSourceVideo');
+    video.__qaOriginalPlay = video.play;
+    video.play = () => Promise.reject(new DOMException('Playback blocked for QA', 'NotAllowedError'));
+  });
+  await page.click('#captionPreviewBtn');
+  await page.waitForFunction(() => /Preview failed: Playback blocked for QA/.test(document.getElementById('captionStatusText').textContent));
+  assert.equal(await page.$eval('#captionPreviewBtn', button => button.disabled), false);
+  await page.evaluate(() => {
+    const video = document.getElementById('captionSourceVideo');
+    video.play = video.__qaOriginalPlay;
+    delete video.__qaOriginalPlay;
+  });
+  passed.push('Preview plays after Generate and reports rejected playback without claiming success or leaving its button locked');
+
   await page.select('#captionContentMode', 'song');
   await setText('#captionGroqApiKey', 'gsk_qa_fake_session_key');
   await page.evaluate(() => {

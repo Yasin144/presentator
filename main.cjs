@@ -4914,14 +4914,23 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
     const expectedIndices = words.flatMap((word, wordIndex) => window.core.includes(wordIndex)
       || (word.start >= offset && word.end <= endSample / sampleRate) ? [wordIndex] : []);
     const expected = expectedIndices.map(wordIndex => words[wordIndex]);
-    const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
-    throwIfCaptionTranscriptionCancelled(signal);
-    const fresh = Array.isArray(json?.words) ? json.words.filter(word => String(word?.word || word?.text || '').trim()) : [];
-    if (fresh.length !== expected.length || fresh.some((word, wordIndex) =>
-      normalized(word.word || word.text) !== normalized(expected[wordIndex].word)
-      || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || word.end > length + 0.05)) throw failure();
-    if (String(json?.text || '').trim() && normalized(json.text) !== fresh.map(word => normalized(word.word || word.text)).join('')) throw failure();
-    try { assertGroqCaptionWordTimeline(fresh); } catch (_) { throw failure(); }
+    let fresh;
+    // A cropped recognition can disagree transiently. Retry once, retaining
+    // every word and timing check rather than exporting unverified captions.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      throwIfCaptionTranscriptionCancelled(signal);
+      const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
+      throwIfCaptionTranscriptionCancelled(signal);
+      const candidate = Array.isArray(json?.words) ? json.words.filter(word => String(word?.word || word?.text || '').trim()) : [];
+      let valid = candidate.length === expected.length && !candidate.some((word, wordIndex) =>
+        normalized(word.word || word.text) !== normalized(expected[wordIndex].word)
+        || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || word.end > length + 0.05
+        || ((window.wide || []).includes(expectedIndices[wordIndex]) && word.end - word.start > 1.5));
+      if (String(json?.text || '').trim() && normalized(json.text) !== candidate.map(word => normalized(word.word || word.text)).join('')) valid = false;
+      try { assertGroqCaptionWordTimeline(candidate); } catch (_) { valid = false; }
+      if (valid) { fresh = candidate; break; }
+    }
+    if (!fresh) throw failure();
     for (let wordIndex = 0; wordIndex < fresh.length; wordIndex += 1) {
       const originalIndex = expectedIndices[wordIndex], word = fresh[wordIndex];
       // A second broad interval is still uncertain, even if its transcript is
